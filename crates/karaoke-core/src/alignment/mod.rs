@@ -480,6 +480,252 @@ impl Aligner {
     }
 }
 
+// ---------------------------------------------------------------------------
+// windowed re-alignment (fix editor's "Re-align selection" — PLAN.md §3)
+// ---------------------------------------------------------------------------
+
+/// Lightweight aligner for re-running the CTC pass over a short window of the
+/// vocal stem with a user-selected run of lyric words (the review screen's
+/// "Re-align selection", PLAN.md §3).
+///
+/// Deliberately whisper-free: the selection *is* ground truth about what is
+/// sung in the window, so the rough-anchor pass has nothing to add — only the
+/// wav2vec2 session loads (~360 MB model, one session, reusable across
+/// calls). **CPU EP only**: windows are seconds long (interactive CPU latency
+/// is fine) and the DirectML TDR hazard documented on [`w2v`] stays out of
+/// the interactive path.
+pub struct WindowAligner {
+    w2v: w2v::W2v,
+    /// Added to every word time at the end (negative shifts earlier); same
+    /// bias correction as the full pass ([`CTC_ONSET_BIAS_S`]).
+    pub onset_bias_s: f64,
+}
+
+impl WindowAligner {
+    /// `model_root` is the same directory [`Aligner::load`] takes (contains
+    /// `wav2vec2/`); whisper weights are not required or touched.
+    pub fn load(model_root: &Path, threads: usize) -> Result<Self> {
+        let w2v_dir = model_root.join(WAV2VEC2_DIR_NAME);
+        if !w2v_dir.is_dir() {
+            return Err(Error::Model(format!(
+                "alignment model directory not found: {}",
+                w2v_dir.display()
+            )));
+        }
+        let (w2v, _note) = w2v::W2v::load(&w2v_dir, threads, /* try_dml = */ false)?;
+        Ok(Self {
+            w2v,
+            onset_bias_s: CTC_ONSET_BIAS_S,
+        })
+    }
+
+    /// Align `lyric_words` to `window16k` — a slice of the 16 kHz mono vocal
+    /// stem that starts at `window_start_s` in **original-song time**
+    /// (PLAN.md §5: the map's only time base). Output timings are 1:1 with
+    /// `lyric_words`, in original-song time, monotonic by construction (the
+    /// CTC trellis path is ordered). The caller splices them into the
+    /// existing map, respecting neighbor words.
+    pub fn align_window(
+        &mut self,
+        window16k: &[f32],
+        window_start_s: f64,
+        lyric_words: &[anchor::LyricWord],
+    ) -> Result<Vec<WordTiming>> {
+        if lyric_words.is_empty() {
+            return Err(Error::InvalidInput("selection contains no words".into()));
+        }
+        if window16k.is_empty() {
+            return Err(Error::InvalidInput("empty audio window".into()));
+        }
+        let em = self.w2v.emissions(window16k)?;
+        window_words_from_emissions(
+            &em,
+            &self.w2v.vocab,
+            self.w2v.blank,
+            self.w2v.word_delim,
+            lyric_words,
+            window_start_s,
+            self.onset_bias_s,
+        )
+    }
+}
+
+/// Deterministic core of [`WindowAligner::align_window`]: CTC trellis over an
+/// emission matrix → per-word timings. Split out (and public) so the timing
+/// math is unit-testable with a synthetic emission matrix — the ML part gets
+/// golden smoke tests, this part is exact (CLAUDE.md test policy).
+///
+/// Returned words: `anchored = false` (no whisper evidence in this pass),
+/// `unsung = false` (the user asserted the selection is sung here), lyric
+/// links unset (the caller preserves the map's existing links). Unalignable
+/// words (no in-vocab characters) get a zero-length placeholder at the
+/// previous word's end, confidence 0.
+pub fn window_words_from_emissions(
+    em: &w2v::Emissions,
+    vocab: &std::collections::HashMap<String, usize>,
+    blank: usize,
+    word_delim: usize,
+    lyric_words: &[anchor::LyricWord],
+    window_start_s: f64,
+    onset_bias_s: f64,
+) -> Result<Vec<WordTiming>> {
+    if lyric_words.is_empty() {
+        return Err(Error::InvalidInput("selection contains no words".into()));
+    }
+    let norm_refs: Vec<&str> = lyric_words.iter().map(|w| w.norm.as_str()).collect();
+    let (targets, ranges) = w2v::words_to_targets(&norm_refs, vocab, word_delim);
+    let spans = ctc::forced_align(&em.logprobs, em.n_frames, em.n_vocab, &targets, blank)?;
+    let mut span_by_token: Vec<Option<&ctc::TokenSpan>> = vec![None; targets.len()];
+    for s in &spans {
+        span_by_token[s.token_index] = Some(s);
+    }
+
+    let mut out: Vec<WordTiming> = Vec::with_capacity(lyric_words.len());
+    let mut last_end = 0.0f64; // window-relative
+    for (i, (s_idx, e_idx)) in ranges.iter().enumerate() {
+        let mut start_f: Option<usize> = None;
+        let mut end_f: Option<usize> = None;
+        let mut score_acc = 0.0f32;
+        let mut score_n = 0u32;
+        for ti in *s_idx..*e_idx {
+            if let Some(sp) = span_by_token[ti] {
+                if start_f.is_none() {
+                    start_f = Some(sp.start_frame);
+                }
+                end_f = Some(sp.end_frame);
+                score_acc += sp.score;
+                score_n += 1;
+            }
+        }
+        let (start, end, confidence) = match (start_f, end_f) {
+            (Some(sf), Some(ef)) => {
+                let start = sf as f64 * w2v::FRAME_SEC;
+                let end = ef as f64 * w2v::FRAME_SEC;
+                last_end = end;
+                (
+                    start,
+                    end,
+                    (score_acc / score_n.max(1) as f32).exp().clamp(0.0, 1.0),
+                )
+            }
+            _ => (last_end, last_end, 0.0),
+        };
+        // window-relative → original-song time, bias-corrected, clamped so
+        // the correction can't produce negative song time
+        let start = (window_start_s + start + onset_bias_s).max(0.0);
+        let end = (window_start_s + end + onset_bias_s).max(start);
+        out.push(WordTiming {
+            word: lyric_words[i].display.clone(),
+            start,
+            end,
+            confidence,
+            anchored: false,
+            unsung: false,
+            line: None,
+            word_in_line: None,
+            ad_lib: false,
+        });
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod window_tests {
+    //! The trellis→timings math with a synthetic emission matrix (the model
+    //! itself is covered by the env-gated smoke tests below).
+    use super::*;
+    use std::collections::HashMap;
+
+    fn toy_vocab() -> (HashMap<String, usize>, usize, usize) {
+        let mut v = HashMap::new();
+        v.insert("<pad>".to_string(), 0usize);
+        v.insert("|".to_string(), 1);
+        v.insert("A".to_string(), 2);
+        v.insert("B".to_string(), 3);
+        (v, 0, 1) // (vocab, blank, word_delim)
+    }
+
+    /// Emissions where frame t is near-certain symbol `frames[t]`.
+    fn synth(frames: &[usize], n_vocab: usize) -> w2v::Emissions {
+        let hot = (0.9f32).ln();
+        let cold = (0.1 / (n_vocab - 1) as f32).ln();
+        let mut logprobs = vec![cold; frames.len() * n_vocab];
+        for (t, &c) in frames.iter().enumerate() {
+            logprobs[t * n_vocab + c] = hot;
+        }
+        w2v::Emissions {
+            logprobs,
+            n_frames: frames.len(),
+            n_vocab,
+        }
+    }
+
+    fn lw(s: &str) -> anchor::LyricWord {
+        anchor::LyricWord {
+            display: s.to_string(),
+            norm: s.to_uppercase(),
+        }
+    }
+
+    #[test]
+    fn window_words_land_on_their_frames_offset_by_window_start() {
+        let (vocab, blank, delim) = toy_vocab();
+        // | A A A | B B | : word "a" at frames 1..4, "b" at frames 5..7
+        let frames = [1, 2, 2, 2, 1, 3, 3, 1];
+        let em = synth(&frames, 4);
+        let words = [lw("a"), lw("b")];
+        let out =
+            window_words_from_emissions(&em, &vocab, blank, delim, &words, 30.0, 0.0).unwrap();
+        assert_eq!(out.len(), 2);
+        // frame 1 * 20 ms = 0.02 s into the window, window starts at 30 s
+        assert!((out[0].start - 30.02).abs() < 1e-9, "start {}", out[0].start);
+        assert!((out[0].end - (30.0 + 4.0 * w2v::FRAME_SEC)).abs() < 1e-9);
+        assert!((out[1].start - (30.0 + 5.0 * w2v::FRAME_SEC)).abs() < 1e-9);
+        assert!(out[0].confidence > 0.8);
+        assert!(!out[0].anchored && !out[0].unsung);
+        // monotonic + display text preserved
+        assert!(out[0].start <= out[1].start && out[0].end <= out[1].start);
+        assert_eq!(out[0].word, "a");
+    }
+
+    #[test]
+    fn onset_bias_shifts_but_never_escapes_the_window_start_at_zero() {
+        let (vocab, blank, delim) = toy_vocab();
+        let frames = [2, 2, 1, 3, 3];
+        let em = synth(&frames, 4);
+        let words = [lw("a"), lw("b")];
+        // window at t=0: bias would push word 'a' (frame 0) negative — clamp
+        let out =
+            window_words_from_emissions(&em, &vocab, blank, delim, &words, 0.0, -0.055).unwrap();
+        assert!(out[0].start >= 0.0);
+        assert!(out[0].end >= out[0].start);
+        // interior word still shifted by the bias
+        let unbiased_b = 3.0 * w2v::FRAME_SEC;
+        assert!((out[1].start - (unbiased_b - 0.055)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unalignable_word_gets_zero_length_placeholder() {
+        let (vocab, blank, delim) = toy_vocab();
+        let frames = [1, 2, 2, 1];
+        let em = synth(&frames, 4);
+        // "42" normalizes to characters outside the toy vocab
+        let words = [lw("a"), anchor::LyricWord { display: "42".into(), norm: "42".into() }];
+        let out =
+            window_words_from_emissions(&em, &vocab, blank, delim, &words, 10.0, 0.0).unwrap();
+        assert_eq!(out[1].start, out[1].end, "zero-length placeholder");
+        assert_eq!(out[1].confidence, 0.0);
+        assert!(out[1].start >= out[0].end - 1e-9, "placeholder sits at last end");
+    }
+
+    #[test]
+    fn empty_selection_rejected() {
+        let (vocab, blank, delim) = toy_vocab();
+        let em = synth(&[1, 2, 1], 4);
+        assert!(window_words_from_emissions(&em, &vocab, blank, delim, &[], 0.0, 0.0).is_err());
+    }
+}
+
 #[cfg(test)]
 mod smoke {
     //! Golden-file smoke test (ML inference gets smoke tests, not unit-test
@@ -553,5 +799,82 @@ mod smoke {
         // spike measured 55 ms median *before* bias correction; with the
         // correction the median should sit well under 100 ms
         assert!(median < 0.1, "median onset error {median:.3}s");
+    }
+
+    /// Windowed re-align smoke: cut a mid-file window out of the TTS
+    /// reference, re-align just the words whose truth onsets fall inside it,
+    /// and check the windowed pass lands them where the truth says (CPU EP —
+    /// the WindowAligner never uses a GPU).
+    #[test]
+    #[ignore = "needs wav2vec2 weights + TTS reference (set KARAOKE_TEST_ALIGN_MODELS, KARAOKE_TEST_TTS_WAV, KARAOKE_TEST_TTS_TRUTH)"]
+    fn windowed_realign_matches_truth_onsets() {
+        let models = std::env::var("KARAOKE_TEST_ALIGN_MODELS").expect("KARAOKE_TEST_ALIGN_MODELS");
+        let wav = std::env::var("KARAOKE_TEST_TTS_WAV").expect("KARAOKE_TEST_TTS_WAV");
+        let truth_path = std::env::var("KARAOKE_TEST_TTS_TRUTH").expect("KARAOKE_TEST_TTS_TRUTH");
+
+        let mut truth: Vec<(String, f64)> = {
+            let text = std::fs::read_to_string(&truth_path).unwrap();
+            let v: serde_json::Value =
+                serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap();
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|e| {
+                    (
+                        e["word"].as_str().unwrap().to_string(),
+                        e["onset_s"].as_f64().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        truth.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        let decoded = crate::audio::decode_to_mono_16k(Path::new(&wav)).unwrap();
+        let total_s = decoded.samples.len() as f64 / SAMPLE_RATE as f64;
+        // a ~10 s window from the middle of the file
+        let win_start = (total_s / 2.0 - 5.0).max(0.0);
+        let win_end = (win_start + 10.0).min(total_s);
+        // words fully inside the window, with 1 s margin so none straddle it
+        let selection: Vec<&(String, f64)> = truth
+            .iter()
+            .filter(|(_, t)| *t >= win_start + 1.0 && *t <= win_end - 1.0)
+            .collect();
+        assert!(selection.len() >= 3, "window too sparse for a meaningful test");
+        let words: Vec<anchor::LyricWord> = selection
+            .iter()
+            .flat_map(|(w, _)| anchor::parse_lyrics(w))
+            .collect();
+
+        let s0 = (win_start * SAMPLE_RATE as f64) as usize;
+        let s1 = (win_end * SAMPLE_RATE as f64) as usize;
+        let mut wa =
+            WindowAligner::load(Path::new(&models), 8).expect("load wav2vec2 (CPU)");
+        let t0 = Instant::now();
+        let out = wa
+            .align_window(&decoded.samples[s0..s1], win_start, &words)
+            .unwrap();
+        let wall = t0.elapsed().as_secs_f64();
+
+        assert_eq!(out.len(), selection.len());
+        let mut errs: Vec<f64> = out
+            .iter()
+            .zip(&selection)
+            .filter(|(w, _)| w.end > w.start)
+            .map(|(w, (_, onset))| (w.start - onset).abs())
+            .collect();
+        errs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = errs[errs.len() / 2];
+        eprintln!(
+            "[smoke] windowed re-align: {} words over {:.1}s window in {wall:.2}s wall (CPU); onset error median {:.0} ms, max {:.0} ms",
+            out.len(),
+            win_end - win_start,
+            median * 1000.0,
+            errs.last().unwrap() * 1000.0,
+        );
+        assert!(median < 0.1, "median onset error {median:.3}s");
+        // monotonic by construction
+        for pair in out.windows(2) {
+            assert!(pair[0].start <= pair[1].start);
+        }
     }
 }

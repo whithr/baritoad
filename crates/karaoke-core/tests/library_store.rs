@@ -41,16 +41,132 @@ fn migrations_run_once_and_reopen_is_stable() {
     let db = dir.join("library.db");
     {
         let store = LibraryStore::open(&db).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 1);
+        assert_eq!(store.schema_version().unwrap(), 2);
         store.upsert_song(&upsert("h1", "First", None)).unwrap();
     }
     // Re-open: schema stays, data stays, no re-migration damage.
     let store = LibraryStore::open(&db).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 1);
+    assert_eq!(store.schema_version().unwrap(), 2);
     let songs = store.list_songs(&SongQuery::default()).unwrap();
     assert_eq!(songs.len(), 1);
     assert_eq!(songs[0].title, "First");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The v1 schema exactly as milestone 2 shipped it — frozen here so the
+/// v1→v2 upgrade path is tested against a real v1 database forever, not
+/// against whatever MIGRATIONS[0] currently says.
+const SHIPPED_V1_SCHEMA: &str = "
+    CREATE TABLE songs (
+        id               INTEGER PRIMARY KEY,
+        title            TEXT NOT NULL,
+        artist           TEXT,
+        album            TEXT,
+        audio_path       TEXT NOT NULL,
+        audio_hash       TEXT NOT NULL UNIQUE,
+        job_dir          TEXT NOT NULL,
+        timing_map_path  TEXT,
+        vocals_path      TEXT,
+        instrumental_path TEXT,
+        duration_s       REAL,
+        cover_path       TEXT,
+        lyric_source     TEXT,
+        language_tag     TEXT NOT NULL DEFAULT 'en',
+        date_added       INTEGER NOT NULL,
+        last_played      INTEGER,
+        play_count       INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_songs_title  ON songs(title);
+    CREATE INDEX idx_songs_artist ON songs(artist);
+    CREATE TABLE collections (
+        id      INTEGER PRIMARY KEY,
+        name    TEXT NOT NULL UNIQUE,
+        created INTEGER NOT NULL
+    );
+    CREATE TABLE collection_songs (
+        collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+        song_id       INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+        position      INTEGER NOT NULL,
+        PRIMARY KEY (collection_id, song_id)
+    );
+    CREATE TABLE queue (
+        id                    INTEGER PRIMARY KEY,
+        song_id               INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+        position              INTEGER NOT NULL,
+        added_from_collection INTEGER REFERENCES collections(id) ON DELETE SET NULL
+    );
+    CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+";
+
+#[test]
+fn v1_database_upgrades_to_v2_preserving_rows() {
+    let dir = tmp_dir("v1-upgrade");
+    let db = dir.join("library.db");
+    {
+        // Build a genuine v1 database with data in every table.
+        let conn = rusqlite_open(&db);
+        conn.execute_batch(SHIPPED_V1_SCHEMA).unwrap();
+        conn.execute_batch(
+            "INSERT INTO songs (title, artist, audio_path, audio_hash, job_dir, date_added, play_count)
+             VALUES ('Old Song', 'Old Artist', 'C:/music/old.mp3', 'v1hash', 'C:/music/old-karaoke', 1700000000, 3);
+             INSERT INTO collections (name, created) VALUES ('Party', 1700000001);
+             INSERT INTO collection_songs (collection_id, song_id, position) VALUES (1, 1, 0);
+             INSERT INTO queue (song_id, position) VALUES (1, 0);
+             INSERT INTO settings (key, value) VALUES ('k', 'v');",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+    }
+
+    let store = LibraryStore::open(&db).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 2);
+
+    // Every v1 row survives; the new column reads as NULL (never reviewed).
+    let songs = store.list_songs(&SongQuery::default()).unwrap();
+    assert_eq!(songs.len(), 1);
+    let s = &songs[0];
+    assert_eq!(s.title, "Old Song");
+    assert_eq!(s.artist.as_deref(), Some("Old Artist"));
+    assert_eq!(s.audio_hash, "v1hash");
+    assert_eq!(s.play_count, 3);
+    assert_eq!(s.date_added, 1700000000);
+    assert_eq!(s.reviewed_at, None, "pre-v2 songs start un-reviewed");
+    let colls = store.list_collections().unwrap();
+    assert_eq!(colls.len(), 1);
+    assert_eq!(colls[0].song_count, 1);
+    assert_eq!(store.queue_list().unwrap().len(), 1);
+    assert_eq!(store.setting("k").unwrap().as_deref(), Some("v"));
+
+    // The new review API works on the migrated row.
+    store.set_reviewed(s.id, true).unwrap();
+    let after = store.song(s.id).unwrap().unwrap();
+    assert!(after.reviewed_at.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn reviewed_at_set_clear_and_reset_on_regenerate() {
+    let store = LibraryStore::open_in_memory().unwrap();
+    let s = store.upsert_song(&upsert("h-rev", "Song", None)).unwrap();
+    assert_eq!(s.reviewed_at, None);
+
+    store.set_reviewed(s.id, true).unwrap();
+    assert!(store.song(s.id).unwrap().unwrap().reviewed_at.is_some());
+
+    store.set_reviewed(s.id, false).unwrap();
+    assert_eq!(store.song(s.id).unwrap().unwrap().reviewed_at, None);
+
+    // Reviewed, then re-generated: the fresh timings need a fresh look.
+    store.set_reviewed(s.id, true).unwrap();
+    let again = store.upsert_song(&upsert("h-rev", "Song v2", None)).unwrap();
+    assert_eq!(again.id, s.id);
+    assert_eq!(again.reviewed_at, None, "regenerate clears review state");
+
+    // Unknown id is an error, not a silent no-op.
+    assert!(store.set_reviewed(9999, true).is_err());
 }
 
 #[test]

@@ -212,7 +212,7 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
                 inCollection={selected}
                 onOpen={() =>
                   s.timing_map_path &&
-                  go({ view: "song", mapPath: s.timing_map_path, title: s.title })
+                  go({ view: "song", mapPath: s.timing_map_path, title: s.title, songId: s.id })
                 }
                 onQueue={() => addToQueue(s)}
                 onDelete={() => deleteSong(s)}

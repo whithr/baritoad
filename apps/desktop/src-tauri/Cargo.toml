@@ -13,7 +13,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 karaoke-core = { path = "../../../crates/karaoke-core" }
-tauri = { version = "2", features = [] }
+# protocol-asset: review-screen audio playback via the asset protocol — the
+# scope starts EMPTY (tauri.conf.json) and files are allowed one at a time at
+# runtime (src/review.rs playback_sources), never whole directories of the
+# user's disk.
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }

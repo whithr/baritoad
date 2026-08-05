@@ -6,6 +6,7 @@
 mod commands;
 mod library;
 mod queue;
+mod review;
 
 use std::sync::Arc;
 
@@ -23,6 +24,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(job_queue.clone())
         .manage(library_handle.clone())
+        // Windowed re-aligner (review screen): lazy-loaded wav2vec2 session,
+        // CPU EP only (review.rs).
+        .manage(review::RealignState::default())
         .setup(move |app| {
             // One worker: pipeline stages are compute-bound (GPU/CPU saturating)
             // — jobs queue FIFO and run strictly one at a time (PLAN.md §5).
@@ -58,6 +62,12 @@ pub fn run() {
             library::queue_move,
             library::queue_clear,
             library::read_cover,
+            review::playback_sources,
+            review::realign_selection,
+            review::save_timing_map,
+            review::song_set_reviewed,
+            review::library_song,
+            review::export_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running karaoke desktop app");

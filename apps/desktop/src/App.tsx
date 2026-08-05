@@ -15,7 +15,7 @@ export type Route =
   | { view: "new" }
   | { view: "queue" }
   | { view: "jobs" }
-  | { view: "song"; mapPath: string; title?: string };
+  | { view: "song"; mapPath: string; title?: string; songId?: number };
 
 function parseHash(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
@@ -25,8 +25,10 @@ function parseHash(hash: string): Route {
   if (path === "song") {
     const params = new URLSearchParams(query ?? "");
     const mapPath = params.get("map") ?? "";
+    const idRaw = params.get("id");
+    const songId = idRaw !== null && /^\d+$/.test(idRaw) ? Number(idRaw) : undefined;
     return mapPath
-      ? { view: "song", mapPath, title: params.get("title") ?? undefined }
+      ? { view: "song", mapPath, title: params.get("title") ?? undefined, songId }
       : { view: "library" };
   }
   return { view: "library" };
@@ -49,6 +51,7 @@ export function navigate(route: Route) {
     case "song": {
       const q = new URLSearchParams({ map: route.mapPath });
       if (route.title) q.set("title", route.title);
+      if (route.songId != null) q.set("id", String(route.songId));
       window.location.hash = `#/song?${q.toString()}`;
       break;
     }
@@ -127,7 +130,14 @@ export default function App() {
         {route.view === "new" && <NewSong go={go} />}
         {route.view === "queue" && <UpNext go={go} />}
         {route.view === "jobs" && <Jobs jobs={jobs} go={go} />}
-        {route.view === "song" && <SongDetail mapPath={route.mapPath} title={route.title} />}
+        {route.view === "song" && (
+          <SongDetail
+            mapPath={route.mapPath}
+            title={route.title}
+            songId={route.songId}
+            go={go}
+          />
+        )}
       </main>
     </div>
   );

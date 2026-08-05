@@ -268,7 +268,13 @@ pub async fn export_song(request: ExportSongRequest) -> Result<Vec<PathBuf>, Str
         let out = dir.join(format!("{stem}.{}", f.extension()));
         let rendered = formats::export(&map, &meta, f);
         std::fs::write(&out, rendered).map_err(|e| format!("cannot write {}: {e}", out.display()))?;
-        written.push(out);
+        written.push((f.as_str().to_string(), out));
     }
-    Ok(written)
+
+    // Record which map content these exports came from, so the UI can mark
+    // them stale after the fix editor saves a new map (review.rs module docs).
+    let map_sha256 = karaoke_core::pipeline::hash::sha256_hex(raw.as_bytes());
+    crate::review::record_exports(&map_path, &map_sha256, &written)?;
+
+    Ok(written.into_iter().map(|(_, p)| p).collect())
 }

@@ -137,6 +137,8 @@ export interface Song {
   date_added: number;
   last_played?: number | null;
   play_count: number;
+  /** Unix seconds of "Looks good" / a timing-fix save; null = needs review. */
+  reviewed_at?: number | null;
 }
 
 export type SongSort = "recently_added" | "recently_played" | "title" | "collection_order";
@@ -211,3 +213,61 @@ export const queueMoveEntry = (entryId: number, toIndex: number) =>
 export const queueClear = () => invoke<void>("queue_clear");
 
 export const readCover = (path: string) => invoke<string>("read_cover", { path });
+
+// ---------------------------------------------------------------------------
+// review screen (src-tauri/src/review.rs — preview, fix editor, exports)
+// ---------------------------------------------------------------------------
+
+/** Absolute paths, already allowed in the asset scope — feed each through
+ *  convertFileSrc() before handing to an <audio> element. */
+export interface PlaybackSources {
+  instrumental?: string;
+  vocals?: string;
+  original?: string;
+}
+
+export const playbackSources = (args: { songId?: number; mapPath?: string }) =>
+  invoke<PlaybackSources>("playback_sources", {
+    songId: args.songId ?? null,
+    mapPath: args.mapPath ?? null,
+  });
+
+export interface RealignedWord {
+  word: string;
+  start: number;
+  end: number;
+  confidence: number;
+}
+
+export const realignSelection = (request: {
+  vocals_path: string;
+  window_start: number;
+  window_end: number;
+  words: string[];
+}) => invoke<RealignedWord[]>("realign_selection", { request });
+
+/** Atomic save with .bak; resolves to the saved map's content hash
+ *  (stale-export tracking). */
+export const saveTimingMap = (path: string, map: TimingMap) =>
+  invoke<string>("save_timing_map", { path, map });
+
+export const songSetReviewed = (songId: number, reviewed: boolean) =>
+  invoke<void>("song_set_reviewed", { songId, reviewed });
+
+export const librarySong = (songId: number) =>
+  invoke<Song | null>("library_song", { songId });
+
+export interface ExportStatusEntry {
+  path: string;
+  map_sha256: string;
+  written_unix: number;
+  exists: boolean;
+}
+
+export interface ExportStatus {
+  current_map_sha256: string;
+  exports: Partial<Record<string, ExportStatusEntry>>;
+}
+
+export const exportStatus = (mapPath: string) =>
+  invoke<ExportStatus>("export_status", { mapPath });

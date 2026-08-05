@@ -114,6 +114,29 @@ impl WordTimingMap {
         Ok(map)
     }
 
+    /// Persist the map to `path` for the fix editor's Save (PLAN.md §3
+    /// review screen): refuses an invalid map ([`Self::validate`] must be
+    /// clean), keeps a `.bak` of the previous map beside it (`song.align.json`
+    /// → `song.align.json.bak`), then writes atomically (temp file + rename)
+    /// so a kill mid-save leaves either the old map or the new one — never a
+    /// torn file.
+    pub fn save_atomic(&self, path: &std::path::Path) -> Result<()> {
+        let violations = self.validate();
+        if !violations.is_empty() {
+            return Err(Error::InvalidInput(format!(
+                "refusing to save invalid timing map: {}",
+                violations.join("; ")
+            )));
+        }
+        let json = self.to_json_pretty()?;
+        if path.is_file() {
+            let mut bak = path.as_os_str().to_owned();
+            bak.push(".bak");
+            std::fs::copy(path, std::path::PathBuf::from(bak))?;
+        }
+        crate::pipeline::manifest::write_atomic(path, json.as_bytes())
+    }
+
     /// Shift every word by `offset_s` (e.g. the onset-bias correction),
     /// clamping into `[0, duration]` and preserving monotonic order.
     pub fn shift(&mut self, offset_s: f64) {
@@ -273,6 +296,45 @@ mod tests {
         assert!(map.words[0].end > 0.0);
         assert!((map.words[1].start - 0.145).abs() < 1e-9);
         assert!(map.validate().is_empty());
+    }
+
+    #[test]
+    fn save_atomic_keeps_bak_of_previous_map_and_rejects_invalid() {
+        let dir = std::env::temp_dir().join(format!(
+            "karaoke-timing-save-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("song.align.json");
+
+        // first save: no .bak yet (there was no previous map)
+        let v1 = WordTimingMap::new(10.0, vec![word("one", 1.0, 1.5)], vec![]);
+        v1.save_atomic(&path).unwrap();
+        assert!(path.is_file());
+        let bak = dir.join("song.align.json.bak");
+        assert!(!bak.exists(), "first save must not invent a .bak");
+        assert!(!dir.join("song.align.json.tmp").exists(), "no temp residue");
+
+        // second save: previous content lands in .bak
+        let mut v2 = v1.clone();
+        v2.words[0].start = 2.0;
+        v2.words[0].end = 2.5;
+        v2.save_atomic(&path).unwrap();
+        let cur = WordTimingMap::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let old = WordTimingMap::from_json(&std::fs::read_to_string(&bak).unwrap()).unwrap();
+        assert_eq!(cur.words[0].start, 2.0);
+        assert_eq!(old.words[0].start, 1.0, ".bak holds the pre-save map");
+
+        // invalid map: refused, and neither file on disk is touched
+        let broken = WordTimingMap::new(10.0, vec![word("bad", 5.0, 4.0)], vec![]);
+        assert!(broken.save_atomic(&path).is_err());
+        let cur2 = WordTimingMap::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cur2.words[0].start, 2.0, "failed save left the map alone");
+        let old2 = WordTimingMap::from_json(&std::fs::read_to_string(&bak).unwrap()).unwrap();
+        assert_eq!(old2.words[0].start, 1.0, "failed save left the .bak alone");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -64,6 +64,13 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     );
     ",
+    // v1 -> v2: review state (PLAN.md §4 step 4 "Preview & fix"). NULL =
+    // never reviewed; set to unix seconds when the user confirms "Looks
+    // good" (or saves fixes). Cleared on re-generate — new timings need a
+    // fresh look (see upsert_song).
+    "
+    ALTER TABLE songs ADD COLUMN reviewed_at INTEGER;
+    ",
 ];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -111,6 +118,9 @@ pub struct Song {
     pub date_added: i64,
     pub last_played: Option<i64>,
     pub play_count: i64,
+    /// Unix seconds when the user confirmed the preview ("Looks good") or
+    /// saved timing fixes; `None` = awaiting review (PLAN.md §4 step 4).
+    pub reviewed_at: Option<i64>,
 }
 
 /// Input to [`LibraryStore::upsert_song`]. Identity is `audio_hash`.
@@ -243,6 +253,8 @@ impl LibraryStore {
     /// Insert or update by `audio_hash`. On update: `date_added`,
     /// `play_count`, `last_played` are preserved; `cover_path` and
     /// `language_tag` are only overwritten when the upsert supplies one.
+    /// `reviewed_at` is **cleared** on update — a re-generated song has new
+    /// timings, so the golden-path preview (PLAN.md §4 step 4) runs again.
     pub fn upsert_song(&self, s: &SongUpsert) -> Result<Song> {
         if s.audio_hash.is_empty() {
             return Err(Error::InvalidInput("song upsert without audio_hash".into()));
@@ -265,7 +277,8 @@ impl LibraryStore {
                  duration_s = COALESCE(excluded.duration_s, duration_s),
                  cover_path = COALESCE(?11, cover_path),
                  lyric_source = COALESCE(excluded.lyric_source, lyric_source),
-                 language_tag = COALESCE(?13, language_tag)",
+                 language_tag = COALESCE(?13, language_tag),
+                 reviewed_at = NULL",
             params![
                 s.title,
                 s.artist,
@@ -311,6 +324,19 @@ impl LibraryStore {
         let n = self.conn.execute("DELETE FROM songs WHERE id = ?1", [id])?;
         self.compact_queue()?;
         Ok(n > 0)
+    }
+
+    /// Set (or clear) the review timestamp — "Looks good" on the preview
+    /// screen, or a timing-fix save (PLAN.md §4 step 4).
+    pub fn set_reviewed(&self, id: i64, reviewed: bool) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE songs SET reviewed_at = ?2 WHERE id = ?1",
+            params![id, if reviewed { Some(unix_now()) } else { None }],
+        )?;
+        if n == 0 {
+            return Err(Error::InvalidInput(format!("no song {id}")));
+        }
+        Ok(())
     }
 
     pub fn record_played(&self, id: i64) -> Result<()> {
@@ -605,11 +631,12 @@ impl LibraryStore {
 
 const SONG_COLS: &str = "s.id, s.title, s.artist, s.album, s.audio_path, s.audio_hash, s.job_dir,
      s.timing_map_path, s.vocals_path, s.instrumental_path, s.duration_s, s.cover_path,
-     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count";
+     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count, s.reviewed_at";
 
 const SONG_SELECT: &str = "SELECT s.id, s.title, s.artist, s.album, s.audio_path, s.audio_hash, s.job_dir,
      s.timing_map_path, s.vocals_path, s.instrumental_path, s.duration_s, s.cover_path,
-     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count FROM songs s";
+     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count, s.reviewed_at
+     FROM songs s";
 
 fn song_from_row(r: &Row<'_>) -> rusqlite::Result<Song> {
     song_from_row_offset(r, 0)
@@ -634,6 +661,7 @@ fn song_from_row_offset(r: &Row<'_>, o: usize) -> rusqlite::Result<Song> {
         date_added: r.get(o + 14)?,
         last_played: r.get(o + 15)?,
         play_count: r.get(o + 16)?,
+        reviewed_at: r.get(o + 17)?,
     })
 }
 

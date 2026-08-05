@@ -82,7 +82,14 @@ function JobCard({ p, go }: { p: JobProgress; go: (r: Route) => void }) {
         {job.status === "completed" && job.map_path && (
           <button
             className="primary"
-            onClick={() => go({ view: "song", mapPath: job.map_path!, title: job.title })}
+            onClick={() =>
+              go({
+                view: "song",
+                mapPath: job.map_path!,
+                title: job.title,
+                songId: job.library_song_id,
+              })
+            }
           >
             Open song
           </button>
