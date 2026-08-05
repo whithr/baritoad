@@ -18,6 +18,8 @@ pub enum Error {
     InvalidInput(String),
     /// Library database (SQLite) failure.
     Db(String),
+    /// Audio output device / stream failure (playback engine).
+    Device(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -32,6 +34,7 @@ impl fmt::Display for Error {
             Error::Encode(m) => write!(f, "encode error: {m}"),
             Error::InvalidInput(m) => write!(f, "invalid input: {m}"),
             Error::Db(m) => write!(f, "library db error: {m}"),
+            Error::Device(m) => write!(f, "audio device error: {m}"),
         }
     }
 }

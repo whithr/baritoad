@@ -31,6 +31,9 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # Tag reading (title/artist/cover) at import time — local files only, no
 # network metadata (PLAN.md §2 local-first).
 lofty = "0.22"
+# Playback audio engine (PLAN.md §5 "audio engine (cpal)"). Pinned to the
+# 0.15 line the stretch spike validated on WASAPI (spikes/stretch/REPORT.md).
+cpal = "0.15"
 
 [profile.release]
 opt-level = 3

@@ -29,6 +29,12 @@
 //!   lofty (local files only, never the network), and the completion hook
 //!   that registers finished jobs idempotently by audio hash
 //!
+//! Phase 3 (in progress):
+//! - playback audio engine ([`player`]): cpal output stream, dual-stem
+//!   mixing with click-free vocal-guide blend, sample-accurate transport,
+//!   and the device-frame-derived player clock with the stretch-translation
+//!   seam (PLAN.md §5 "lyric sync"; stretch itself is milestone 2)
+//!
 //! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg only ever
 //! as a subprocess (not used by these stages at all), no GPL/AGPL dependencies.
 
@@ -41,6 +47,7 @@ pub mod library;
 pub mod lyrics;
 pub mod output;
 pub mod pipeline;
+pub mod player;
 pub mod separation;
 pub mod timing;
 

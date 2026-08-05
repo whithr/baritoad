@@ -157,7 +157,7 @@ pub fn decode_to_stereo_44k(path: &Path) -> Result<DecodedAudio> {
         notes.push(format!(
             "resampled {source_sample_rate} Hz -> {TARGET_SAMPLE_RATE} Hz"
         ));
-        let (l, r) = resample_stereo(&left, &right, source_sample_rate)?;
+        let (l, r) = resample_stereo(&left, &right, source_sample_rate, TARGET_SAMPLE_RATE)?;
         left = l;
         right = r;
     }
@@ -268,20 +268,29 @@ fn resample_channel(input: &[f32], from: u32, to: u32, expected: usize) -> Resul
     Ok(out)
 }
 
-/// Windowed-sinc resample of planar stereo to [`TARGET_SAMPLE_RATE`].
-/// Compensates the resampler's group delay and trims to the expected length so
-/// the output timeline still matches the original song (PLAN.md §5: timing
-/// maps store original-song time).
-fn resample_stereo(left: &[f32], right: &[f32], from: u32) -> Result<(Vec<f32>, Vec<f32>)> {
+/// Windowed-sinc resample of planar stereo from `from` Hz to `to` Hz.
+/// Trims / zero-pads to the duration-preserving expected length so the output
+/// timeline still matches the original song (PLAN.md §5: timing maps store
+/// original-song time). Used by decode (→ [`TARGET_SAMPLE_RATE`]) and by the
+/// player to bring stems to the audio device rate.
+pub(crate) fn resample_stereo(
+    left: &[f32],
+    right: &[f32],
+    from: u32,
+    to: u32,
+) -> Result<(Vec<f32>, Vec<f32>)> {
     use rubato::{
         Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
         WindowFunction,
     };
 
     let len = left.len().min(right.len());
-    let ratio = TARGET_SAMPLE_RATE as f64 / from as f64;
-    let expected = ((len as u128 * TARGET_SAMPLE_RATE as u128 + (from as u128) / 2)
-        / from as u128) as usize;
+    if from == to {
+        return Ok((left[..len].to_vec(), right[..len].to_vec()));
+    }
+    let ratio = to as f64 / from as f64;
+    let expected =
+        ((len as u128 * to as u128 + (from as u128) / 2) / from as u128) as usize;
 
     let params = SincInterpolationParameters {
         sinc_len: 256,

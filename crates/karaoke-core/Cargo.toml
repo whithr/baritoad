@@ -18,6 +18,7 @@ rustfft.workspace = true
 sha2.workspace = true
 rusqlite.workspace = true
 lofty.workspace = true
+cpal.workspace = true
 
 [dev-dependencies]
 # Integration tests fabricate tiny tagged fixtures at test time (no
