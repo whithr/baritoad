@@ -4,7 +4,7 @@
 // live "processing" cards for queued generates (reusing the job-event
 // reducer). Click-through to Song detail; "Up next" adds via the card menu.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collectionAddSong,
   collectionCreate,
@@ -30,6 +30,17 @@ import {
   type LibrarySort,
 } from "../libraryState";
 import { progressHeadline, type JobProgress, type JobsState } from "../jobEvents";
+import { IconDots, IconNote, IconPencil, IconPlay, IconPlus, IconX } from "../icons";
+import {
+  ConfirmStrip,
+  DashMenu,
+  DashMenuCheckItem,
+  DashMenuItem,
+  DashMenuLabel,
+  DashMenuSeparator,
+  DashSelect,
+  SegText,
+} from "../ui";
 import type { Route } from "../App";
 
 export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: JobsState }) {
@@ -128,8 +139,10 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
     }
   };
 
+  const [pendingDelete, setPendingDelete] = useState<Song | null>(null);
+
   const deleteSong = async (song: Song) => {
-    if (!window.confirm(`Remove “${song.title}” from the library? Files on disk stay.`)) return;
+    setPendingDelete(null);
     try {
       await libraryDeleteSong(song.id);
       await refreshSongs();
@@ -144,6 +157,14 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
       <h1>Library</h1>
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice-banner">{notice}</div>}
+      {pendingDelete && (
+        <ConfirmStrip
+          message={`Remove “${pendingDelete.title}” from the library? Files on disk stay.`}
+          confirmLabel="Remove"
+          onConfirm={() => deleteSong(pendingDelete)}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
 
       <div className="library-layout">
         <CollectionSidebar
@@ -167,28 +188,27 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <select
-              className="sort-select"
+            <DashSelect
+              ariaLabel="Sort songs"
               value={sort}
-              onChange={(e) => setSort(e.target.value as LibrarySort)}
-              title="Sort"
-            >
-              {(Object.keys(SORT_LABELS) as LibrarySort[]).map((k) => (
-                <option key={k} value={k}>
-                  {SORT_LABELS[k]}
-                </option>
-              ))}
-            </select>
+              onChange={setSort}
+              options={(Object.keys(SORT_LABELS) as LibrarySort[]).map((k) => ({
+                value: k,
+                label: SORT_LABELS[k],
+              }))}
+            />
           </div>
 
           {loaded && visible.length === 0 && processing.length === 0 && (
             <div className="empty-state">
-              <div className="empty-mark">♪</div>
+              <div className="empty-mark">
+                <IconNote size={56} />
+              </div>
               <p>
                 {search.trim() !== ""
                   ? "Nothing matches that search."
                   : selected !== null
-                    ? "This collection is empty — add songs from the ⋯ menu on any song."
+                    ? "This collection is empty — add songs from the song menu on any card."
                     : "No songs yet. Bring a song you own and it lands here, ready to play."}
               </p>
               {search.trim() === "" && selected === null && (
@@ -216,7 +236,7 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
                 }
                 onPlay={() => go({ view: "play", songId: s.id })}
                 onQueue={() => addToQueue(s)}
-                onDelete={() => deleteSong(s)}
+                onDelete={() => setPendingDelete(s)}
                 onMembershipChanged={async () => {
                   await refreshCollections();
                   if (selected !== null) await refreshSongs();
@@ -242,7 +262,7 @@ function ProcessingCard({ p }: { p: JobProgress }) {
           <div className="processing-headline">{progressHeadline(p)}</div>
           {p.fraction != null && p.stage === "separating" && (
             <div className="stage-bar">
-              <div className="stage-bar-fill" style={{ width: `${p.fraction * 100}%` }} />
+              <div className="stage-bar-fill" style={{ transform: `scaleX(${p.fraction})` }} />
             </div>
           )}
         </div>
@@ -267,28 +287,14 @@ function SongCard(props: {
   setError: (e: string | null) => void;
 }) {
   const { song } = props;
-  const [menuOpen, setMenuOpen] = useState(false);
   const [memberOf, setMemberOf] = useState<number[] | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [menuOpen]);
-
-  const openMenu = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setMenuOpen((v) => !v);
-    if (!menuOpen) {
-      try {
-        setMemberOf(await songCollections(song.id));
-      } catch {
-        setMemberOf([]);
-      }
+  const onMenuOpenChange = async (open: boolean) => {
+    if (!open) return;
+    try {
+      setMemberOf(await songCollections(song.id));
+    } catch {
+      setMemberOf([]);
     }
   };
 
@@ -315,7 +321,15 @@ function SongCard(props: {
       onClick={props.onOpen}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && props.onOpen()}
+      onKeyDown={(e) => {
+        // Only the card itself — Enter/Space on inner keys must not also
+        // trigger the card (full-keyboard commitment, PRODUCT.md).
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          props.onOpen();
+        }
+      }}
     >
       <div
         className="song-cover"
@@ -326,7 +340,7 @@ function SongCard(props: {
         ) : (
           <span className="cover-initials">{coverInitials(song.title)}</span>
         )}
-        {duration && <span className="cover-duration">{duration}</span>}
+        {duration && <SegText className="cover-duration" value={duration} />}
         {song.timing_map_path && (
           <button
             className="card-play-btn"
@@ -336,51 +350,34 @@ function SongCard(props: {
               props.onPlay();
             }}
           >
-            ▶
+            <IconPlay size={16} />
           </button>
         )}
-        <button className="card-menu-btn" onClick={openMenu} title="Song actions">
-          ⋯
-        </button>
-        {menuOpen && (
-          <div className="card-menu" ref={menuRef} onClick={(e) => e.stopPropagation()}>
-            {song.timing_map_path && (
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  props.onPlay();
-                }}
-              >
-                Play
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                props.onQueue();
-              }}
-            >
-              Add to Up Next
-            </button>
-            {props.collections.length > 0 && <div className="menu-label">Collections</div>}
+        <span onClick={(e) => e.stopPropagation()}>
+          <DashMenu
+            trigger={<IconDots />}
+            triggerClassName="card-menu-btn"
+            triggerTitle="Song actions"
+            onOpenChange={onMenuOpenChange}
+          >
+            {song.timing_map_path && <DashMenuItem onClick={props.onPlay}>Play</DashMenuItem>}
+            <DashMenuItem onClick={props.onQueue}>Add to Up Next</DashMenuItem>
+            {props.collections.length > 0 && <DashMenuLabel>Collections</DashMenuLabel>}
             {props.collections.map((c) => (
-              <button key={c.id} onClick={() => toggleCollection(c)}>
-                {memberOf === null ? "…" : memberOf.includes(c.id) ? "✓ " : " "}
+              <DashMenuCheckItem
+                key={c.id}
+                checked={memberOf?.includes(c.id) ?? false}
+                onCheckedChange={() => toggleCollection(c)}
+              >
                 {c.name}
-              </button>
+              </DashMenuCheckItem>
             ))}
-            <div className="menu-sep" />
-            <button
-              className="danger"
-              onClick={() => {
-                setMenuOpen(false);
-                props.onDelete();
-              }}
-            >
+            <DashMenuSeparator />
+            <DashMenuItem danger onClick={props.onDelete}>
               Remove from library
-            </button>
-          </div>
-        )}
+            </DashMenuItem>
+          </DashMenu>
+        </span>
       </div>
       <div className="song-title" title={song.title}>
         {song.title}
@@ -433,8 +430,10 @@ function CollectionSidebar(props: {
     }
   };
 
+  const [pendingRemove, setPendingRemove] = useState<CollectionInfo | null>(null);
+
   const remove = async (c: CollectionInfo) => {
-    if (!window.confirm(`Delete collection “${c.name}”? Its songs stay in the library.`)) return;
+    setPendingRemove(null);
     try {
       await collectionDelete(c.id);
       if (props.selected === c.id) props.onSelect(null);
@@ -446,6 +445,14 @@ function CollectionSidebar(props: {
 
   return (
     <aside className="collection-rail">
+      {pendingRemove && (
+        <ConfirmStrip
+          message={`Delete collection “${pendingRemove.name}”? Its songs stay in the library.`}
+          confirmLabel="Delete"
+          onConfirm={() => remove(pendingRemove)}
+          onCancel={() => setPendingRemove(null)}
+        />
+      )}
       <button
         className={`coll-btn${props.selected === null ? " active" : ""}`}
         onClick={() => props.onSelect(null)}
@@ -479,10 +486,10 @@ function CollectionSidebar(props: {
                 setRenameText(c.name);
               }}
             >
-              ✎
+              <IconPencil size={13} />
             </button>
-            <button className="coll-icon" title="Delete" onClick={() => remove(c)}>
-              ✕
+            <button className="coll-icon" title="Delete" onClick={() => setPendingRemove(c)}>
+              <IconX size={13} />
             </button>
           </div>
         ),
@@ -502,13 +509,10 @@ function CollectionSidebar(props: {
         />
       ) : (
         <button className="coll-btn coll-new" onClick={() => setCreating(true)}>
-          + New collection
+          <IconPlus size={12} /> New collection
         </button>
       )}
-      <p className="muted small rail-note">
-        Singer profiles are just collections — “Haley's hits”, “Christmas party”. A song can
-        live in any number of them.
-      </p>
+      <p className="muted small rail-note">A song can live in any number of collections.</p>
     </aside>
   );
 }

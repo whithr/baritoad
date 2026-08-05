@@ -42,6 +42,8 @@ import {
 } from "../highlight";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
 import { useAudio } from "../useAudio";
+import { IconPlay } from "../icons";
+import { DashSelect, SegText } from "../ui";
 import FixEditor from "./FixEditor";
 import type { Route } from "../App";
 
@@ -213,7 +215,7 @@ export default function SongDetail(props: {
               onClick={() => go({ view: "play", songId, mapPath })}
               title="Full-screen karaoke player"
             >
-              ▶ Sing it
+              Sing it
             </button>
             <button
               onClick={() => {
@@ -371,7 +373,8 @@ function Preview(props: {
         )}
         {src && !audio.playing && (
           <button className="primary preview-play" onClick={() => audio.play()}>
-            {scope === "highlight" ? "▶ Play preview" : "▶ Play song"}
+            <IconPlay size={14} />
+            {scope === "highlight" ? "Play preview" : "Play song"}
           </button>
         )}
         <div className="preview-lines">
@@ -418,9 +421,10 @@ function Preview(props: {
           <button onClick={() => audio.toggle()} disabled={!src}>
             {audio.playing ? "Pause" : "Play"}
           </button>
-          <span className="preview-clock">
-            {fmtTime(audio.time)} / {fmtTime(range.end)}
-          </span>
+          <SegText
+            className="preview-clock"
+            value={`${fmtTime(audio.time)} / ${fmtTime(range.end)}`}
+          />
           <span className="spacer" />
           <div className="scope-toggle" role="group" aria-label="How much of the song to play">
             <button
@@ -436,19 +440,20 @@ function Preview(props: {
               Full song
             </button>
           </div>
-          <select
+          <DashSelect
+            ariaLabel="What to listen to"
             value={srcKind}
-            onChange={(e) => {
+            onChange={(v) => {
               resumeRef.current = audio.time;
-              setSrcKind(e.target.value as SourceKind);
+              setSrcKind(v);
             }}
-            title="What to listen to"
             disabled={!sources}
-          >
-            {sources?.instrumental && <option value="instrumental">Instrumental</option>}
-            {sources?.original && <option value="original">Original</option>}
-            {sources?.vocals && <option value="vocals">Vocals</option>}
-          </select>
+            options={[
+              ...(sources?.instrumental ? [{ value: "instrumental" as const, label: "Instrumental" }] : []),
+              ...(sources?.original ? [{ value: "original" as const, label: "Original" }] : []),
+              ...(sources?.vocals ? [{ value: "vocals" as const, label: "Vocals" }] : []),
+            ]}
+          />
         </div>
       </div>
       <div className="preview-actions">

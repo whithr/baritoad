@@ -1,8 +1,9 @@
 // App shell: sidebar navigation + tiny hash router (no router dependency —
 // four routes don't justify a package and its §6 row).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { measurePlan, onJobEvent, listJobs } from "./api";
+import { IconJobs, IconLibrary, IconNote, IconQueue } from "./icons";
 import { emptyJobsState, reduceJobEvent, seedFromSnapshots, type JobsState } from "./jobEvents";
 import Library from "./views/Library";
 import NewSong from "./views/NewSong";
@@ -157,25 +158,36 @@ export default function App() {
     <div className="shell">
       <nav className="sidebar">
         <div className="brand">
-          <span className="brand-mark">♪</span> Karaoke
+          <span className="brand-mark">
+            <IconNote size={18} />
+          </span>
+          Karascape
         </div>
         <NavButton
           label="Library"
+          icon={<IconLibrary />}
           active={route.view === "library" || route.view === "song"}
           onClick={() => go({ view: "library" })}
         />
-        <NavButton label="New Song" active={route.view === "new"} onClick={() => go({ view: "new" })} />
+        <NavButton
+          label="New Song"
+          icon={<IconNote />}
+          active={route.view === "new"}
+          onClick={() => go({ view: "new" })}
+        />
         <NavButton
           label="Up Next"
+          icon={<IconQueue />}
           active={route.view === "queue"}
           onClick={() => go({ view: "queue" })}
         />
         <NavButton
-          label={activeCount > 0 ? `Jobs (${activeCount})` : "Jobs"}
+          label={activeCount > 0 ? `Processing (${activeCount})` : "Processing"}
+          icon={<IconJobs />}
           active={route.view === "jobs"}
           onClick={() => go({ view: "jobs" })}
         />
-        <div className="sidebar-foot">local-only · source-available</div>
+        <div className="sidebar-foot">Everything stays on this computer</div>
       </nav>
       <main className="content">
         {route.view === "library" && <Library go={go} jobs={jobs} />}
@@ -195,10 +207,17 @@ export default function App() {
   );
 }
 
-function NavButton(props: { label: string; active: boolean; onClick: () => void }) {
+function NavButton(props: {
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button className={`nav-btn${props.active ? " active" : ""}`} onClick={props.onClick}>
+      <span className="nav-icon">{props.icon}</span>
       {props.label}
+      <span className="nav-lamp" aria-hidden />
     </button>
   );
 }

@@ -1,0 +1,76 @@
+/* Digital Dash tokens — the world's physics, one place.
+   Three glow families on smoked glass: cyan carries information, amber
+   carries whatever is live right now, red is redline (errors) only.
+   Scales are hand-authored (no palette dependency — §6 discipline stays).
+   Contrast is tuned for TV-at-3m: every text step on --ground clears
+   WCAG AA at its size (PRODUCT.md accessibility commitments). */
+
+:root {
+  /* ---- smoked-glass neutrals (dark → light) ---- */
+  --ground: #0b0d10;        /* the cabin at night */
+  --well: #07090c;          /* recessed display wells */
+  --panel: #10141a;         /* bezel panels */
+  --panel-raised: #161c24;  /* raised keys, hover ground */
+  --panel-pressed: #0d1116; /* key travel */
+  --line: #232b36;          /* panel seams */
+  --line-strong: #33404f;   /* focused seams, hover edges */
+
+  /* ---- text on smoked glass ---- */
+  --text: #e9edf3;          /* primary: 15.9:1 on --ground */
+  --text-dim: #96a1b4;      /* secondary: 6.6:1 */
+  --text-faint: #7e899c;    /* tertiary: 4.6:1 on --ground — AA at any size */
+
+  /* ---- VFD cyan: information, selection, links, sung lyrics ---- */
+  --cyan-dim: #1d5f5c;
+  --cyan: #45e0d8;          /* 9.9:1 on --ground */
+  --cyan-bright: #8ff2ec;
+  --cyan-wash: rgba(69, 224, 216, 0.10);
+  --cyan-glow: rgba(69, 224, 216, 0.35);
+
+  /* ---- amber: live / active-now / primary action ---- */
+  --amber-dim: #7a5220;
+  --amber: #f2a33c;         /* 8.0:1 on --ground; 2.6:1 as fill under dark text → dark ink on amber */
+  --amber-bright: #ffc36b;
+  --amber-wash: rgba(242, 163, 60, 0.12);
+  --amber-glow: rgba(242, 163, 60, 0.35);
+
+  /* ---- signal red: redline only — errors, destructive, clipping ---- */
+  --red-dim: #6e2418;
+  --red: #e8654f;           /* readable step for text on --ground: 5.4:1 */
+  --red-deep: #e8452c;      /* fills and lamps, never body text */
+  --red-wash: rgba(232, 69, 44, 0.12);
+  --red-glow: rgba(232, 69, 44, 0.35);
+
+  /* ---- ink on glow fills ---- */
+  --ink: #131007;           /* dark ink on amber keys */
+
+  /* ---- type ---- */
+  --font-ui: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-seg: "DSEG7", "Barlow", sans-serif;      /* digits, : . - only */
+  --font-seg14: "DSEG14", "Barlow", sans-serif;   /* alnum readouts */
+  --label-track: 0.09em;    /* silk-screen letterspacing */
+
+  /* ---- geometry: angular, chamfered ---- */
+  --r: 3px;                 /* the world's corner — tight, machined */
+  --r-lg: 6px;              /* outer bezels only */
+  --chamfer: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+
+  /* ---- depth: real shadows carry offset + blur ---- */
+  --shadow-panel: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.45);
+  --inset-well: inset 0 2px 6px rgba(0, 0, 0, 0.55);
+
+  /* ---- rhythm ---- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  /* ---- motion ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 120ms;
+  --t-med: 240ms;
+}

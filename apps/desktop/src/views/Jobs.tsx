@@ -15,11 +15,10 @@ export default function Jobs({ jobs, go }: { jobs: JobsState; go: (r: Route) => 
   const list = [...jobs.order].reverse().map((id) => jobs.jobs[id]).filter(Boolean);
   return (
     <div className="page">
-      <h1>Jobs</h1>
+      <h1>Processing</h1>
       {list.length === 0 && (
         <p className="muted">
-          Nothing in the queue. Add one from <b>New Song</b> — you can keep queueing while a
-          song processes.
+          Nothing processing right now. Add a song from <b>New Song</b>.
         </p>
       )}
       {list.map((p) => (
@@ -56,7 +55,7 @@ function JobCard({ p, go }: { p: JobProgress; go: (r: Route) => void }) {
             }
             fraction={p.stage === "separating" ? p.fraction : 1}
           />
-          <span className="stage-arrow">→</span>
+          <span className="stage-arrow" aria-hidden />
           <StagePill
             label={DISPLAY_LABELS.aligning}
             state={running && p.stage === "aligning" ? "active" : "pending"}
@@ -109,7 +108,7 @@ function StagePill(props: {
       <span>{props.label}</span>
       {props.state === "active" && props.fraction != null && (
         <div className="stage-bar">
-          <div className="stage-bar-fill" style={{ width: `${props.fraction * 100}%` }} />
+          <div className="stage-bar-fill" style={{ transform: `scaleX(${props.fraction})` }} />
         </div>
       )}
     </div>

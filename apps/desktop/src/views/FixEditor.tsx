@@ -42,6 +42,8 @@ import {
 import { groupByLine } from "../highlight";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
 import { useAudio } from "../useAudio";
+import { IconBack } from "../icons";
+import { ConfirmStrip, DashSelect, SegText } from "../ui";
 
 /** Pointer travel below this is a click, not a drag. */
 const DRAG_THRESHOLD_PX = 4;
@@ -268,10 +270,16 @@ export default function FixEditor(props: {
     }
   };
 
-  const exit = () => {
-    if (dirty && !window.confirm("Discard unsaved timing changes?")) return;
+  const [confirmExit, setConfirmExit] = useState(false);
+
+  const reallyExit = () => {
     audio.pause();
     props.onExit(savedMapRef.current);
+  };
+
+  const exit = () => {
+    if (dirty) setConfirmExit(true);
+    else reallyExit();
   };
 
   // ---- render ----
@@ -279,19 +287,22 @@ export default function FixEditor(props: {
   return (
     <div className="page page-wide editor-page">
       <div className="editor-toolbar">
-        <button onClick={exit}>← Done</button>
+        <button onClick={exit} className="with-icon">
+          <IconBack size={12} /> Done
+        </button>
         <button className="primary" onClick={() => audio.toggle()} disabled={!srcPath}>
           {audio.playing ? "Pause" : "Play"}
         </button>
-        <select
+        <DashSelect
+          ariaLabel="What to listen to while fixing"
           value={srcKind}
-          onChange={(e) => setSrcKind(e.target.value as SourceKind)}
-          title="What to listen to while fixing"
-        >
-          {sources?.vocals && <option value="vocals">Vocals</option>}
-          {sources?.instrumental && <option value="instrumental">Instrumental</option>}
-          {sources?.original && <option value="original">Original</option>}
-        </select>
+          onChange={setSrcKind}
+          options={[
+            ...(sources?.vocals ? [{ value: "vocals" as const, label: "Vocals" }] : []),
+            ...(sources?.instrumental ? [{ value: "instrumental" as const, label: "Instrumental" }] : []),
+            ...(sources?.original ? [{ value: "original" as const, label: "Original" }] : []),
+          ]}
+        />
         <label className="check">
           <input
             type="checkbox"
@@ -300,7 +311,7 @@ export default function FixEditor(props: {
           />
           Loop line
         </label>
-        <span className="editor-time">{fmtTime(audio.time)}</span>
+        <SegText className="editor-time" value={fmtTime(audio.time)} />
         <span className="spacer" />
         <button onClick={() => dispatch({ type: "undo" })} disabled={state.past.length === 0}>
           Undo
@@ -331,12 +342,20 @@ export default function FixEditor(props: {
           />
         ))}
       </div>
+      {confirmExit && (
+        <ConfirmStrip
+          message="Discard unsaved timing changes?"
+          confirmLabel="Discard"
+          onConfirm={reallyExit}
+          onCancel={() => setConfirmExit(false)}
+        />
+      )}
       {error && <div className="error-banner">{error}</div>}
       {busy && <div className="notice-banner">{busy}</div>}
       <p className="muted small">
         Drag a word to move it, drag its right edge to stretch it. Click a word to jump there ·
         Space plays/pauses · arrows nudge ±10 ms (Shift: ±100 ms) ·{" "}
-        <span className="legend unsung">orange</span> = flagged not-sung ·{" "}
+        <span className="legend unsung">amber</span> = unsung ·{" "}
         <span className="legend weak">dashed</span> = low-confidence, look here first.
       </p>
 
@@ -356,7 +375,7 @@ export default function FixEditor(props: {
               left: `${(s.start / duration) * 100}%`,
               width: `${(Math.max(s.end - s.start, 0.5) / duration) * 100}%`,
             }}
-            title="Flagged span — the aligner wasn't confident here"
+            title="Unsung span — the aligner wasn't confident here"
           />
         ))}
         <div className="seek-playhead" style={{ left: `${(audio.time / duration) * 100}%` }} />
@@ -416,7 +435,7 @@ export default function FixEditor(props: {
                         `${w.ad_lib ? " adlib" : ""}`
                       }
                       style={{ left: `${left}%`, width: `${width}%` }}
-                      title={`${w.word} · ${fmtTime(w.start)}–${fmtTime(w.end)} · confidence ${(w.confidence * 100).toFixed(0)}%${w.anchored ? " · anchored" : ""}${w.unsung ? " · flagged not-sung" : ""}`}
+                      title={`${w.word} · ${fmtTime(w.start)}–${fmtTime(w.end)} · confidence ${(w.confidence * 100).toFixed(0)}%${w.anchored ? " · anchored" : ""}${w.unsung ? " · unsung" : ""}`}
                       onPointerDown={(e) =>
                         beginDrag(e, wi, "move", e.currentTarget.parentElement as HTMLElement, span)
                       }

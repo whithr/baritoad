@@ -1,7 +1,7 @@
 // Up Next — the persistent party queue (PLAN.md §3): add from the Library's
-// ⋯ menu, drag to reorder, remove. Stored in SQLite so it survives app
-// restarts mid-party. This milestone manages *order only* — the full-screen
-// player lands in Phase 3, so there are deliberately no play buttons here.
+// song menu, drag to reorder, remove. Stored in SQLite so it survives app
+// restarts mid-party. This list manages order; playing starts from the
+// Library or Song detail until queue auto-advance lands (player milestone 4).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -13,6 +13,8 @@ import {
   type QueueEntry,
 } from "../api";
 import { coverGradient, coverInitials, fmtDuration, moveItem } from "../libraryState";
+import { IconGrip, IconQueue, IconX } from "../icons";
+import { ConfirmStrip, SegText } from "../ui";
 import type { Route } from "../App";
 
 export default function UpNext({ go }: { go: (r: Route) => void }) {
@@ -81,8 +83,10 @@ export default function UpNext({ go }: { go: (r: Route) => void }) {
     }
   };
 
+  const [confirmClear, setConfirmClear] = useState(false);
+
   const clearAll = async () => {
-    if (!window.confirm("Clear the whole queue?")) return;
+    setConfirmClear(false);
     try {
       await queueClear();
       await refresh();
@@ -96,14 +100,23 @@ export default function UpNext({ go }: { go: (r: Route) => void }) {
       <h1>Up Next</h1>
       {error && <div className="error-banner">{error}</div>}
       <p className="muted small">
-        The party order, saved as you go — it survives an app restart. The full-screen player
-        arrives in Phase 3; until then this list only keeps your running order.
+        Drag to reorder. Start a song from the Library — this list holds who's next.
       </p>
+      {confirmClear && (
+        <ConfirmStrip
+          message="Clear the whole queue?"
+          confirmLabel="Clear queue"
+          onConfirm={clearAll}
+          onCancel={() => setConfirmClear(false)}
+        />
+      )}
 
       {loaded && entries.length === 0 && (
         <div className="empty-state">
-          <div className="empty-mark">⏭</div>
-          <p>Nothing queued. Add songs from the ⋯ menu on any Library card.</p>
+          <div className="empty-mark">
+            <IconQueue size={56} />
+          </div>
+          <p>Nothing queued. Add songs from the song menu on any Library card.</p>
           <button className="primary" onClick={() => go({ view: "library" })}>
             Browse the library
           </button>
@@ -124,9 +137,9 @@ export default function UpNext({ go }: { go: (r: Route) => void }) {
                 onDragOver={(ev) => ev.preventDefault()}
                 onDrop={() => drop(i)}
               >
-                <span className="queue-pos">{i + 1}</span>
+                <SegText className="queue-pos" value={String(i + 1)} />
                 <span className="drag-grip" title="Drag to reorder">
-                  ⠿
+                  <IconGrip size={14} />
                 </span>
                 <div
                   className="queue-cover"
@@ -152,13 +165,13 @@ export default function UpNext({ go }: { go: (r: Route) => void }) {
                   </div>
                 </div>
                 <button className="queue-remove" title="Remove" onClick={() => remove(e)}>
-                  ✕
+                  <IconX size={14} />
                 </button>
               </li>
             ))}
           </ol>
           <div className="actions">
-            <button onClick={clearAll}>Clear queue</button>
+            <button onClick={() => setConfirmClear(true)}>Clear queue</button>
           </div>
         </>
       )}

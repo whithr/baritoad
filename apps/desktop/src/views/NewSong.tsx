@@ -191,14 +191,14 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
 
           {preview && (
             <div className="cleanup-line">
+              <span data-testid="cleanup-summary">{previewLine(preview)}</span>{" "}
               <button
                 className="link-btn"
                 onClick={() => setShowEdits((v) => !v)}
                 title="Show what the cleanup pass will change"
               >
-                {showEdits ? "▾" : "▸"}
-              </button>{" "}
-              <span data-testid="cleanup-summary">{previewLine(preview)}</span>
+                {showEdits ? "hide details" : "details"}
+              </button>
               {showEdits && (
                 <ul className="cleanup-edits">
                   {preview.edits.length === 0 && <li>no changes — lyrics are clean</li>}

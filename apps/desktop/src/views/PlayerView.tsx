@@ -65,6 +65,15 @@ import { groupByLine } from "../highlight";
 import { applyReport, estimate, initClock, type InterpClock } from "../playerClock";
 import { lyricFrameAt, scrollStep, type LyricFrame } from "../playerView";
 import { fmtTime } from "../reviewUi";
+import {
+  IconBack,
+  IconCompress,
+  IconExpand,
+  IconGear,
+  IconPause,
+  IconPlay,
+} from "../icons";
+import { DashSelect, DashSlider } from "../ui";
 import type { Route } from "../App";
 
 const SEEK_STEP_S = 5;
@@ -589,7 +598,7 @@ export default function PlayerView(props: {
 
       <header className="pk-header">
         <button className="pk-back" onClick={exit} title="Back (Esc)">
-          ←
+          <IconBack />
         </button>
         {cover && <img className="pk-cover" src={cover} alt="" />}
         <div className="pk-meta">
@@ -598,7 +607,7 @@ export default function PlayerView(props: {
         </div>
         {measureNote && <div className="pk-measure-note">{measureNote}</div>}
         <button className="pk-fs" onClick={toggleFullscreen} title="Fullscreen (F / F11)">
-          {fullscreen ? "⤡" : "⤢"}
+          {fullscreen ? <IconCompress /> : <IconExpand />}
         </button>
       </header>
 
@@ -619,7 +628,7 @@ export default function PlayerView(props: {
         )}
         {finished && (
           <div className="pk-finished">
-            <div className="pk-finished-title">That's the song! 🎤</div>
+            <div className="pk-finished-title">That's the song!</div>
             {/* Queue auto-advance is milestone 4 — this stays a paused-at-end
                 state on purpose. */}
             <div className="actions">
@@ -635,63 +644,82 @@ export default function PlayerView(props: {
       </div>
 
       <div className="pk-controls">
-        <div className="pk-timebar" onClick={barClick} title="Click to seek · ←/→ ±5 s (Shift ±30 s)">
+        <div
+          className="pk-timebar"
+          onClick={barClick}
+          title="Click to seek · ←/→ ±5 s (Shift ±30 s)"
+          role="slider"
+          aria-label="Playback position"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(status?.duration ?? 0)}
+          aria-valuenow={Math.round(status?.position ?? 0)}
+          tabIndex={0}
+        >
           <div className="pk-timebar-fill" ref={fillRef} />
         </div>
         <div className="pk-controls-row">
           <button className="pk-play primary" onClick={togglePlay} title="Play/pause (Space)">
-            {status?.state === "playing" ? "⏸" : "▶"}
+            {status?.state === "playing" ? <IconPause size={20} /> : <IconPlay size={20} />}
           </button>
-          <span className="pk-clock" ref={timeRef} />
-          <label className="pk-guide" title="Vocal guide — blend the original vocal back in (↑/↓)">
-            <span>Guide</span>
-            <input
-              type="range"
+          <span className="pk-clock seg" ref={timeRef} />
+          <div className="pk-guide" title="Vocal guide — blend the original vocal back in (↑/↓)">
+            <span className="label">Guide</span>
+            <DashSlider
+              ariaLabel="Vocal guide level"
               min={0}
               max={100}
               step={5}
               value={Math.round((status?.guide ?? 0) * 100)}
               disabled={status?.single_source ?? false}
-              onChange={(e) => playerSetGuide(Number(e.target.value) / 100).catch(() => undefined)}
+              onChange={(v) => playerSetGuide(v / 100).catch(() => undefined)}
             />
             <span className="pk-guide-val">
               {status?.single_source ? "n/a" : `${Math.round((status?.guide ?? 0) * 100)}%`}
             </span>
-          </label>
+          </div>
           <div className="pk-stepper" title="Key change, ±6 semitones (− / +)">
-            <button onClick={() => nudgePitch(-1)}>−</button>
+            <button onClick={() => nudgePitch(-1)} aria-label="Key down">−</button>
             <span>
-              Key {status && status.pitch > 0 ? "+" : ""}
-              {Math.round(status?.pitch ?? 0)}
+              <span className="label">Key</span>{" "}
+              <span className="seg">
+                {status && status.pitch > 0 ? "+" : ""}
+                {Math.round(status?.pitch ?? 0)}
+              </span>
             </span>
-            <button onClick={() => nudgePitch(1)}>+</button>
+            <button onClick={() => nudgePitch(1)} aria-label="Key up">+</button>
           </div>
           <div className="pk-stepper" title="Tempo, 0.80–1.20x ([ / ])">
-            <button onClick={() => nudgeTempo(-TEMPO_STEP)}>−</button>
-            <span>{(status?.tempo ?? 1).toFixed(2)}×</span>
-            <button onClick={() => nudgeTempo(TEMPO_STEP)}>+</button>
+            <button onClick={() => nudgeTempo(-TEMPO_STEP)} aria-label="Tempo down">−</button>
+            <span>
+              <span className="seg">{(status?.tempo ?? 1).toFixed(2)}</span>×
+            </span>
+            <button onClick={() => nudgeTempo(TEMPO_STEP)} aria-label="Tempo up">+</button>
           </div>
           <span className="spacer" />
           <div className="pk-advanced-wrap">
-            <button onClick={() => setAdvancedOpen((v) => !v)} title="Advanced">
-              ⚙
+            <button
+              onClick={() => setAdvancedOpen((v) => !v)}
+              title="Advanced"
+              className="with-icon"
+            >
+              <IconGear />
             </button>
             {advancedOpen && status && (
               <div className="pk-advanced">
-                <label className="pk-advanced-row">
+                <div className="pk-advanced-row">
                   <span>Stretch quality</span>
-                  <select
+                  <DashSelect
+                    ariaLabel="Stretch quality"
                     value={status.stretch_config}
-                    onChange={(e) =>
-                      playerSetStretchConfig(e.target.value as StretchConfigName).catch(() =>
-                        undefined,
-                      )
+                    onChange={(v) =>
+                      playerSetStretchConfig(v as StretchConfigName).catch(() => undefined)
                     }
-                  >
-                    <option value="default">Default (smoothest)</option>
-                    <option value="low_latency">Low latency (faster response)</option>
-                  </select>
-                </label>
+                    options={[
+                      { value: "default", label: "Default (smoothest)" },
+                      { value: "low_latency", label: "Low latency (faster response)" },
+                    ]}
+                  />
+                </div>
                 <div className="pk-diag">
                   <div>device: {status.device ?? "—"}</div>
                   <div>
