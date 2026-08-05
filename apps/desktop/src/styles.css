@@ -915,15 +915,69 @@ button.primary:disabled {
 }
 
 .preview-timebar {
-  height: 6px;
+  height: 8px;
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
+  cursor: pointer;
+}
+
+.preview-timebar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .preview-timebar-fill {
   height: 100%;
   background: var(--accent);
+}
+
+/* transport row: play/pause + clock + range toggle + source picker */
+
+.preview-transport {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  text-align: left;
+}
+
+.preview-transport .spacer {
+  flex: 1;
+}
+
+.preview-clock {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.scope-toggle button {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.scope-toggle button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.scope-toggle button.active {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .preview-actions {
