@@ -210,6 +210,12 @@ export default function SongDetail(props: {
           <div className="actions">
             <button
               className="primary"
+              onClick={() => go({ view: "play", songId, mapPath })}
+              title="Full-screen karaoke player"
+            >
+              ▶ Sing it
+            </button>
+            <button
               onClick={() => {
                 setPreviewScope("highlight");
                 setMode("preview");

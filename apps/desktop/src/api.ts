@@ -271,3 +271,80 @@ export interface ExportStatus {
 
 export const exportStatus = (mapPath: string) =>
   invoke<ExportStatus>("export_status", { mapPath });
+
+// ---------------------------------------------------------------------------
+// performance player (src-tauri/src/player.rs — the cpal engine's UI surface;
+// the review player above stays webview <audio> and is untouched)
+// ---------------------------------------------------------------------------
+
+export type PlayerTransportState = "stopped" | "playing" | "paused" | "finished" | "unloaded";
+
+export type StretchConfigName = "default" | "low_latency";
+
+/** Host-side engine snapshot. `position` is ORIGINAL-SONG seconds (PLAN.md
+ *  §5): the engine clock already translated through any stretch ratio — the
+ *  UI compares it against timing-map times directly, never converts. */
+export interface PlayerStatus {
+  state: PlayerTransportState;
+  position: number;
+  duration: number;
+  guide: number;
+  pitch: number;
+  tempo: number;
+  stretch_config: StretchConfigName;
+  song_id?: number | null;
+  /** Only the original mix loaded (stems missing) — the guide is inert. */
+  single_source: boolean;
+  device?: string | null;
+  callbacks: number;
+  stalls: number;
+  max_gap_ms: number;
+  stretch_engaged: boolean;
+  mmcss: string;
+}
+
+export type PlayerPushEvent =
+  | { kind: "status"; status: PlayerStatus }
+  | { kind: "completed"; position: number };
+
+export const playerLoad = (args: {
+  songId?: number;
+  mapPath?: string;
+  autoplay?: boolean;
+}) =>
+  invoke<PlayerStatus>("player_load", {
+    songId: args.songId ?? null,
+    mapPath: args.mapPath ?? null,
+    autoplay: args.autoplay ?? null,
+  });
+
+export const playerPlay = () => invoke<void>("player_play");
+export const playerPause = () => invoke<void>("player_pause");
+export const playerStop = () => invoke<void>("player_stop");
+export const playerSeek = (position: number) => invoke<void>("player_seek", { position });
+export const playerSetGuide = (gain: number) => invoke<void>("player_set_guide", { gain });
+export const playerSetPitch = (semitones: number) =>
+  invoke<void>("player_set_pitch", { semitones });
+export const playerSetTempo = (rate: number) => invoke<void>("player_set_tempo", { rate });
+export const playerSetStretchConfig = (config: StretchConfigName) =>
+  invoke<void>("player_set_stretch_config", { config });
+export const playerStatus = () => invoke<PlayerStatus>("player_status");
+export const playerUnload = () => invoke<void>("player_unload");
+
+export const onPlayerEvent = (handler: (e: PlayerPushEvent) => void): Promise<UnlistenFn> =>
+  listen<PlayerPushEvent>("karaoke://player", (event) => handler(event.payload));
+
+// Dev measurement harness (inert unless the app was launched with
+// KARAOKE_MEASURE_* env vars — src-tauri/src/player.rs).
+export interface MeasurePlan {
+  song_id?: number | null;
+  map_path?: string | null;
+  seconds: number;
+  out_path: string;
+  pitch?: number | null;
+  tempo?: number | null;
+  fullscreen?: boolean;
+}
+
+export const measurePlan = () => invoke<MeasurePlan | null>("measure_plan");
+export const measureWrite = (json: string) => invoke<void>("measure_write", { json });

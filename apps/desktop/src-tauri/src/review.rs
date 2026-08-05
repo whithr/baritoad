@@ -51,29 +51,28 @@ pub struct PlaybackSources {
     pub original: Option<PathBuf>,
 }
 
-/// Resolve the three playable files for a song and allow exactly those files
-/// in the asset-protocol scope. Resolution goes through trusted records only:
-/// a library row (`song_id`) or the job manifest beside `map_path` — and in
-/// the manifest case the manifest must actually own that map, so an arbitrary
-/// path can't be used as a skeleton key.
-#[tauri::command]
-pub async fn playback_sources(
-    app: AppHandle,
-    library: State<'_, Arc<LibraryHandle>>,
+/// Resolve the three playable files for a song through **trusted records
+/// only**: a library row (`song_id`) or the job manifest beside `map_path` —
+/// and in the manifest case the manifest must actually own that map, so an
+/// arbitrary path can't be used as a skeleton key. Shared by the review
+/// screen's asset-scope grants below and the performance player's
+/// `player_load` (player.rs), which reads the same files via cpal instead.
+pub fn resolve_song_sources(
+    library: &LibraryHandle,
     song_id: Option<i64>,
-    map_path: Option<String>,
-) -> Result<PlaybackSources, String> {
-    let (instrumental, vocals, original) = if let Some(id) = song_id {
+    map_path: Option<&str>,
+) -> Result<(Option<PathBuf>, Option<PathBuf>, Option<PathBuf>), String> {
+    if let Some(id) = song_id {
         let store = library.lock()?;
         let song = store
             .song(id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("no song {id} in the library"))?;
-        (
+        Ok((
             song.instrumental_path,
             song.vocals_path,
             Some(song.audio_path),
-        )
+        ))
     } else if let Some(map) = map_path {
         let map = PathBuf::from(map);
         let dir = map
@@ -88,16 +87,29 @@ pub async fn playback_sources(
         if !owns {
             return Err("job manifest does not own that timing map".into());
         }
-        (
+        Ok((
             man.artifact_path(StageId::Separate, "instrumental")
                 .map(Path::to_path_buf),
             man.artifact_path(StageId::Separate, "vocals")
                 .map(Path::to_path_buf),
             Some(man.audio.path.clone()),
-        )
+        ))
     } else {
-        return Err("playback_sources needs song_id or map_path".into());
-    };
+        Err("source resolution needs song_id or map_path".into())
+    }
+}
+
+/// Review screen: resolve the playable files and allow exactly those files in
+/// the asset-protocol scope (webview `<audio>` playback — see module docs).
+#[tauri::command]
+pub async fn playback_sources(
+    app: AppHandle,
+    library: State<'_, Arc<LibraryHandle>>,
+    song_id: Option<i64>,
+    map_path: Option<String>,
+) -> Result<PlaybackSources, String> {
+    let (instrumental, vocals, original) =
+        resolve_song_sources(&library, song_id, map_path.as_deref())?;
 
     let scope = app.asset_protocol_scope();
     let allow = |p: Option<PathBuf>| -> Result<Option<PathBuf>, String> {

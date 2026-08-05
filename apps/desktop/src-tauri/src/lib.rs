@@ -5,6 +5,7 @@
 
 mod commands;
 mod library;
+mod player;
 mod queue;
 mod review;
 
@@ -12,6 +13,7 @@ use std::sync::Arc;
 
 use library::LibraryHandle;
 use queue::JobQueue;
+use tauri::Manager;
 
 pub fn run() {
     let job_queue = Arc::new(JobQueue::new());
@@ -37,6 +39,11 @@ pub fn run() {
                 .name("pipeline-worker".into())
                 .spawn(move || worker_queue.run_worker(handle, worker_library))
                 .expect("spawn pipeline worker");
+            // Performance-player host: Player holds a cpal::Stream (!Send),
+            // so the whole engine lives on this thread behind a command
+            // channel (player.rs module docs) — never in managed state.
+            let player_handle = player::spawn_host(app.handle().clone());
+            app.manage(player_handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -68,6 +75,19 @@ pub fn run() {
             review::song_set_reviewed,
             review::library_song,
             review::export_status,
+            player::player_load,
+            player::player_play,
+            player::player_pause,
+            player::player_stop,
+            player::player_seek,
+            player::player_set_guide,
+            player::player_set_pitch,
+            player::player_set_tempo,
+            player::player_set_stretch_config,
+            player::player_status,
+            player::player_unload,
+            player::measure_plan,
+            player::measure_write,
         ])
         .run(tauri::generate_context!())
         .expect("error while running karaoke desktop app");

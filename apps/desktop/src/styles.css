@@ -1184,3 +1184,362 @@ label.check {
 .chip-handle:hover {
   background: var(--accent-soft);
 }
+
+/* ---- library: card play overlay ---- */
+
+.card-play-btn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 0 0 4px;
+  opacity: 0;
+  transition: opacity 120ms, background 120ms;
+}
+
+.song-card:hover .card-play-btn,
+.card-play-btn:focus {
+  opacity: 1;
+}
+
+.card-play-btn:hover {
+  background: var(--accent);
+}
+
+/* ---- full-screen performance player ----
+   TV-friendly (PLAN.md §3): big type, high contrast, no mouse needed.
+   Per-frame mutations are compositor-cheap by design (lyric-render spike):
+   transform on .pk-scroller, one CSS var on the active word, width on the
+   progress fill. */
+
+.player-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+  cursor: default;
+}
+
+.pk-backdrop {
+  position: absolute;
+  inset: -40px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(48px) brightness(0.35) saturate(1.1);
+  z-index: 0;
+}
+
+.pk-scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 35%, transparent 0%, rgba(13, 15, 20, 0.75) 100%);
+  z-index: 0;
+}
+
+.pk-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  transition: opacity 300ms;
+}
+
+.pk-back,
+.pk-fs {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 18px;
+  padding: 6px 14px;
+}
+
+.pk-fs {
+  margin-left: auto;
+}
+
+.pk-cover {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.pk-title {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.pk-artist {
+  color: var(--text-dim);
+  font-size: 15px;
+}
+
+.pk-measure-note {
+  color: var(--warn);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pk-error {
+  position: relative;
+  z-index: 2;
+  margin: 0 20px;
+}
+
+.pk-viewport {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  overflow: hidden;
+  /* fade lyrics at the edges so the scroll has no hard clip */
+  -webkit-mask-image: linear-gradient(transparent 0%, #000 12%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(transparent 0%, #000 12%, #000 82%, transparent 100%);
+}
+
+.pk-loading {
+  text-align: center;
+  margin-top: 20vh;
+}
+
+.pk-scroller {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  will-change: transform;
+  padding: 0 6vw;
+}
+
+.pk-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 0.45em;
+  padding: 0.28em 0;
+  font-size: clamp(22px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-dim);
+  opacity: 0.45;
+  transition: font-size 200ms, opacity 200ms;
+  text-align: center;
+}
+
+.pk-line.current {
+  font-size: clamp(34px, 4.6vw, 62px);
+  color: var(--text);
+  opacity: 1;
+}
+
+.pk-line.next {
+  opacity: 0.8;
+  color: var(--text);
+}
+
+/* Word states reuse the k-word family (highlight.ts semantics). The active
+   word adds a progressive wipe: gradient text fill driven by --wipe, set once
+   per frame from the render loop. */
+
+.player-stage .k-word.sung {
+  color: var(--accent);
+  text-shadow: none;
+}
+
+.player-stage .k-word.active.wipe {
+  background-image: linear-gradient(
+    90deg,
+    var(--accent) var(--wipe, 0%),
+    currentColor var(--wipe, 0%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+.player-stage .k-word.unsung {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.pk-finished {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(13, 15, 20, 0.7);
+}
+
+.pk-finished-title {
+  font-size: 34px;
+  font-weight: 650;
+}
+
+.pk-controls {
+  position: relative;
+  z-index: 2;
+  padding: 10px 20px 14px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55) 45%);
+  transition: opacity 300ms;
+}
+
+.controls-hidden .pk-controls,
+.controls-hidden .pk-header {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.controls-hidden {
+  cursor: none;
+}
+
+.pk-timebar {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.pk-timebar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+}
+
+.pk-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pk-play {
+  font-size: 20px;
+  width: 52px;
+  height: 44px;
+  padding: 0;
+}
+
+.pk-clock {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  min-width: 110px;
+}
+
+.pk-guide {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.pk-guide input[type="range"] {
+  width: 140px;
+  accent-color: var(--accent);
+}
+
+.pk-guide-val {
+  min-width: 38px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pk-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pk-stepper span {
+  min-width: 62px;
+  text-align: center;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pk-stepper button {
+  border: none;
+  background: none;
+  padding: 4px 10px;
+  font-size: 16px;
+}
+
+.pk-stepper button:hover {
+  background: var(--bg-hover);
+  border: none;
+}
+
+.pk-advanced-wrap {
+  position: relative;
+}
+
+.pk-advanced {
+  position: absolute;
+  right: 0;
+  bottom: 48px;
+  width: 340px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pk-advanced-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.pk-advanced-row select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.pk-diag {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pk-hints {
+  margin-top: 8px;
+  text-align: center;
+  opacity: 0.75;
+}

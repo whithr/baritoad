@@ -44,8 +44,20 @@
 //! The spike measured up to **2.08x peak overshoot** on loudness-maximized
 //! mixes. While stretch is active the fed signal is attenuated by −9 dB and
 //! the output passes a memoryless soft limiter (unity below −1 dBFS,
-//! tanh-saturating above, asymptote < 1.0). No make-up gain — that is a UI
-//! decision for a later milestone; this stage just refuses to clip.
+//! tanh-saturating above, asymptote < 1.0).
+//!
+//! **Make-up gain (Phase 3 milestone 3 product decision):** a fixed +6 dB
+//! ([`STRETCH_MAKEUP_GAIN`]) is applied *post-stretch, pre-limiter*, so the
+//! net level while engaged is −3 dB instead of −9 dB — a modest, predictable
+//! dip instead of a jarring drop-and-jump around engage/disengage. Placement
+//! matters: the stretcher still sees the full −9 dB headroom (its overshoot
+//! math is untouched), and the limiter still bounds the output below
+//! full-scale — worst-case spike overshoot (2.08x · −9 dB · +6 dB ≈ 1.47)
+//! lands in the tanh region and is soft-saturated, not clipped. The honest
+//! cost: on loudness-maximized material the loudest peaks get gentle tanh
+//! saturation while stretch is engaged. Alternatives rejected: no make-up
+//! (−9 dB is a big audible drop; users crank the volume and then disengage
+//! is a +9 dB jump), and post-limiter make-up (would re-clip).
 //!
 //! Song completion while active is reported when the *fed* cursor reaches the
 //! end — up to ~`Li + Lo·r` (≈120 ms) before the audible tail finishes. The
@@ -63,6 +75,10 @@ pub const TEMPO_RATE_MAX: f64 = 1.20;
 
 /// −9 dB pre-stretch headroom (covers the spike's 2.08x measured overshoot).
 pub const STRETCH_HEADROOM_GAIN: f32 = 0.354_813_38;
+
+/// +6 dB post-stretch / pre-limiter make-up while engaged (module docs
+/// "Make-up gain"): net level −3 dB vs bypass, limiter still protects.
+pub const STRETCH_MAKEUP_GAIN: f32 = 1.995_262_3;
 
 /// Soft-limiter knee: unity gain below this (−1 dBFS), tanh saturation above.
 pub const LIMITER_KNEE: f32 = 0.891_250_9;
@@ -599,8 +615,8 @@ impl StretchEngine {
 
         for f in 0..out_frames {
             let g = self.out_gain.next();
-            let l = soft_limit(self.st_out[f * 2]) * g;
-            let r = soft_limit(self.st_out[f * 2 + 1]) * g;
+            let l = soft_limit(self.st_out[f * 2] * STRETCH_MAKEUP_GAIN) * g;
+            let r = soft_limit(self.st_out[f * 2 + 1] * STRETCH_MAKEUP_GAIN) * g;
             let base = f * channels;
             match channels {
                 1 => out[base] = 0.5 * (l + r),
@@ -720,6 +736,55 @@ mod tests {
     #[test]
     fn headroom_gain_is_minus_nine_db() {
         assert!((20.0 * (STRETCH_HEADROOM_GAIN as f64).log10() + 9.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn makeup_gain_is_plus_six_db_for_a_net_minus_three() {
+        assert!((20.0 * (STRETCH_MAKEUP_GAIN as f64).log10() - 6.0).abs() < 0.01);
+        let net = 20.0 * ((STRETCH_HEADROOM_GAIN * STRETCH_MAKEUP_GAIN) as f64).log10();
+        assert!((net + 3.0).abs() < 0.02, "net engaged gain {net:.2} dB, expected −3 dB");
+    }
+
+    #[test]
+    fn worst_case_overshoot_with_makeup_stays_inside_the_limiter() {
+        // Spike worst case 2.08x on a full-scale peak, through headroom then
+        // make-up: 2.08 · 0.3548 · 1.995 ≈ 1.472 → tanh region, bounded < 1.0.
+        let peak = 2.08f32 * STRETCH_HEADROOM_GAIN * STRETCH_MAKEUP_GAIN;
+        assert!(peak > 1.0, "test premise: make-up pushes worst case past FS");
+        assert!(soft_limit(peak).abs() < 1.0);
+    }
+
+    #[test]
+    fn engaged_steady_level_sits_near_minus_three_db_of_bypass() {
+        // Moderate-level sine (peaks well below the limiter knee after
+        // headroom+makeup) so the level check isolates the gain staging.
+        let mut e = engine(60.0);
+        let mut bypass = vec![0.0f32; 0];
+        for _ in 0..100 {
+            let (out, _) = render_block(&mut e, &IDENTITY);
+            bypass.extend_from_slice(&out);
+        }
+        let bypass_rms = rms(&bypass[bypass.len() / 2..]);
+
+        let s = settings(0.0, 1.0).clone();
+        let s = StretchSettings { pitch_semitones: 1.0, ..s }; // engage via pitch
+        for _ in 0..120 {
+            let _ = render_block(&mut e, &s);
+        }
+        let mut engaged = vec![0.0f32; 0];
+        for _ in 0..200 {
+            let (out, ev) = render_block(&mut e, &s);
+            assert!(ev.engaged);
+            engaged.extend_from_slice(&out);
+        }
+        let engaged_rms = rms(&engaged);
+        let db = 20.0 * (engaged_rms / bypass_rms).log10();
+        // Stretch processing itself moves RMS a little; the staging target is
+        // −3 dB, accept ±1.5 dB around it (and far from the old −9 dB).
+        assert!(
+            (-4.5..=-1.5).contains(&db),
+            "engaged level {db:.2} dB vs bypass, expected ≈ −3 dB"
+        );
     }
 
     // --- identity bypass ---------------------------------------------------

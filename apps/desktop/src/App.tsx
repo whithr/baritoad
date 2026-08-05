@@ -2,11 +2,12 @@
 // four routes don't justify a package and its §6 row).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { onJobEvent, listJobs } from "./api";
+import { measurePlan, onJobEvent, listJobs } from "./api";
 import { emptyJobsState, reduceJobEvent, seedFromSnapshots, type JobsState } from "./jobEvents";
 import Library from "./views/Library";
 import NewSong from "./views/NewSong";
 import Jobs from "./views/Jobs";
+import PlayerView from "./views/PlayerView";
 import SongDetail from "./views/SongDetail";
 import UpNext from "./views/UpNext";
 
@@ -15,7 +16,8 @@ export type Route =
   | { view: "new" }
   | { view: "queue" }
   | { view: "jobs" }
-  | { view: "song"; mapPath: string; title?: string; songId?: number };
+  | { view: "song"; mapPath: string; title?: string; songId?: number }
+  | { view: "play"; songId?: number; mapPath?: string; measure?: boolean };
 
 function parseHash(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
@@ -30,6 +32,14 @@ function parseHash(hash: string): Route {
     return mapPath
       ? { view: "song", mapPath, title: params.get("title") ?? undefined, songId }
       : { view: "library" };
+  }
+  if (path === "play") {
+    const params = new URLSearchParams(query ?? "");
+    const idRaw = params.get("id");
+    const songId = idRaw !== null && /^\d+$/.test(idRaw) ? Number(idRaw) : undefined;
+    const mapPath = params.get("map") ?? undefined;
+    if (songId == null && !mapPath) return { view: "library" };
+    return { view: "play", songId, mapPath, measure: params.get("measure") === "1" };
   }
   return { view: "library" };
 }
@@ -53,6 +63,14 @@ export function navigate(route: Route) {
       if (route.title) q.set("title", route.title);
       if (route.songId != null) q.set("id", String(route.songId));
       window.location.hash = `#/song?${q.toString()}`;
+      break;
+    }
+    case "play": {
+      const q = new URLSearchParams();
+      if (route.songId != null) q.set("id", String(route.songId));
+      if (route.mapPath) q.set("map", route.mapPath);
+      if (route.measure) q.set("measure", "1");
+      window.location.hash = `#/play?${q.toString()}`;
       break;
     }
   }
@@ -100,6 +118,40 @@ export default function App() {
   );
 
   const go = useCallback((r: Route) => navigate(r), []);
+
+  // Dev measurement harness bootstrap: only acts when the app was launched
+  // with KARAOKE_MEASURE_* env vars (src-tauri/src/player.rs) — inert for
+  // normal users.
+  useEffect(() => {
+    (async () => {
+      try {
+        const plan = await measurePlan();
+        if (plan) {
+          go({
+            view: "play",
+            songId: plan.song_id ?? undefined,
+            mapPath: plan.map_path ?? undefined,
+            measure: true,
+          });
+        }
+      } catch {
+        // command missing / failed: nothing to do
+      }
+    })();
+  }, [go]);
+
+  // The performance player is full-bleed: no sidebar, no page chrome
+  // (PLAN.md §3 full-screen karaoke view, TV-friendly).
+  if (route.view === "play") {
+    return (
+      <PlayerView
+        songId={route.songId}
+        mapPath={route.mapPath}
+        measure={route.measure}
+        go={go}
+      />
+    );
+  }
 
   return (
     <div className="shell">

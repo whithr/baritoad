@@ -214,6 +214,7 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
                   s.timing_map_path &&
                   go({ view: "song", mapPath: s.timing_map_path, title: s.title, songId: s.id })
                 }
+                onPlay={() => go({ view: "play", songId: s.id })}
                 onQueue={() => addToQueue(s)}
                 onDelete={() => deleteSong(s)}
                 onMembershipChanged={async () => {
@@ -258,6 +259,8 @@ function SongCard(props: {
   collections: CollectionInfo[];
   inCollection: number | null;
   onOpen: () => void;
+  /** Straight into the full-screen performance player (ready songs only). */
+  onPlay: () => void;
   onQueue: () => void;
   onDelete: () => void;
   onMembershipChanged: () => Promise<void>;
@@ -324,11 +327,33 @@ function SongCard(props: {
           <span className="cover-initials">{coverInitials(song.title)}</span>
         )}
         {duration && <span className="cover-duration">{duration}</span>}
+        {song.timing_map_path && (
+          <button
+            className="card-play-btn"
+            title="Play (full-screen karaoke)"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onPlay();
+            }}
+          >
+            ▶
+          </button>
+        )}
         <button className="card-menu-btn" onClick={openMenu} title="Song actions">
           ⋯
         </button>
         {menuOpen && (
           <div className="card-menu" ref={menuRef} onClick={(e) => e.stopPropagation()}>
+            {song.timing_map_path && (
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  props.onPlay();
+                }}
+              >
+                Play
+              </button>
+            )}
             <button
               onClick={() => {
                 setMenuOpen(false);
