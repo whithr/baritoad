@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/karaoke-core", "crates/karaoke-cli"]
+# Phase 0 spike crates keep their own lockfiles/targets and stay out of the
+# workspace (spikes/README.md: spike code is frozen evidence, not product code).
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+# Pinned to the version the separation spike validated (spikes/separation/REPORT.md:
+# ort 2.0.0-rc.13 / ONNX Runtime 1.28.0). Bump deliberately, re-running the
+# golden parity check when you do.
+ort = { version = "=2.0.0-rc.13", features = ["directml"] }
+ndarray = "0.17"
+hound = "3.5"
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "flac", "ogg", "vorbis", "wav", "pcm"] }
+rubato = "0.16"
+flacenc = { version = "0.5", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+rustfft = "6"
+
+[profile.release]
+opt-level = 3
