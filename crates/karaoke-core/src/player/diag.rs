@@ -78,6 +78,14 @@ pub struct Diagnostics {
     /// zero here means nothing — see module docs).
     pub stream_errors: u64,
     pub mmcss: MmcssStatus,
+    /// Stretcher currently in the signal path (false = identity bypass).
+    pub stretch_engaged: bool,
+    /// Count of stretch-setting changes the callback has picked up.
+    pub stretch_applied: u64,
+    /// Request → callback pickup for the most recent setting change,
+    /// milliseconds (scheduling latency only — the stretcher pipeline adds
+    /// its own t90, measured in the spike).
+    pub stretch_apply_ms: f64,
 }
 
 #[cfg(test)]

@@ -1,0 +1,12 @@
+[package]
+name = "karaoke-stretch-sys"
+description = "Vendored Signalsmith Stretch (MIT) + hand-written FFI for key/tempo shift (PLAN.md §5; NOT Rubber Band, which is GPL/paid — PLAN.md §6)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+links = "signalsmith_stretch_wrapper"
+
+[build-dependencies]
+# Build-time only (compiles vendor/wrapper.cpp); nothing from cc ships in the
+# binary. PLAN.md §6 row added with this crate.
+cc = "1"

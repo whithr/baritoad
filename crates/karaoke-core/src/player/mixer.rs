@@ -182,6 +182,44 @@ impl MixerCore {
         self.playing
     }
 
+    /// Total source frames.
+    pub fn total_frames(&self) -> usize {
+        self.sources.frames
+    }
+
+    /// True while a requested seek has not been applied yet.
+    pub fn seek_pending(&self) -> bool {
+        self.pending_seek.is_some()
+    }
+
+    /// Raw mix of `frames` source frames starting at `start`, scaled by
+    /// `gain`, appended to `out` (interleaved stereo; out-of-range frames are
+    /// silence). Ignores cursor and ramps — this exists for the stretch
+    /// engine's engage pre-roll (analysis history, never heard directly), so
+    /// the current guide value is close enough even mid-ramp.
+    pub fn mix_range(&self, start: usize, frames: usize, gain: f32, out: &mut Vec<f32>) {
+        let g = self.guide.value();
+        let total = self.sources.frames;
+        let inst = &self.sources.instrumental;
+        let voc = self.sources.vocals.as_deref();
+        out.reserve(frames * 2);
+        for f in start..start + frames {
+            if f < total {
+                let i = f * 2;
+                let (mut l, mut r) = (inst[i], inst[i + 1]);
+                if let Some(v) = voc {
+                    l += g * v[i];
+                    r += g * v[i + 1];
+                }
+                out.push(l * gain);
+                out.push(r * gain);
+            } else {
+                out.push(0.0);
+                out.push(0.0);
+            }
+        }
+    }
+
     /// Render `out` (interleaved, `channels` per frame; stereo written to the
     /// first two channels, extra channels zeroed, mono devices get a downmix).
     /// Returns the frame accounting for the clock.

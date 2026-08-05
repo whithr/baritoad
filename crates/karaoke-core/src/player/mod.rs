@@ -3,12 +3,15 @@
 //! a device-frame-derived [`PlayerClock`] (PLAN.md §5 "audio engine (cpal)" /
 //! "lyric sync").
 //!
-//! Scope: library-level only — Tauri wiring is a later milestone. No tempo /
-//! key stretch yet (milestone 2); the clock's stretch-ratio translation seam
-//! is in [`clock::StretchTimeline`]. When stretch lands it also brings the
-//! headroom + soft-limiter stage the spike calls for (REPORT.md §4 item 2);
-//! without stretch, stems sum back to (at most) the original mix, so no
-//! limiter is needed here yet.
+//! Scope: library-level only — Tauri wiring is a later milestone. Milestone 2
+//! adds key/tempo stretch ([`stretch::StretchEngine`], Signalsmith via
+//! karaoke-stretch-sys): pitch ±6 st and tempo 0.80–1.20x, independently
+//! adjustable mid-playback, with −9 dB headroom + a soft limiter while
+//! active (REPORT.md §4 item 2). At identity settings the stretcher is fully
+//! out of the path and rendering is bit-identical to milestone 1; the clock
+//! translates device frames through [`clock::StretchTimeline`] with the
+//! stretcher's input+output latency folded into the origin (stretch.rs
+//! module docs).
 //!
 //! Threading model:
 //! - The **audio callback** (cpal-owned thread, MMCSS-registered on Windows,
@@ -30,6 +33,7 @@ pub mod clock;
 pub mod diag;
 pub mod mixer;
 pub mod mmcss;
+pub mod stretch;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -44,6 +48,7 @@ use crate::error::{Error, Result};
 
 pub use clock::PlayerClock;
 pub use diag::{Diagnostics, MmcssStatus};
+pub use stretch::{StretchConfig, MAX_PITCH_SEMITONES, TEMPO_RATE_MAX, TEMPO_RATE_MIN};
 
 /// Transport state as observed by the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,34 +93,53 @@ const M_FAILED: u8 = 2;
 const M_UNSUPPORTED: u8 = 3;
 
 /// Control-plane state shared with the audio callback (atomics only — the
-/// callback never locks).
+/// callback never locks). The stretch settings ride the same pattern the
+/// spike proved live (spikes/stretch/src/cmd_live.rs): value atomics plus a
+/// change counter the callback compares each block.
 struct ControlShared {
     transport: AtomicU8,
     guide_bits: AtomicU32,
     seek_frame: AtomicU64,
     seek_id: AtomicU64,
     finished: AtomicU8, // 0/1 (AtomicBool-as-u8 keeps the struct uniform)
+    // stretch control plane (milestone 2)
+    pitch_bits: AtomicU32,          // f32 semitones
+    tempo_bits: AtomicU64,          // f64 ratio
+    stretch_config: AtomicU8,       // StretchConfig::to_u8
+    stretch_change_id: AtomicU64,   // bumped by any stretch setter
+    stretch_request_ns: AtomicU64,  // epoch-relative nanos of the last change
     // diagnostics published by the callback
     callbacks: AtomicU64,
     stalls: AtomicU64,
     max_gap_ns: AtomicU64,
     stream_errors: AtomicU64,
     mmcss: AtomicU8,
+    stretch_engaged: AtomicU8,      // stretcher currently in the signal path
+    stretch_applied: AtomicU64,     // count of setting pickups by the callback
+    stretch_apply_ns: AtomicU64,    // request → callback pickup, last change
 }
 
 impl ControlShared {
-    fn new(guide: f32) -> Self {
+    fn new(guide: f32, pitch: f32, tempo: f64, config: u8) -> Self {
         Self {
             transport: AtomicU8::new(T_STOPPED),
             guide_bits: AtomicU32::new(guide.to_bits()),
             seek_frame: AtomicU64::new(0),
             seek_id: AtomicU64::new(0),
             finished: AtomicU8::new(0),
+            pitch_bits: AtomicU32::new(pitch.to_bits()),
+            tempo_bits: AtomicU64::new(tempo.to_bits()),
+            stretch_config: AtomicU8::new(config),
+            stretch_change_id: AtomicU64::new(0),
+            stretch_request_ns: AtomicU64::new(0),
             callbacks: AtomicU64::new(0),
             stalls: AtomicU64::new(0),
             max_gap_ns: AtomicU64::new(0),
             stream_errors: AtomicU64::new(0),
             mmcss: AtomicU8::new(M_NOT_ATTEMPTED),
+            stretch_engaged: AtomicU8::new(0),
+            stretch_applied: AtomicU64::new(0),
+            stretch_apply_ns: AtomicU64::new(0),
         }
     }
 }
@@ -134,6 +158,9 @@ pub struct Player {
     /// Loaded song duration in original-song seconds (0.0 when unloaded).
     duration_seconds: f64,
     duration_frames: u64,
+    /// Shared time base for control-thread requests vs callback pickups
+    /// (stretch apply-latency diagnostics).
+    epoch: Instant,
 }
 
 impl Player {
@@ -160,12 +187,13 @@ impl Player {
             sample_format,
             device_info,
             stream: None,
-            shared: Arc::new(ControlShared::new(0.0)),
+            shared: Arc::new(ControlShared::new(0.0, 0.0, 1.0, 0)),
             clock: PlayerClock::new(),
             events_tx,
             events_rx: Some(events_rx),
             duration_seconds: 0.0,
             duration_frames: 0,
+            epoch: Instant::now(),
         })
     }
 
@@ -225,9 +253,17 @@ impl Player {
         self.duration_seconds = frames as f64 / dev_rate as f64;
 
         // Fresh control state; keep the existing clock handle (UI may hold
-        // clones) but re-origin it for the new song.
-        self.shared = Arc::new(ControlShared::new(self.vocal_guide()));
+        // clones) but re-origin it for the new song. Stretch settings persist
+        // across loads like the vocal guide (the engine re-engages from
+        // bypass on the first blocks when they are non-identity).
+        self.shared = Arc::new(ControlShared::new(
+            self.vocal_guide(),
+            self.pitch_semitones(),
+            self.tempo_rate(),
+            self.stretch_config().to_u8(),
+        ));
         self.clock.shared.set_device_rate(dev_rate);
+        self.clock.shared.reset_for_load();
         self.clock.shared.reset_origin(0.0);
 
         let sources = mixer::Sources {
@@ -236,11 +272,14 @@ impl Player {
             frames,
         };
         let core = mixer::MixerCore::new(sources, dev_rate, self.vocal_guide());
+        // Engine construction pre-builds both stretcher configs here on the
+        // control thread; the audio callback never allocates one.
+        let engine = stretch::StretchEngine::new(core, dev_rate, self.stretch_config());
 
         let stream = match self.sample_format {
-            cpal::SampleFormat::F32 => self.build_stream::<f32>(core, channels)?,
-            cpal::SampleFormat::I16 => self.build_stream::<i16>(core, channels)?,
-            cpal::SampleFormat::U16 => self.build_stream::<u16>(core, channels)?,
+            cpal::SampleFormat::F32 => self.build_stream::<f32>(engine, channels)?,
+            cpal::SampleFormat::I16 => self.build_stream::<i16>(engine, channels)?,
+            cpal::SampleFormat::U16 => self.build_stream::<u16>(engine, channels)?,
             f => {
                 return Err(Error::Device(format!(
                     "negotiated sample format {f:?} unsupported"
@@ -254,7 +293,11 @@ impl Player {
         Ok(())
     }
 
-    fn build_stream<T>(&self, mut core: mixer::MixerCore, channels: usize) -> Result<cpal::Stream>
+    fn build_stream<T>(
+        &self,
+        mut engine: stretch::StretchEngine,
+        channels: usize,
+    ) -> Result<cpal::Stream>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
     {
@@ -263,10 +306,11 @@ impl Player {
         let clock = self.clock.shared.clone();
         let events = self.events_tx.clone();
         let dev_rate = self.stream_config.sample_rate.0;
-        let t0 = Instant::now();
+        let t0 = self.epoch;
         let mut gaps = diag::GapTracker::new();
         let mut scratch: Vec<f32> = Vec::new();
         let mut last_seek_id = 0u64;
+        let mut last_stretch_id = 0u64;
         let mut mmcss_attempted = false;
 
         let stream = self
@@ -301,28 +345,65 @@ impl Player {
                     let sid = shared.seek_id.load(Ordering::Acquire);
                     if sid != last_seek_id {
                         last_seek_id = sid;
-                        core.request_seek(shared.seek_frame.load(Ordering::Relaxed) as usize);
+                        engine.request_seek(shared.seek_frame.load(Ordering::Relaxed) as usize);
                     }
-                    core.set_playing(shared.transport.load(Ordering::Acquire) == T_PLAYING);
-                    core.set_guide_gain(f32::from_bits(
+                    engine.set_guide_gain(f32::from_bits(
                         shared.guide_bits.load(Ordering::Relaxed),
                     ));
+                    let playing = shared.transport.load(Ordering::Acquire) == T_PLAYING;
+
+                    // Stretch settings snapshot + apply-latency diagnostics.
+                    let settings = stretch::StretchSettings {
+                        pitch_semitones: f32::from_bits(
+                            shared.pitch_bits.load(Ordering::Relaxed),
+                        ),
+                        tempo_rate: f64::from_bits(shared.tempo_bits.load(Ordering::Relaxed)),
+                        config: stretch::StretchConfig::from_u8(
+                            shared.stretch_config.load(Ordering::Relaxed),
+                        ),
+                    };
+                    let cid = shared.stretch_change_id.load(Ordering::Acquire);
+                    if cid != last_stretch_id {
+                        last_stretch_id = cid;
+                        let req = shared.stretch_request_ns.load(Ordering::Relaxed);
+                        shared
+                            .stretch_apply_ns
+                            .store(now_ns.saturating_sub(req), Ordering::Relaxed);
+                        shared.stretch_applied.fetch_add(1, Ordering::Release);
+                    }
+
+                    // Device frames since origin *before* this block — the
+                    // anchor for a tempo-change timeline push.
+                    let f_now = clock.frames_value();
 
                     // Render + convert to the device sample type.
                     scratch.resize(data.len(), 0.0);
-                    let outcome = core.render(&mut scratch, channels);
+                    let outcome = engine.render(&mut scratch, channels, playing, &settings);
                     for (d, &s) in data.iter_mut().zip(scratch.iter()) {
                         *d = T::from_sample(s);
                     }
 
-                    // Clock: advance by frames actually rendered from the
-                    // source, splitting around an applied seek so the origin
-                    // reset is sample-accurate.
-                    clock.advance(outcome.frames_before_seek as u64);
-                    if let Some(frame) = outcome.seek_applied {
-                        clock.reset_origin(frame as f64 / dev_rate as f64);
+                    // Clock: the engine already mapped source-frame accounting
+                    // to device frames and folded stretcher latency into any
+                    // reset origin (stretch.rs module docs). Order per
+                    // clock.rs: reset_origin first, then its paired timeline
+                    // reset.
+                    if let Some(ratio) = outcome.tempo_change {
+                        clock.publish_ratio_change(
+                            f_now + outcome.latency_dev_frames,
+                            ratio,
+                        );
                     }
-                    clock.advance(outcome.frames_after_seek as u64);
+                    clock.advance(outcome.advance_before);
+                    if let Some((origin_secs, ratio)) = outcome.reset {
+                        clock.reset_origin(origin_secs);
+                        clock.publish_timeline_reset(ratio);
+                    }
+                    clock.advance(outcome.advance_after);
+
+                    shared
+                        .stretch_engaged
+                        .store(outcome.engaged as u8, Ordering::Relaxed);
 
                     if outcome.completed {
                         shared.finished.store(1, Ordering::Release);
@@ -386,6 +467,63 @@ impl Player {
         f32::from_bits(self.shared.guide_bits.load(Ordering::Relaxed))
     }
 
+    /// Mark a stretch-setting change for the callback and stamp the request
+    /// time (apply-latency diagnostics). Also folds any pending clock events
+    /// so the timeline ring stays shallow.
+    fn touch_stretch_change(&self) {
+        self.shared
+            .stretch_request_ns
+            .store(self.epoch.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        self.shared.stretch_change_id.fetch_add(1, Ordering::Release);
+        self.clock.shared.sync_timeline();
+    }
+
+    /// Pitch shift in semitones, clamped to ±[`MAX_PITCH_SEMITONES`]
+    /// (PLAN.md §3). Applies mid-playback; at 0 st and 1.00x tempo the
+    /// stretcher leaves the signal path entirely (stretch.rs).
+    pub fn set_pitch_semitones(&self, semitones: f32) {
+        let v = semitones.clamp(-MAX_PITCH_SEMITONES, MAX_PITCH_SEMITONES);
+        if v.to_bits() != self.shared.pitch_bits.load(Ordering::Relaxed) {
+            self.shared.pitch_bits.store(v.to_bits(), Ordering::Relaxed);
+            self.touch_stretch_change();
+        }
+    }
+
+    pub fn pitch_semitones(&self) -> f32 {
+        f32::from_bits(self.shared.pitch_bits.load(Ordering::Relaxed))
+    }
+
+    /// Tempo ratio (1.0 = original speed), clamped to
+    /// [[`TEMPO_RATE_MIN`], [`TEMPO_RATE_MAX`]] (PLAN.md §3). Independent of
+    /// pitch; applies mid-playback. Timing maps are untouched — only the
+    /// player clock translates through the ratio history (PLAN.md §5).
+    pub fn set_tempo_rate(&self, rate: f64) {
+        let v = rate.clamp(TEMPO_RATE_MIN, TEMPO_RATE_MAX);
+        if v.to_bits() != self.shared.tempo_bits.load(Ordering::Relaxed) {
+            self.shared.tempo_bits.store(v.to_bits(), Ordering::Relaxed);
+            self.touch_stretch_change();
+        }
+    }
+
+    pub fn tempo_rate(&self) -> f64 {
+        f64::from_bits(self.shared.tempo_bits.load(Ordering::Relaxed))
+    }
+
+    /// Stretcher latency/quality configuration. Takes effect mid-playback
+    /// (the engine transitions through a short ramped re-engage).
+    pub fn set_stretch_config(&self, config: StretchConfig) {
+        if config.to_u8() != self.shared.stretch_config.load(Ordering::Relaxed) {
+            self.shared
+                .stretch_config
+                .store(config.to_u8(), Ordering::Relaxed);
+            self.touch_stretch_change();
+        }
+    }
+
+    pub fn stretch_config(&self) -> StretchConfig {
+        StretchConfig::from_u8(self.shared.stretch_config.load(Ordering::Relaxed))
+    }
+
     pub fn state(&self) -> TransportState {
         if self.shared.finished.load(Ordering::Acquire) == 1 {
             return TransportState::Finished;
@@ -424,6 +562,9 @@ impl Player {
                 M_UNSUPPORTED => MmcssStatus::Unsupported,
                 _ => MmcssStatus::NotAttempted,
             },
+            stretch_engaged: self.shared.stretch_engaged.load(Ordering::Relaxed) != 0,
+            stretch_applied: self.shared.stretch_applied.load(Ordering::Acquire),
+            stretch_apply_ms: self.shared.stretch_apply_ns.load(Ordering::Relaxed) as f64 / 1e6,
         }
     }
 }

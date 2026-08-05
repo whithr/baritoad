@@ -2009,6 +2009,7 @@ dependencies = [
  "cpal",
  "flacenc",
  "hound",
+ "karaoke-stretch-sys",
  "lofty",
  "ndarray",
  "ort",
@@ -2031,6 +2032,13 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+]
+
+[[package]]
+name = "karaoke-stretch-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
