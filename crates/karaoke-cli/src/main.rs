@@ -19,7 +19,9 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use karaoke_core::alignment::{AlignConfig, Aligner};
 use karaoke_core::audio;
+use karaoke_core::formats::{self, ExportMeta, Format};
 use karaoke_core::lyrics::{self, CleanLyrics};
+use karaoke_core::timing::WordTimingMap;
 use karaoke_core::output::{FileSink, OutputFile, OutputFormat, StemSink};
 use karaoke_core::separation::{self, EpChoice, Event, ParityReport, SeparateStats, MODEL_FILE_NAME};
 use karaoke_core::timing::LyricSource;
@@ -42,9 +44,57 @@ enum Cmd {
     /// Word-align lyrics to a song's vocal stem (separates first if needed;
     /// auto-transcribes when no lyrics are given)
     Align(AlignArgs),
+    /// Export a timing map to a karaoke interchange format (Enhanced LRC,
+    /// ASS karaoke subtitles, or UltraStar .txt — PLAN.md §3)
+    Export(ExportArgs),
     /// Lyric utilities
     #[command(subcommand)]
     Lyrics(LyricsCmd),
+}
+
+#[derive(Args)]
+struct ExportArgs {
+    /// Timing-map JSON produced by `karaoke align`
+    map: PathBuf,
+
+    /// Output format
+    #[arg(long, value_enum)]
+    format: ExportFormatArg,
+
+    /// Output file (default: beside the map, "<song>.<ext>" — e.g.
+    /// "song.align.json" -> "song.lrc" / "song.ass" / "song.ultrastar.txt")
+    #[arg(long)]
+    out: Option<PathBuf>,
+
+    /// Audio file name the export should reference (UltraStar #MP3);
+    /// omitted from the file when not given
+    #[arg(long)]
+    audio_name: Option<String>,
+
+    /// Song title (default: derived from the map's file name)
+    #[arg(long)]
+    title: Option<String>,
+
+    /// Artist name
+    #[arg(long)]
+    artist: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ExportFormatArg {
+    Lrc,
+    Ass,
+    Ultrastar,
+}
+
+impl From<ExportFormatArg> for Format {
+    fn from(v: ExportFormatArg) -> Self {
+        match v {
+            ExportFormatArg::Lrc => Format::Lrc,
+            ExportFormatArg::Ass => Format::Ass,
+            ExportFormatArg::Ultrastar => Format::UltraStar,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -139,6 +189,11 @@ struct AlignArgs {
     #[arg(long, allow_hyphen_values = true)]
     onset_bias: Option<f64>,
 
+    /// Also export the timing map in these formats, written beside the map
+    /// (comma-separated: lrc,ass,ultrastar)
+    #[arg(long, value_delimiter = ',')]
+    export: Vec<ExportFormatArg>,
+
     /// Print a machine-readable JSON summary to stdout
     #[arg(long)]
     json: bool,
@@ -181,6 +236,7 @@ fn main() {
     let result = match cli.cmd {
         Cmd::Separate(args) => run_separate(&args),
         Cmd::Align(args) => run_align(&args),
+        Cmd::Export(args) => run_export(&args),
         Cmd::Lyrics(LyricsCmd::Clean(args)) => run_lyrics_clean(&args),
     };
     let code = match result {
@@ -543,8 +599,41 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
             .join(format!("{stem}.align.json"))
     });
     std::fs::write(&out_path, out.map.to_json_pretty()?)?;
-    let total_s = t_total.elapsed().as_secs_f64();
     eprintln!("wrote {}", out_path.display());
+
+    // ---- optional exports, written beside the map (PLAN.md §3) ----
+    let mut export_paths: Vec<PathBuf> = Vec::new();
+    if !args.export.is_empty() {
+        let base = export_base(&out_path);
+        let meta = ExportMeta {
+            title: args
+                .audio
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned()),
+            artist: None,
+            audio_name: args
+                .audio
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned()),
+        };
+        let mut seen: Vec<ExportFormatArg> = Vec::new();
+        for &f in &args.export {
+            if seen.contains(&f) {
+                continue;
+            }
+            seen.push(f);
+            let format: Format = f.into();
+            let path = base.with_file_name(format!(
+                "{}.{}",
+                base.file_name().unwrap_or_default().to_string_lossy(),
+                format.extension()
+            ));
+            write_export(&out.map, &meta, format, &path)?;
+            eprintln!("wrote {}", path.display());
+            export_paths.push(path);
+        }
+    }
+    let total_s = t_total.elapsed().as_secs_f64();
 
     if args.json {
         let summary = serde_json::json!({
@@ -563,6 +652,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
             })),
             "vocals": vocals_path,
             "timing_map": out_path,
+            "exports": export_paths,
             "separation": separation_run.as_ref().map(|r| serde_json::json!({
                 "ep_used": r.ep_used.as_str(),
                 "segments": r.stats.segments,
@@ -605,6 +695,73 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Err("timing-map sanity violations (see stderr)".into())
     }
+}
+
+/// Default export base beside the map: "<dir>/song" for "<dir>/song.align.json"
+/// (strips ".json", then a trailing ".align").
+fn export_base(map_path: &Path) -> PathBuf {
+    let stem = map_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "song".into());
+    let stem = stem.strip_suffix(".align").unwrap_or(&stem).to_string();
+    map_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(stem)
+}
+
+/// Render + write one export; returns the path written.
+fn write_export(
+    map: &WordTimingMap,
+    meta: &ExportMeta,
+    format: Format,
+    out: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rendered = formats::export(map, meta, format);
+    std::fs::write(out, rendered)
+        .map_err(|e| format!("cannot write {}: {e}", out.display()))?;
+    Ok(())
+}
+
+/// `karaoke export` — render a timing map as LRC / ASS / UltraStar.
+/// Exporters consume the map's original-song time verbatim (PLAN.md §5:
+/// tempo-aware translation is the player clock's job, never the file's).
+fn run_export(args: &ExportArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let raw = std::fs::read_to_string(&args.map)
+        .map_err(|e| format!("cannot read timing map {}: {e}", args.map.display()))?;
+    let map = WordTimingMap::from_json(&raw)?;
+    if map.words.is_empty() {
+        return Err("timing map has no words — nothing to export".into());
+    }
+    for v in map.validate() {
+        eprintln!("warning: timing map: {v}");
+    }
+    let base = export_base(&args.map);
+    let meta = ExportMeta {
+        title: args.title.clone().or_else(|| {
+            base.file_name().map(|s| s.to_string_lossy().into_owned())
+        }),
+        artist: args.artist.clone(),
+        audio_name: args.audio_name.clone(),
+    };
+    let format: Format = args.format.into();
+    let out = args.out.clone().unwrap_or_else(|| {
+        base.with_file_name(format!(
+            "{}.{}",
+            base.file_name().unwrap_or_default().to_string_lossy(),
+            format.extension()
+        ))
+    });
+    write_export(&map, &meta, format, &out)?;
+    println!(
+        "exported {} words -> {} ({})",
+        map.words.len(),
+        out.display(),
+        format.as_str()
+    );
+    Ok(())
 }
 
 /// `karaoke lyrics clean` — dry-run preview of the cleanup pass. Cleaned

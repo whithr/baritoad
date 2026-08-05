@@ -15,6 +15,9 @@
 //! - lyric cleanup stage ([`lyrics`]): strips section headers and credit
 //!   lines, expands repeat markers, flags ad-libs — runs before alignment
 //!   (PLAN.md §3) and produces the machine-readable change summary (§4)
+//! - export stage ([`formats`]): Enhanced LRC, ASS karaoke subtitles, and
+//!   UltraStar .txt from the timing map (PLAN.md §3 "Formats & interop");
+//!   original-song time verbatim, no stretch translation (§5)
 //!
 //! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg only ever
 //! as a subprocess (not used by these stages at all), no GPL/AGPL dependencies.
@@ -22,6 +25,7 @@
 pub mod alignment;
 pub mod audio;
 pub mod error;
+pub mod formats;
 pub mod lyrics;
 pub mod output;
 pub mod separation;
