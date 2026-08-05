@@ -1,0 +1,31 @@
+# Build output
+target/
+node_modules/
+dist/
+build/
+
+# Audio & video — test songs are copyrighted, never commit them (CLAUDE.md hard rule)
+*.mp3
+*.flac
+*.wav
+*.m4a
+*.ogg
+*.opus
+*.aac
+*.mp4
+*.mkv
+*.webm
+
+# Model weights — mirrored, never in-repo (provenance in MODEL_LICENSES.md)
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.ggml
+*.gguf
+weights/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
