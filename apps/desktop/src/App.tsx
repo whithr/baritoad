@@ -8,16 +8,19 @@ import Library from "./views/Library";
 import NewSong from "./views/NewSong";
 import Jobs from "./views/Jobs";
 import SongDetail from "./views/SongDetail";
+import UpNext from "./views/UpNext";
 
 export type Route =
   | { view: "library" }
   | { view: "new" }
+  | { view: "queue" }
   | { view: "jobs" }
   | { view: "song"; mapPath: string; title?: string };
 
 function parseHash(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
   if (path === "new") return { view: "new" };
+  if (path === "queue") return { view: "queue" };
   if (path === "jobs") return { view: "jobs" };
   if (path === "song") {
     const params = new URLSearchParams(query ?? "");
@@ -36,6 +39,9 @@ export function navigate(route: Route) {
       break;
     case "new":
       window.location.hash = "#/new";
+      break;
+    case "queue":
+      window.location.hash = "#/queue";
       break;
     case "jobs":
       window.location.hash = "#/jobs";
@@ -105,6 +111,11 @@ export default function App() {
         />
         <NavButton label="New Song" active={route.view === "new"} onClick={() => go({ view: "new" })} />
         <NavButton
+          label="Up Next"
+          active={route.view === "queue"}
+          onClick={() => go({ view: "queue" })}
+        />
+        <NavButton
           label={activeCount > 0 ? `Jobs (${activeCount})` : "Jobs"}
           active={route.view === "jobs"}
           onClick={() => go({ view: "jobs" })}
@@ -112,8 +123,9 @@ export default function App() {
         <div className="sidebar-foot">local-only · source-available</div>
       </nav>
       <main className="content">
-        {route.view === "library" && <Library go={go} />}
+        {route.view === "library" && <Library go={go} jobs={jobs} />}
         {route.view === "new" && <NewSong go={go} />}
+        {route.view === "queue" && <UpNext go={go} />}
         {route.view === "jobs" && <Jobs jobs={jobs} go={go} />}
         {route.view === "song" && <SongDetail mapPath={route.mapPath} title={route.title} />}
       </main>

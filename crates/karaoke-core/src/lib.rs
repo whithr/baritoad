@@ -24,6 +24,10 @@
 //!   (PLAN.md §5 "job queue, resume")
 //! - accuracy harness ([`accuracy`]): word-onset error vs hand-made
 //!   UltraStar references (PLAN.md §9 Phase 1)
+//! - library store ([`library`]): SQLite-backed songs / collections /
+//!   up-next queue (PLAN.md §3, §5), tag-based metadata + cover art via
+//!   lofty (local files only, never the network), and the completion hook
+//!   that registers finished jobs idempotently by audio hash
 //!
 //! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg only ever
 //! as a subprocess (not used by these stages at all), no GPL/AGPL dependencies.
@@ -33,6 +37,7 @@ pub mod alignment;
 pub mod audio;
 pub mod error;
 pub mod formats;
+pub mod library;
 pub mod lyrics;
 pub mod output;
 pub mod pipeline;

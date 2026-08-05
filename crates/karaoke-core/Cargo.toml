@@ -16,3 +16,13 @@ serde.workspace = true
 serde_json.workspace = true
 rustfft.workspace = true
 sha2.workspace = true
+rusqlite.workspace = true
+lofty.workspace = true
+
+[dev-dependencies]
+# Integration tests fabricate tiny tagged fixtures at test time (no
+# copyrighted audio in the repo — CLAUDE.md hard rule) and poke DB pragmas
+# the store API doesn't expose.
+rusqlite.workspace = true
+lofty.workspace = true
+hound.workspace = true

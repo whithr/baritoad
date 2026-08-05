@@ -16,6 +16,8 @@ pub enum Error {
     Encode(String),
     /// Caller error (bad arguments, unsupported input).
     InvalidInput(String),
+    /// Library database (SQLite) failure.
+    Db(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -29,6 +31,7 @@ impl fmt::Display for Error {
             Error::Inference(m) => write!(f, "inference error: {m}"),
             Error::Encode(m) => write!(f, "encode error: {m}"),
             Error::InvalidInput(m) => write!(f, "invalid input: {m}"),
+            Error::Db(m) => write!(f, "library db error: {m}"),
         }
     }
 }
@@ -57,5 +60,11 @@ impl<T> From<ort::Error<T>> for Error {
 impl From<hound::Error> for Error {
     fn from(e: hound::Error) -> Self {
         Error::Encode(e.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Error::Db(e.to_string())
     }
 }

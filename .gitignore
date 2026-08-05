@@ -25,6 +25,13 @@ build/
 *.gguf
 weights/
 
+# Library databases — per-user state, never in the repo
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
 # Tauri build-time generated files (recreated by tauri-build on every build)
 apps/desktop/src-tauri/gen/
 

@@ -1,12 +1,20 @@
-// New Song wizard — the golden path (PLAN.md §4): drop/pick a file, paste
-// lyrics (live one-line cleanup preview via clean_lyrics_preview), Generate.
-// At most one decision beyond the paste box, zero required.
+// New Song wizard — the golden path (PLAN.md §4): drop/pick a file, the app
+// reads its tags (title/artist/cover/duration via probe_audio) and asks
+// nothing else — fields come prefilled and editable. Paste lyrics (live
+// one-line cleanup preview via clean_lyrics_preview), Generate.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { cleanLyricsPreview, generateSong, type CleanPreview } from "../api";
+import {
+  cleanLyricsPreview,
+  generateSong,
+  probeAudio,
+  type CleanPreview,
+  type ProbeResult,
+} from "../api";
 import { metaFromFilename, previewLine } from "../songMeta";
+import { fmtDuration } from "../libraryState";
 import type { Route } from "../App";
 
 const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "opus", "aac"];
@@ -18,6 +26,7 @@ function isAudioPath(p: string): boolean {
 
 export default function NewSong({ go }: { go: (r: Route) => void }) {
   const [audioPath, setAudioPath] = useState<string | null>(null);
+  const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [lyrics, setLyrics] = useState("");
@@ -35,9 +44,22 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
     }
     setError(null);
     setAudioPath(path);
+    setProbe(null);
+    // Instant filename-based prefill, then the tag probe refines it
+    // (PLAN.md §4 step 1: reads tags, asks nothing else).
     const meta = metaFromFilename(path);
     setTitle(meta.title);
     setArtist(meta.artist ?? "");
+    (async () => {
+      try {
+        const p = await probeAudio(path);
+        setProbe(p);
+        setTitle(p.title);
+        setArtist(p.artist ?? "");
+      } catch (e) {
+        console.error("probe_audio failed", e);
+      }
+    })();
   }, []);
 
   // Native drag-drop from the OS lands on the webview, not the DOM.
@@ -114,10 +136,22 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
         onKeyDown={(e) => e.key === "Enter" && browse()}
       >
         {audioPath ? (
-          <>
-            <div className="drop-title">{audioPath.split(/[\\/]/).pop()}</div>
-            <div className="drop-sub">Click to choose a different file</div>
-          </>
+          <div className="drop-filled">
+            {probe?.cover_data_url && (
+              <img src={probe.cover_data_url} alt="" className="drop-cover" />
+            )}
+            <div>
+              <div className="drop-title">{audioPath.split(/[\\/]/).pop()}</div>
+              {probe && (
+                <div className="drop-sub" data-testid="probe-line">
+                  {probe.from_tags ? "from file tags" : "from file name"}
+                  {probe.album ? ` · ${probe.album}` : ""}
+                  {fmtDuration(probe.duration_s) ? ` · ${fmtDuration(probe.duration_s)}` : ""}
+                </div>
+              )}
+              <div className="drop-sub">Click to choose a different file</div>
+            </div>
+          </div>
         ) : (
           <>
             <div className="drop-title">Drop a song here</div>

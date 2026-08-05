@@ -18,7 +18,10 @@ use std::sync::{Arc, Condvar, Mutex};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+use karaoke_core::library::register_completed_job;
 use karaoke_core::pipeline::{self, GenerateRequest, PipelineEvent};
+
+use crate::library::LibraryHandle;
 
 /// Single event channel the frontend subscribes to.
 pub const JOB_EVENT: &str = "karaoke://job";
@@ -45,6 +48,10 @@ pub struct JobSnapshot {
     /// Set when the job completed (points at the timing map).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub map_path: Option<PathBuf>,
+    /// Library row id once the completed job registered (idempotent by
+    /// audio hash — regenerating updates the same song).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_song_id: Option<i64>,
     pub status: JobStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -119,6 +126,7 @@ impl JobQueue {
             artist,
             out_dir,
             map_path: None,
+            library_song_id: None,
             status: JobStatus::Queued,
             error: None,
             cancel_requested: false,
@@ -181,7 +189,10 @@ impl JobQueue {
     }
 
     /// Worker loop body — spawn on a dedicated thread with the app handle.
-    pub fn run_worker(self: Arc<Self>, app: AppHandle) {
+    /// On completion the job registers in the library (PLAN.md §4 step 6:
+    /// the song lands in the library marked ready) *before* the completed
+    /// lifecycle event fires, so a UI refetch on that event sees the row.
+    pub fn run_worker(self: Arc<Self>, app: AppHandle, library: Arc<LibraryHandle>) {
         loop {
             let (id, request, cancel, started) = {
                 let mut inner = self.inner.lock().unwrap();
@@ -204,6 +215,51 @@ impl JobQueue {
 
             let outcome = run_one(&app, id, &request, &cancel);
 
+            // Library registration happens outside the queue lock (it reads
+            // the manifest + tags from disk) and must not fail the job — the
+            // song outputs exist regardless.
+            let registered = match &outcome {
+                RunOutcome::Completed { .. } => {
+                    let (title, artist, out_dir) = {
+                        let inner = self.inner.lock().unwrap();
+                        let e = inner.jobs.get(&id).expect("job entry vanished");
+                        (
+                            e.snapshot.title.clone(),
+                            e.snapshot.artist.clone(),
+                            e.snapshot.out_dir.clone(),
+                        )
+                    };
+                    let result = library.lock().and_then(|store| {
+                        register_completed_job(
+                            &store,
+                            &out_dir,
+                            library.covers_dir(),
+                            &title,
+                            artist.as_deref(),
+                        )
+                        .map_err(|e| e.to_string())
+                    });
+                    match result {
+                        Ok(song) => Some(song.id),
+                        Err(msg) => {
+                            let _ = app.emit(
+                                JOB_EVENT,
+                                JobEventPayload::Pipeline {
+                                    job_id: id,
+                                    event: PipelineEvent::Note {
+                                        message: format!(
+                                            "song finished but library registration failed: {msg}"
+                                        ),
+                                    },
+                                },
+                            );
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            };
+
             let snapshot = {
                 let mut inner = self.inner.lock().unwrap();
                 let entry = inner.jobs.get_mut(&id).expect("job entry vanished");
@@ -211,6 +267,7 @@ impl JobQueue {
                     RunOutcome::Completed { map_path } => {
                         entry.snapshot.status = JobStatus::Completed;
                         entry.snapshot.map_path = Some(map_path);
+                        entry.snapshot.library_song_id = registered;
                     }
                     RunOutcome::Cancelled => {
                         entry.snapshot.status = JobStatus::Cancelled;

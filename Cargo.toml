@@ -25,6 +25,12 @@ serde_json = "1"
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 rustfft = "6"
+# Library store (PLAN.md §5): SQLite via rusqlite; `bundled` compiles SQLite
+# into the binary (public domain) so there is no system dependency.
+rusqlite = { version = "0.37", features = ["bundled"] }
+# Tag reading (title/artist/cover) at import time — local files only, no
+# network metadata (PLAN.md §2 local-first).
+lofty = "0.22"
 
 [profile.release]
 opt-level = 3

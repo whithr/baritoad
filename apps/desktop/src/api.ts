@@ -25,6 +25,8 @@ export interface JobSnapshot {
   artist?: string;
   out_dir: string;
   map_path?: string;
+  /** Library row id once the completed job registered. */
+  library_song_id?: number;
   status: JobStatus;
   error?: string;
   cancel_requested: boolean;
@@ -112,3 +114,100 @@ export const exportSong = (request: {
 
 export const onJobEvent = (handler: (e: JobEvent) => void): Promise<UnlistenFn> =>
   listen<JobEvent>("karaoke://job", (event) => handler(event.payload));
+
+// ---------------------------------------------------------------------------
+// library (src-tauri/src/library.rs — SQLite store in karaoke-core)
+// ---------------------------------------------------------------------------
+
+export interface Song {
+  id: number;
+  title: string;
+  artist?: string | null;
+  album?: string | null;
+  audio_path: string;
+  audio_hash: string;
+  job_dir: string;
+  timing_map_path?: string | null;
+  vocals_path?: string | null;
+  instrumental_path?: string | null;
+  duration_s?: number | null;
+  cover_path?: string | null;
+  lyric_source?: string | null;
+  language_tag: string;
+  date_added: number;
+  last_played?: number | null;
+  play_count: number;
+}
+
+export type SongSort = "recently_added" | "recently_played" | "title" | "collection_order";
+
+export interface SongQuery {
+  search?: string;
+  sort?: SongSort;
+  collection?: number;
+}
+
+export interface CollectionInfo {
+  id: number;
+  name: string;
+  created: number;
+  song_count: number;
+}
+
+export interface QueueEntry {
+  id: number;
+  position: number;
+  added_from_collection?: number | null;
+  song: Song;
+}
+
+export interface ProbeResult {
+  title: string;
+  artist?: string;
+  album?: string;
+  duration_s?: number;
+  cover_data_url?: string;
+  from_tags: boolean;
+}
+
+export const probeAudio = (path: string) => invoke<ProbeResult>("probe_audio", { path });
+
+export const librarySongs = (query?: SongQuery) =>
+  invoke<Song[]>("library_songs", { query });
+
+export const libraryDeleteSong = (songId: number) =>
+  invoke<boolean>("library_delete_song", { songId });
+
+export const libraryCollections = () => invoke<CollectionInfo[]>("library_collections");
+
+export const collectionCreate = (name: string) =>
+  invoke<CollectionInfo>("collection_create", { name });
+
+export const collectionRename = (collectionId: number, name: string) =>
+  invoke<void>("collection_rename", { collectionId, name });
+
+export const collectionDelete = (collectionId: number) =>
+  invoke<boolean>("collection_delete", { collectionId });
+
+export const collectionAddSong = (collectionId: number, songId: number) =>
+  invoke<void>("collection_add_song", { collectionId, songId });
+
+export const collectionRemoveSong = (collectionId: number, songId: number) =>
+  invoke<boolean>("collection_remove_song", { collectionId, songId });
+
+export const songCollections = (songId: number) =>
+  invoke<number[]>("song_collections", { songId });
+
+export const queueList = () => invoke<QueueEntry[]>("queue_list");
+
+export const queueAdd = (songId: number, fromCollection?: number) =>
+  invoke<QueueEntry>("queue_add", { songId, fromCollection: fromCollection ?? null });
+
+export const queueRemove = (entryId: number) => invoke<boolean>("queue_remove", { entryId });
+
+export const queueMoveEntry = (entryId: number, toIndex: number) =>
+  invoke<void>("queue_move", { entryId, toIndex });
+
+export const queueClear = () => invoke<void>("queue_clear");
+
+export const readCover = (path: string) => invoke<string>("read_cover", { path });
