@@ -1,0 +1,485 @@
+/* Dark, TV-friendly shell styling — the product is player-first, so the
+   whole app lives in the player's palette: near-black stage, high contrast,
+   one accent. Plain CSS on purpose (no UI framework — PLAN.md §6 discipline). */
+
+:root {
+  --bg: #0d0f14;
+  --bg-raised: #161a22;
+  --bg-hover: #1e2430;
+  --border: #262d3b;
+  --text: #e8ebf2;
+  --text-dim: #8b93a7;
+  --accent: #e849a0;
+  --accent-soft: rgba(232, 73, 160, 0.16);
+  --ok: #43d17c;
+  --warn: #e8b849;
+  --err: #e85b49;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  user-select: none;
+}
+
+textarea,
+input {
+  user-select: text;
+}
+
+.shell {
+  display: flex;
+  height: 100%;
+}
+
+/* ---- sidebar ---- */
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 12px;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  font-size: 20px;
+  font-weight: 600;
+  padding: 4px 12px 20px;
+  letter-spacing: 0.02em;
+}
+
+.brand-mark {
+  color: var(--accent);
+}
+
+.nav-btn {
+  text-align: left;
+  padding: 12px 14px;
+  font-size: 16px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.nav-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.nav-btn.active {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---- content ---- */
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 40px 64px;
+}
+
+h1 {
+  font-size: 28px;
+  font-weight: 650;
+  margin: 0 0 24px;
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.small {
+  font-size: 13px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--text-dim);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+button.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.error-banner {
+  background: rgba(232, 91, 73, 0.12);
+  border: 1px solid var(--err);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  user-select: text;
+}
+
+/* ---- wizard ---- */
+
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 14px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+  margin-bottom: 24px;
+}
+
+.dropzone:hover,
+.dropzone.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dropzone.filled {
+  border-style: solid;
+  padding: 24px;
+}
+
+.drop-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.drop-sub {
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+.field-row {
+  display: flex;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  margin-bottom: 16px;
+}
+
+.field span {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.field input,
+.field textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.cleanup-line {
+  font-size: 14px;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.cleanup-edits {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.cleanup-edits li {
+  margin: 2px 0;
+}
+
+/* ---- jobs ---- */
+
+.job-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.job-card.status-completed {
+  border-color: rgba(67, 209, 124, 0.4);
+}
+
+.job-card.status-failed {
+  border-color: rgba(232, 91, 73, 0.5);
+}
+
+.job-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.job-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.job-artist {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.job-headline {
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.status-completed .job-headline {
+  color: var(--ok);
+}
+
+.status-failed .job-headline {
+  color: var(--err);
+}
+
+.status-cancelled .job-headline,
+.status-queued .job-headline {
+  color: var(--text-dim);
+}
+
+.stage-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+
+.stage-arrow {
+  color: var(--text-dim);
+}
+
+.stage-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+  min-width: 170px;
+}
+
+.stage-pill.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.stage-pill.done {
+  border-color: var(--ok);
+  color: var(--text);
+}
+
+.stage-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.stage-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 300ms;
+}
+
+.job-message {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ---- library ---- */
+
+.empty-state {
+  text-align: center;
+  padding: 64px 0;
+  color: var(--text-dim);
+}
+
+.empty-mark {
+  font-size: 56px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.empty-state .primary {
+  margin-top: 16px;
+}
+
+.song-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.song-card {
+  text-align: left;
+  padding: 0 0 12px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+
+.song-card:hover {
+  border-color: var(--accent);
+}
+
+.song-cover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  font-size: 40px;
+  color: var(--accent);
+  background: var(--bg-hover);
+  margin-bottom: 10px;
+}
+
+.song-title {
+  font-weight: 600;
+  padding: 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-artist {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 2px 12px 0;
+}
+
+/* ---- song detail ---- */
+
+.word-lines {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.word-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.word {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.word.unsung {
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
+.word.adlib .word-text {
+  font-style: italic;
+  color: var(--warn);
+}
+
+.word-text {
+  font-size: 15px;
+}
+
+.word-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}

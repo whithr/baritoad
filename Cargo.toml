@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/karaoke-core", "crates/karaoke-cli"]
+members = ["crates/karaoke-core", "crates/karaoke-cli", "apps/desktop/src-tauri"]
 # Phase 0 spike crates keep their own lockfiles/targets and stay out of the
 # workspace (spikes/README.md: spike code is frozen evidence, not product code).
 exclude = ["spikes"]
