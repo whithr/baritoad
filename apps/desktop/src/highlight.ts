@@ -77,6 +77,29 @@ export function wordIndexAt(
   return t <= Math.max(w.end, w.start) + graceS ? lo : null;
 }
 
+/**
+ * "Sung so far" high-water mark: index of the last word whose onset is <= t,
+ * with no grace cutoff — unlike wordIndexAt, this never goes null mid-song.
+ * Between words (instrumental breaks, line gaps) it keeps pointing at the
+ * word just finished, so already-sung text stays tinted instead of snapping
+ * back to the unsung color the moment nobody is singing. Same binary search
+ * over the monotonic-onset invariant (core validate()).
+ */
+export function sungThroughIndexAt(
+  words: { start: number }[],
+  t: number,
+): number | null {
+  if (words.length === 0 || t < words[0].start) return null;
+  let lo = 0;
+  let hi = words.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (words[mid].start <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 /** Group word indices by lyric line (falling back to one synthetic line per
  *  run of undefined `line` values), preserving map order. */
 export function groupByLine(words: { line?: number }[]): { line: number | null; indices: number[] }[] {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { groupByLine, pickHighlightWindow, wordIndexAt } from "./highlight";
+import {
+  groupByLine,
+  pickHighlightWindow,
+  sungThroughIndexAt,
+  wordIndexAt,
+} from "./highlight";
 
 const w = (start: number, end: number, unsung = false, line?: number) => ({
   start,
@@ -64,6 +69,27 @@ describe("wordIndexAt", () => {
   it("nothing before the first word or in an empty map", () => {
     expect(wordIndexAt(words, 0.5)).toBeNull();
     expect(wordIndexAt([], 1)).toBeNull();
+  });
+});
+
+describe("sungThroughIndexAt", () => {
+  const words = [w(1.0, 1.4), w(1.5, 2.0), w(5.0, 5.6)];
+
+  it("tracks the last word that started", () => {
+    expect(sungThroughIndexAt(words, 1.2)).toBe(0);
+    expect(sungThroughIndexAt(words, 1.7)).toBe(1);
+    expect(sungThroughIndexAt(words, 9)).toBe(2);
+  });
+
+  it("holds through gaps where wordIndexAt goes null (sung tint must not vanish)", () => {
+    // 3.5 s is the long instrumental gap between words 1 and 2
+    expect(wordIndexAt(words, 3.5)).toBeNull();
+    expect(sungThroughIndexAt(words, 3.5)).toBe(1);
+  });
+
+  it("null only before the first word or in an empty map", () => {
+    expect(sungThroughIndexAt(words, 0.5)).toBeNull();
+    expect(sungThroughIndexAt([], 1)).toBeNull();
   });
 });
 

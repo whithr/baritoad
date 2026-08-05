@@ -34,7 +34,12 @@ import {
   type TimingMap,
 } from "../api";
 import { exportFreshness } from "../editorState";
-import { groupByLine, pickHighlightWindow, wordIndexAt } from "../highlight";
+import {
+  groupByLine,
+  pickHighlightWindow,
+  sungThroughIndexAt,
+  wordIndexAt,
+} from "../highlight";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
 import { useAudio } from "../useAudio";
 import FixEditor from "./FixEditor";
@@ -329,6 +334,9 @@ function Preview(props: {
   };
 
   const active = wordIndexAt(map.words, audio.time);
+  // Words at or before this index have been sung — stays put during gaps,
+  // so the sung tint doesn't vanish while nobody is singing.
+  const sungThrough = sungThroughIndexAt(map.words, audio.time);
   const lines = useMemo(() => groupByLine(map.words), [map]);
   // Line being sung (or the next one coming up).
   const lineIdx = useMemo(() => {
@@ -364,10 +372,14 @@ function Preview(props: {
           <div className="preview-line current">
             {line?.indices.map((wi) => {
               const w = map.words[wi];
+              const sung =
+                active != null
+                  ? wi < active
+                  : sungThrough != null && wi <= sungThrough;
               return (
                 <span
                   key={wi}
-                  className={`k-word${active === wi ? " active" : ""}${wi < (active ?? -1) ? " sung" : ""}${w.unsung ? " unsung" : ""}`}
+                  className={`k-word${active === wi ? " active" : ""}${sung ? " sung" : ""}${w.unsung ? " unsung" : ""}`}
                 >
                   {w.word}
                 </span>
