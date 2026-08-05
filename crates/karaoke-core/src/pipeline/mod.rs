@@ -1,0 +1,803 @@
+//! Pipeline orchestrator (PLAN.md §5): the full generate pipeline —
+//! separate → clean lyrics → align → export — run as discrete, resumable
+//! stages with a persisted job manifest ([`manifest`]).
+//!
+//! Resume semantics live in the manifest module docs; the short form: a stage
+//! is skipped when its recorded fingerprint (content hashes of its inputs +
+//! its config + its version + upstream output tokens) is unchanged and its
+//! artifacts are intact. Changed lyrics re-run cleanup + align + export but
+//! reuse the stems; `force` redoes everything; `force_stages` redoes named
+//! stages (and, via output-token chaining, whatever depends on them).
+//!
+//! Progress is surfaced through [`PipelineEvent`] — designed for the Tauri
+//! app's progress screen (next milestone) and rendered to stderr by the CLI
+//! today. Events serialize as tagged JSON (`{"type": "stage_progress", ...}`).
+//!
+//! Hard rules honored (CLAUDE.md): all processing is local; timing maps store
+//! original-song time only (§5); no Python at runtime.
+
+pub mod hash;
+pub mod manifest;
+
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use serde::Serialize;
+
+use crate::alignment::{AlignConfig, Aligner, CTC_ONSET_BIAS_S};
+use crate::audio;
+use crate::error::{Error, Result};
+use crate::formats::{self, ExportMeta, Format};
+use crate::lyrics::{self, CleanLyrics};
+use crate::output::{FileSink, OutputFormat, StemSink};
+use crate::separation::{self, EpChoice, MODEL_FILE_NAME};
+use crate::timing::WordTimingMap;
+
+use manifest::{Artifact, JobManifest, JobPointer, StageId};
+
+/// Bump when a stage's implementation changes in a way that invalidates old
+/// outputs; the version participates in the stage fingerprint, so old jobs
+/// rerun the stage instead of trusting stale artifacts.
+pub const SEPARATE_STAGE_VERSION: u32 = 1;
+pub const CLEAN_LYRICS_STAGE_VERSION: u32 = 1;
+pub const ALIGN_STAGE_VERSION: u32 = 1;
+pub const EXPORT_STAGE_VERSION: u32 = 1;
+
+/// Progress/diagnostic events for a front end to subscribe to. The Tauri app
+/// (next milestone) forwards these to the progress screen; the CLI prints
+/// them to stderr. Serialized as `{"type": "...", ...}` (serde tag).
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PipelineEvent {
+    StageStarted {
+        stage: StageId,
+    },
+    /// `fraction` in [0, 1] when the stage can quantify progress (separation
+    /// reports segments); message-only otherwise (alignment reports phases).
+    StageProgress {
+        stage: StageId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fraction: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    StageSkipped {
+        stage: StageId,
+        reason: String,
+    },
+    StageCompleted {
+        stage: StageId,
+        seconds: f64,
+    },
+    StageFailed {
+        stage: StageId,
+        message: String,
+    },
+    Note {
+        message: String,
+    },
+}
+
+/// Everything `generate` needs. Paths may be relative; they are absolutized
+/// against the current directory before hashing so manifests stay meaningful
+/// from any working directory.
+#[derive(Debug, Clone)]
+pub struct GenerateRequest {
+    pub audio: PathBuf,
+    /// Pasted-lyrics file (golden path — PLAN.md §4). None ⇒ the align stage
+    /// auto-transcribes and lyric cleanup is not applicable.
+    pub lyrics: Option<PathBuf>,
+    /// Default: `<audio stem>-karaoke` beside the audio file.
+    pub out_dir: Option<PathBuf>,
+    /// Model root containing htdemucs.onnx, whisper-small/, wav2vec2/.
+    pub model_dir: Option<PathBuf>,
+    /// Jobs registry dir (default [`manifest::default_jobs_dir`]).
+    pub jobs_dir: Option<PathBuf>,
+    pub ep: EpChoice,
+    /// Export formats; empty ⇒ no export stage outputs (stage still records
+    /// as complete with zero artifacts — callers usually pass at least one).
+    pub exports: Vec<Format>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub whisper_int8: bool,
+    /// None ⇒ the spike-measured default ([`CTC_ONSET_BIAS_S`]).
+    pub onset_bias_s: Option<f64>,
+    /// Redo every stage regardless of manifest state.
+    pub force: bool,
+    /// Redo these stages (downstream stages cascade via output tokens).
+    pub force_stages: Vec<StageId>,
+}
+
+impl GenerateRequest {
+    pub fn new(audio: PathBuf) -> Self {
+        Self {
+            audio,
+            lyrics: None,
+            out_dir: None,
+            model_dir: None,
+            jobs_dir: None,
+            ep: EpChoice::Auto,
+            exports: vec![Format::Lrc, Format::Ass, Format::UltraStar],
+            title: None,
+            artist: None,
+            whisper_int8: false,
+            onset_bias_s: None,
+            force: false,
+            force_stages: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StageOutcome {
+    pub stage: StageId,
+    /// False when the stage was skipped via resume (or not applicable).
+    pub ran: bool,
+    pub seconds: f64,
+}
+
+pub struct GenerateOutcome {
+    pub manifest_path: PathBuf,
+    pub manifest: JobManifest,
+    pub map_path: PathBuf,
+    pub export_paths: Vec<PathBuf>,
+    pub stages: Vec<StageOutcome>,
+    pub total_s: f64,
+}
+
+/// Default out dir: `<audio stem>-karaoke` beside the audio.
+pub fn default_out_dir(audio: &Path) -> PathBuf {
+    let stem = audio
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "song".into());
+    audio
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(format!("{stem}-karaoke"))
+}
+
+/// Cheap identity for a model file (size + mtime). Weights are ~350 MB;
+/// content-hashing them on every run would dominate resume time. A swapped
+/// model file with identical size *and* mtime is out of threat model — the
+/// model manager (PLAN.md §3) writes fresh files.
+fn model_file_id(path: &Path) -> String {
+    match std::fs::metadata(path) {
+        Ok(m) => {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("{}:{}:{}", path.display(), m.len(), mtime)
+        }
+        Err(_) => format!("{}:missing", path.display()),
+    }
+}
+
+fn fingerprint(parts: &serde_json::Value) -> String {
+    hash::sha256_hex(parts.to_string().as_bytes())
+}
+
+fn absolutize(p: &Path) -> PathBuf {
+    std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// Run (or resume) the full generate pipeline. Every stage transition is
+/// persisted to the job manifest before and after the stage runs, so a kill
+/// at any point leaves a resumable record (manifest module docs).
+pub fn generate(
+    req: &GenerateRequest,
+    on_event: &mut dyn FnMut(&PipelineEvent),
+) -> Result<GenerateOutcome> {
+    let t_total = Instant::now();
+    let audio_path = absolutize(&req.audio);
+    if !audio_path.is_file() {
+        return Err(Error::InvalidInput(format!(
+            "audio file not found: {}",
+            audio_path.display()
+        )));
+    }
+    let out_dir = absolutize(&req.out_dir.clone().unwrap_or_else(|| default_out_dir(&audio_path)));
+    let model_dir = req
+        .model_dir
+        .clone()
+        .unwrap_or_else(separation::default_model_dir);
+    let jobs_dir = req.jobs_dir.clone().unwrap_or_else(manifest::default_jobs_dir);
+    std::fs::create_dir_all(&out_dir)?;
+
+    let song_stem = audio_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "song".into());
+
+    // ---- content-hash the inputs (the resume contract's foundation) ----
+    on_event(&PipelineEvent::Note {
+        message: format!("hashing inputs for {}", audio_path.display()),
+    });
+    let audio_ref = manifest::InputRef::from_file(&audio_path)?;
+    let lyrics_ref = match &req.lyrics {
+        Some(p) => Some(manifest::InputRef::from_file(&absolutize(p))?),
+        None => None,
+    };
+
+    // ---- load or create the manifest ----
+    let manifest_path = JobManifest::manifest_path(&out_dir);
+    let job_id = manifest::job_id(&audio_path, &out_dir);
+    let mut man = match JobManifest::load(&manifest_path) {
+        Ok(m) if m.job_id == job_id => m,
+        Ok(_) => {
+            on_event(&PipelineEvent::Note {
+                message: "manifest in out dir belongs to a different job — starting fresh".into(),
+            });
+            JobManifest::new(job_id.clone(), audio_ref.clone(), lyrics_ref.clone(), &out_dir)
+        }
+        Err(_) => JobManifest::new(job_id.clone(), audio_ref.clone(), lyrics_ref.clone(), &out_dir),
+    };
+    man.audio = audio_ref.clone();
+    man.lyrics = lyrics_ref.clone();
+
+    let save = |man: &mut JobManifest| -> Result<()> {
+        man.save_atomic(&manifest_path)?;
+        manifest::write_pointer(
+            &jobs_dir,
+            &JobPointer {
+                job_id: job_id.clone(),
+                manifest: manifest_path.clone(),
+                audio: audio_path.clone(),
+                out_dir: out_dir.clone(),
+                updated_unix: man.updated_unix,
+            },
+        )
+    };
+
+    let forced = |stage: StageId| req.force || req.force_stages.contains(&stage);
+    let mut outcomes: Vec<StageOutcome> = Vec::new();
+
+    // =====================================================================
+    // stage 1: separate
+    // =====================================================================
+    let stems_dir = out_dir.join("stems");
+    let model_path = model_dir.join(MODEL_FILE_NAME);
+    let sep_fp = fingerprint(&serde_json::json!({
+        "stage": "separate",
+        "version": SEPARATE_STAGE_VERSION,
+        "audio_sha256": audio_ref.sha256,
+        "ep": req.ep.as_str(),
+        "model": model_file_id(&model_path),
+        "format": "wav",
+    }));
+    if !forced(StageId::Separate) && man.stage_up_to_date(StageId::Separate, &sep_fp) {
+        on_event(&PipelineEvent::StageSkipped {
+            stage: StageId::Separate,
+            reason: "up to date (stems reused)".into(),
+        });
+        outcomes.push(StageOutcome {
+            stage: StageId::Separate,
+            ran: false,
+            seconds: 0.0,
+        });
+    } else {
+        man.mark_in_flight(StageId::Separate, SEPARATE_STAGE_VERSION, &sep_fp);
+        save(&mut man)?;
+        on_event(&PipelineEvent::StageStarted {
+            stage: StageId::Separate,
+        });
+        let t0 = Instant::now();
+        let result = run_separate_stage(&audio_path, &stems_dir, &model_path, req.ep, on_event);
+        match result {
+            Ok(artifacts) => {
+                let secs = t0.elapsed().as_secs_f64();
+                man.mark_complete(StageId::Separate, SEPARATE_STAGE_VERSION, artifacts, secs);
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageCompleted {
+                    stage: StageId::Separate,
+                    seconds: secs,
+                });
+                outcomes.push(StageOutcome {
+                    stage: StageId::Separate,
+                    ran: true,
+                    seconds: secs,
+                });
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                man.mark_failed(StageId::Separate, SEPARATE_STAGE_VERSION, &msg);
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageFailed {
+                    stage: StageId::Separate,
+                    message: msg,
+                });
+                return Err(e);
+            }
+        }
+    }
+    let sep_token = man
+        .output_token(StageId::Separate)
+        .ok_or_else(|| Error::InvalidInput("separate stage has no output token".into()))?
+        .to_string();
+
+    // =====================================================================
+    // stage 2: clean lyrics (not applicable without pasted lyrics)
+    // =====================================================================
+    let clean_artifact_path = out_dir.join(format!("{song_stem}.lyrics.clean.json"));
+    let clean_fp = fingerprint(&serde_json::json!({
+        "stage": "clean_lyrics",
+        "version": CLEAN_LYRICS_STAGE_VERSION,
+        "lyrics_sha256": lyrics_ref.as_ref().map(|l| l.sha256.as_str()),
+    }));
+    // Holds the cleanup output when lyrics exist; populated by run or by
+    // loading the artifact on skip (align needs the structure in memory).
+    let mut cleaned: Option<CleanLyrics> = None;
+    match &lyrics_ref {
+        None => {
+            man.mark_not_applicable(StageId::CleanLyrics, CLEAN_LYRICS_STAGE_VERSION, &clean_fp);
+            save(&mut man)?;
+            on_event(&PipelineEvent::StageSkipped {
+                stage: StageId::CleanLyrics,
+                reason: "no lyrics given — align stage will auto-transcribe".into(),
+            });
+            outcomes.push(StageOutcome {
+                stage: StageId::CleanLyrics,
+                ran: false,
+                seconds: 0.0,
+            });
+        }
+        Some(lref) => {
+            if !forced(StageId::CleanLyrics) && man.stage_up_to_date(StageId::CleanLyrics, &clean_fp)
+            {
+                let raw = std::fs::read_to_string(&clean_artifact_path)?;
+                cleaned = Some(serde_json::from_str(&raw).map_err(|e| {
+                    Error::InvalidInput(format!(
+                        "cleaned-lyrics artifact parse {}: {e}",
+                        clean_artifact_path.display()
+                    ))
+                })?);
+                on_event(&PipelineEvent::StageSkipped {
+                    stage: StageId::CleanLyrics,
+                    reason: "up to date".into(),
+                });
+                outcomes.push(StageOutcome {
+                    stage: StageId::CleanLyrics,
+                    ran: false,
+                    seconds: 0.0,
+                });
+            } else {
+                man.mark_in_flight(StageId::CleanLyrics, CLEAN_LYRICS_STAGE_VERSION, &clean_fp);
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageStarted {
+                    stage: StageId::CleanLyrics,
+                });
+                let t0 = Instant::now();
+                let run = || -> Result<CleanLyrics> {
+                    let raw = std::fs::read_to_string(&lref.path).map_err(|e| {
+                        Error::InvalidInput(format!("cannot read lyrics {}: {e}", lref.path.display()))
+                    })?;
+                    let c = lyrics::clean(&raw);
+                    if c.word_count() == 0 {
+                        return Err(Error::InvalidInput(
+                            "lyrics contain no words after cleanup".into(),
+                        ));
+                    }
+                    let json = serde_json::to_string_pretty(&c)
+                        .map_err(|e| Error::Encode(format!("cleaned lyrics: {e}")))?;
+                    manifest::write_atomic(&clean_artifact_path, json.as_bytes())?;
+                    Ok(c)
+                };
+                match run() {
+                    Ok(c) => {
+                        let secs = t0.elapsed().as_secs_f64();
+                        on_event(&PipelineEvent::StageProgress {
+                            stage: StageId::CleanLyrics,
+                            fraction: None,
+                            message: Some(format!("lyric cleanup: {}", c.summary())),
+                        });
+                        let bytes = std::fs::metadata(&clean_artifact_path)?.len();
+                        man.mark_complete(
+                            StageId::CleanLyrics,
+                            CLEAN_LYRICS_STAGE_VERSION,
+                            vec![Artifact {
+                                name: "clean".into(),
+                                path: clean_artifact_path.clone(),
+                                bytes,
+                            }],
+                            secs,
+                        );
+                        save(&mut man)?;
+                        on_event(&PipelineEvent::StageCompleted {
+                            stage: StageId::CleanLyrics,
+                            seconds: secs,
+                        });
+                        outcomes.push(StageOutcome {
+                            stage: StageId::CleanLyrics,
+                            ran: true,
+                            seconds: secs,
+                        });
+                        cleaned = Some(c);
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        man.mark_failed(StageId::CleanLyrics, CLEAN_LYRICS_STAGE_VERSION, &msg);
+                        save(&mut man)?;
+                        on_event(&PipelineEvent::StageFailed {
+                            stage: StageId::CleanLyrics,
+                            message: msg,
+                        });
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+    let clean_token = man
+        .output_token(StageId::CleanLyrics)
+        .ok_or_else(|| Error::InvalidInput("clean_lyrics stage has no output token".into()))?
+        .to_string();
+
+    // =====================================================================
+    // stage 3: align
+    // =====================================================================
+    let map_path = out_dir.join(format!("{song_stem}.align.json"));
+    let onset_bias = req.onset_bias_s.unwrap_or(CTC_ONSET_BIAS_S);
+    let align_fp = fingerprint(&serde_json::json!({
+        "stage": "align",
+        "version": ALIGN_STAGE_VERSION,
+        "separate_token": sep_token,
+        "clean_token": clean_token,
+        "whisper_int8": req.whisper_int8,
+        "onset_bias_s": onset_bias,
+        "w2v_dml": false, // pipeline runs wav2vec2 on CPU (TDR risk — w2v docs)
+        "models": [
+            model_file_id(&model_dir.join(crate::alignment::WHISPER_DIR_NAME)),
+            model_file_id(&model_dir.join(crate::alignment::WAV2VEC2_DIR_NAME)),
+        ],
+    }));
+    // The map, in memory, for the export stage (loaded from disk on skip).
+    let map: Option<WordTimingMap>;
+    if !forced(StageId::Align) && man.stage_up_to_date(StageId::Align, &align_fp) {
+        let raw = std::fs::read_to_string(&map_path)?;
+        map = Some(WordTimingMap::from_json(&raw)?);
+        on_event(&PipelineEvent::StageSkipped {
+            stage: StageId::Align,
+            reason: "up to date".into(),
+        });
+        outcomes.push(StageOutcome {
+            stage: StageId::Align,
+            ran: false,
+            seconds: 0.0,
+        });
+    } else {
+        man.mark_in_flight(StageId::Align, ALIGN_STAGE_VERSION, &align_fp);
+        save(&mut man)?;
+        on_event(&PipelineEvent::StageStarted {
+            stage: StageId::Align,
+        });
+        let t0 = Instant::now();
+        let result = run_align_stage(
+            &stems_dir,
+            &model_dir,
+            cleaned.as_ref(),
+            req.whisper_int8,
+            onset_bias,
+            &map_path,
+            on_event,
+        );
+        match result {
+            Ok(m) => {
+                let secs = t0.elapsed().as_secs_f64();
+                let bytes = std::fs::metadata(&map_path)?.len();
+                man.mark_complete(
+                    StageId::Align,
+                    ALIGN_STAGE_VERSION,
+                    vec![Artifact {
+                        name: "map".into(),
+                        path: map_path.clone(),
+                        bytes,
+                    }],
+                    secs,
+                );
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageCompleted {
+                    stage: StageId::Align,
+                    seconds: secs,
+                });
+                outcomes.push(StageOutcome {
+                    stage: StageId::Align,
+                    ran: true,
+                    seconds: secs,
+                });
+                map = Some(m);
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                man.mark_failed(StageId::Align, ALIGN_STAGE_VERSION, &msg);
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageFailed {
+                    stage: StageId::Align,
+                    message: msg,
+                });
+                return Err(e);
+            }
+        }
+    }
+    let align_token = man
+        .output_token(StageId::Align)
+        .ok_or_else(|| Error::InvalidInput("align stage has no output token".into()))?
+        .to_string();
+
+    // =====================================================================
+    // stage 4: export
+    // =====================================================================
+    let meta = ExportMeta {
+        title: req.title.clone().or_else(|| Some(song_stem.clone())),
+        artist: req.artist.clone(),
+        audio_name: audio_path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned()),
+    };
+    let mut formats_sorted: Vec<&'static str> =
+        req.exports.iter().map(|f| f.as_str()).collect();
+    formats_sorted.sort_unstable();
+    formats_sorted.dedup();
+    let export_fp = fingerprint(&serde_json::json!({
+        "stage": "export",
+        "version": EXPORT_STAGE_VERSION,
+        "align_token": align_token,
+        "formats": formats_sorted,
+        "title": meta.title,
+        "artist": meta.artist,
+        "audio_name": meta.audio_name,
+    }));
+    if !forced(StageId::Export) && man.stage_up_to_date(StageId::Export, &export_fp) {
+        on_event(&PipelineEvent::StageSkipped {
+            stage: StageId::Export,
+            reason: "up to date".into(),
+        });
+        outcomes.push(StageOutcome {
+            stage: StageId::Export,
+            ran: false,
+            seconds: 0.0,
+        });
+    } else {
+        man.mark_in_flight(StageId::Export, EXPORT_STAGE_VERSION, &export_fp);
+        save(&mut man)?;
+        on_event(&PipelineEvent::StageStarted {
+            stage: StageId::Export,
+        });
+        let t0 = Instant::now();
+        let run = || -> Result<Vec<Artifact>> {
+            let map = map
+                .as_ref()
+                .ok_or_else(|| Error::InvalidInput("no timing map for export".into()))?;
+            let mut artifacts = Vec::new();
+            let mut seen: Vec<Format> = Vec::new();
+            for &f in &req.exports {
+                if seen.contains(&f) {
+                    continue;
+                }
+                seen.push(f);
+                let path = out_dir.join(format!("{song_stem}.{}", f.extension()));
+                let rendered = formats::export(map, &meta, f);
+                manifest::write_atomic(&path, rendered.as_bytes())?;
+                let bytes = std::fs::metadata(&path)?.len();
+                artifacts.push(Artifact {
+                    name: f.as_str().into(),
+                    path,
+                    bytes,
+                });
+            }
+            Ok(artifacts)
+        };
+        match run() {
+            Ok(artifacts) => {
+                let secs = t0.elapsed().as_secs_f64();
+                man.mark_complete(StageId::Export, EXPORT_STAGE_VERSION, artifacts, secs);
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageCompleted {
+                    stage: StageId::Export,
+                    seconds: secs,
+                });
+                outcomes.push(StageOutcome {
+                    stage: StageId::Export,
+                    ran: true,
+                    seconds: secs,
+                });
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                man.mark_failed(StageId::Export, EXPORT_STAGE_VERSION, &msg);
+                save(&mut man)?;
+                on_event(&PipelineEvent::StageFailed {
+                    stage: StageId::Export,
+                    message: msg,
+                });
+                return Err(e);
+            }
+        }
+    }
+
+    let export_paths = man
+        .stage(StageId::Export)
+        .map(|e| e.artifacts.iter().map(|a| a.path.clone()).collect())
+        .unwrap_or_default();
+    Ok(GenerateOutcome {
+        manifest_path,
+        manifest: man,
+        map_path,
+        export_paths,
+        stages: outcomes,
+        total_s: t_total.elapsed().as_secs_f64(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// stage bodies
+// ---------------------------------------------------------------------------
+
+fn run_separate_stage(
+    audio_path: &Path,
+    stems_dir: &Path,
+    model_path: &Path,
+    ep: EpChoice,
+    on_event: &mut dyn FnMut(&PipelineEvent),
+) -> Result<Vec<Artifact>> {
+    let progress_msg = |m: String, on_event: &mut dyn FnMut(&PipelineEvent)| {
+        on_event(&PipelineEvent::StageProgress {
+            stage: StageId::Separate,
+            fraction: None,
+            message: Some(m),
+        });
+    };
+
+    let decoded = audio::decode_to_stereo_44k(audio_path)?;
+    progress_msg(
+        format!(
+            "decoded {:.1}s ({} Hz, {} ch source)",
+            decoded.duration_seconds(),
+            decoded.source_sample_rate,
+            decoded.source_channels
+        ),
+        on_event,
+    );
+    for note in &decoded.notes {
+        progress_msg(note.clone(), on_event);
+    }
+
+    let parity_cache = separation::default_parity_cache_path();
+    let mut sep_events = |e: &separation::Event| {
+        let msg = match e {
+            separation::Event::ModelInit { ep } => format!("loading model on {ep}"),
+            separation::Event::ModelReady { ep, seconds } => {
+                format!("{ep} session ready in {seconds:.2}s")
+            }
+            separation::Event::ParityCheck { ep } => {
+                format!("golden-segment parity check ({ep})")
+            }
+            separation::Event::Parity(r) => format!(
+                "parity {}: {}{}",
+                r.ep,
+                if r.passed { "pass" } else { "FAIL" },
+                r.snr_db
+                    .map(|s| format!(" ({s:.1} dB)"))
+                    .unwrap_or_default()
+            ),
+            separation::Event::Fallback { from, reason } => {
+                format!("{from} unusable: {reason}")
+            }
+            separation::Event::Note(n) => n.clone(),
+        };
+        on_event(&PipelineEvent::StageProgress {
+            stage: StageId::Separate,
+            fraction: None,
+            message: Some(msg),
+        });
+    };
+    let prepared =
+        separation::prepare_model(model_path, ep, Some(&parity_cache), &mut sep_events)?;
+    let mut model = prepared.model;
+    let ep_used = model.ep;
+
+    let mut sink = FileSink::new(stems_dir, OutputFormat::Wav, false)?;
+    let stats = separation::separate_streamed(
+        &decoded.samples,
+        decoded.len,
+        &mut model,
+        &mut sink,
+        &mut |done, total| {
+            on_event(&PipelineEvent::StageProgress {
+                stage: StageId::Separate,
+                fraction: Some(done as f64 / total.max(1) as f64),
+                message: Some(format!("separating: {done}/{total} segments ({ep_used})")),
+            });
+        },
+    )?;
+    let files = sink.finalize()?;
+    on_event(&PipelineEvent::StageProgress {
+        stage: StageId::Separate,
+        fraction: Some(1.0),
+        message: Some(format!(
+            "separated {} segments (inference {:.1}s, {ep_used})",
+            stats.segments, stats.infer_seconds
+        )),
+    });
+
+    let mut artifacts = Vec::with_capacity(files.len());
+    for f in files {
+        let bytes = std::fs::metadata(&f.path)?.len();
+        artifacts.push(Artifact {
+            name: f.name,
+            path: f.path,
+            bytes,
+        });
+    }
+    Ok(artifacts)
+}
+
+fn run_align_stage(
+    stems_dir: &Path,
+    model_dir: &Path,
+    cleaned: Option<&CleanLyrics>,
+    whisper_int8: bool,
+    onset_bias_s: f64,
+    map_path: &Path,
+    on_event: &mut dyn FnMut(&PipelineEvent),
+) -> Result<WordTimingMap> {
+    let vocals_path = stems_dir.join("vocals.wav");
+    if !vocals_path.is_file() {
+        return Err(Error::InvalidInput(format!(
+            "vocal stem not found: {} (separate stage output missing)",
+            vocals_path.display()
+        )));
+    }
+    let vocals = audio::decode_to_mono_16k(&vocals_path)?;
+    on_event(&PipelineEvent::StageProgress {
+        stage: StageId::Align,
+        fraction: None,
+        message: Some(format!("vocal stem: {:.1}s decoded to 16 kHz mono", vocals.duration_s)),
+    });
+
+    let cfg = AlignConfig {
+        whisper_int8,
+        onset_bias_s,
+        w2v_try_dml: false, // TDR risk — CLI `align --ep dml` remains the opt-in path
+        ..AlignConfig::default()
+    };
+    let (mut aligner, notes) = Aligner::load(model_dir, cfg)?;
+    for n in &notes {
+        on_event(&PipelineEvent::StageProgress {
+            stage: StageId::Align,
+            fraction: None,
+            message: Some(n.clone()),
+        });
+    }
+
+    let mut progress = |m: &str| {
+        on_event(&PipelineEvent::StageProgress {
+            stage: StageId::Align,
+            fraction: None,
+            message: Some(m.to_string()),
+        });
+    };
+    let mut out = match cleaned {
+        Some(c) => {
+            let words = c.lyric_words();
+            aligner.align_words(&vocals.samples, &words, &mut progress)?
+        }
+        None => aligner.align_transcribe(&vocals.samples, &mut progress)?,
+    };
+    if let Some(c) = cleaned {
+        c.annotate_map(&mut out.map)?;
+    }
+
+    let violations = out.map.validate();
+    if !violations.is_empty() {
+        return Err(Error::InvalidInput(format!(
+            "timing map failed sanity checks: {}",
+            violations.join("; ")
+        )));
+    }
+    manifest::write_atomic(map_path, out.map.to_json_pretty()?.as_bytes())?;
+    Ok(out.map)
+}

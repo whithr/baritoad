@@ -84,8 +84,9 @@ fn levenshtein(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
-/// Edit-distance ratio in [0, 1]: 0 = identical.
-fn edit_ratio(a: &str, b: &str) -> f64 {
+/// Edit-distance ratio in [0, 1]: 0 = identical. `pub(crate)` because the
+/// accuracy harness ([`crate::accuracy`]) reuses the same word-match rule.
+pub(crate) fn edit_ratio(a: &str, b: &str) -> f64 {
     let m = a.chars().count().max(b.chars().count());
     if m == 0 {
         return 0.0;

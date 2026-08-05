@@ -2,11 +2,17 @@
 //! (source-available; PLAN.md is authoritative for scope).
 //!
 //! Phase 1:
+//! - `karaoke generate` — the full pipeline (separate → clean lyrics → align
+//!   → export) as a resumable job with a persisted manifest (PLAN.md §5)
+//! - `karaoke jobs list` — every job the registry knows, with status
+//! - `karaoke accuracy` — word-timing error vs hand-made UltraStar
+//!   references (PLAN.md §9 Phase 1), plus the synthetic `--self-check`
 //! - `karaoke separate` — split a user-owned song into vocals + instrumental
 //! - `karaoke align` — word-align pasted lyrics to the vocal stem (runs
 //!   separation first when no stem is provided; auto-transcribes when no
 //!   lyrics are given — PLAN.md §3). Pasted lyrics go through the cleanup
 //!   pass first; the change summary lands on stderr (and in `--json`).
+//! - `karaoke export` — render a timing map as LRC / ASS / UltraStar
 //! - `karaoke lyrics clean` — dry-run preview of the lyric cleanup pass
 //!
 //! Progress goes to stderr; `--json` puts a machine-readable summary on stdout.
@@ -17,10 +23,13 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use karaoke_core::accuracy::{self, AccuracyReport, ErrorStats, SELF_CHECK_BOUND_MS};
 use karaoke_core::alignment::{AlignConfig, Aligner};
 use karaoke_core::audio;
-use karaoke_core::formats::{self, ExportMeta, Format};
+use karaoke_core::formats::{self, ultrastar, ExportMeta, Format};
 use karaoke_core::lyrics::{self, CleanLyrics};
+use karaoke_core::pipeline::manifest::{self, JobManifest, StageId};
+use karaoke_core::pipeline::{self, GenerateRequest, PipelineEvent};
 use karaoke_core::timing::WordTimingMap;
 use karaoke_core::output::{FileSink, OutputFile, OutputFormat, StemSink};
 use karaoke_core::separation::{self, EpChoice, Event, ParityReport, SeparateStats, MODEL_FILE_NAME};
@@ -39,6 +48,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Run the full pipeline (separate → clean lyrics → align → export) as a
+    /// resumable job — reruns skip stages whose inputs are unchanged
+    Generate(GenerateArgs),
+    /// Job registry
+    #[command(subcommand)]
+    Jobs(JobsCmd),
+    /// Word-timing accuracy vs a hand-made UltraStar reference (or the
+    /// synthetic export→import self-check)
+    Accuracy(AccuracyArgs),
     /// Separate a song into vocals + instrumental (drums/bass/other mixed down)
     Separate(SeparateArgs),
     /// Word-align lyrics to a song's vocal stem (separates first if needed;
@@ -50,6 +68,148 @@ enum Cmd {
     /// Lyric utilities
     #[command(subcommand)]
     Lyrics(LyricsCmd),
+}
+
+#[derive(Args)]
+struct GenerateArgs {
+    /// Input audio file — the original song the user owns
+    audio: PathBuf,
+
+    /// Text file with pasted lyrics (golden path; auto-transcribes when
+    /// omitted). Changing this file later re-runs cleanup + align + export
+    /// on the next `generate` while reusing the stems.
+    #[arg(long)]
+    lyrics: Option<PathBuf>,
+
+    /// Export formats, comma-separated (default: lrc,ass,ultrastar)
+    #[arg(long, value_delimiter = ',')]
+    export: Vec<ExportFormatArg>,
+
+    /// Output directory for stems, map, exports, and the job manifest
+    /// (default: "<input stem>-karaoke" next to the input)
+    #[arg(long)]
+    out_dir: Option<PathBuf>,
+
+    /// Model root containing htdemucs.onnx, whisper-small/ and wav2vec2/
+    /// (default: %LOCALAPPDATA%\karaoke\models)
+    #[arg(long)]
+    model_dir: Option<PathBuf>,
+
+    /// Jobs registry directory (default: %LOCALAPPDATA%\karaoke\jobs)
+    #[arg(long)]
+    jobs_dir: Option<PathBuf>,
+
+    /// Execution provider for separation (alignment runs wav2vec2 on CPU —
+    /// see `karaoke align --help` for the TDR rationale)
+    #[arg(long, value_enum, default_value_t = EpArg::Auto)]
+    ep: EpArg,
+
+    /// Use the dynamic-quantized whisper decoder
+    #[arg(long)]
+    int8: bool,
+
+    /// Onset-bias correction in seconds (default: the spike-measured -0.055)
+    #[arg(long, allow_hyphen_values = true)]
+    onset_bias: Option<f64>,
+
+    /// Song title for exports (default: the audio file stem)
+    #[arg(long)]
+    title: Option<String>,
+
+    /// Artist name for exports
+    #[arg(long)]
+    artist: Option<String>,
+
+    /// Redo every stage, ignoring the manifest
+    #[arg(long)]
+    force: bool,
+
+    /// Redo one stage (repeatable); downstream stages rerun automatically
+    #[arg(long = "force-stage", value_enum)]
+    force_stage: Vec<StageArg>,
+
+    /// Print the machine-readable job summary to stdout
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum StageArg {
+    Separate,
+    CleanLyrics,
+    Align,
+    Export,
+}
+
+impl From<StageArg> for StageId {
+    fn from(v: StageArg) -> Self {
+        match v {
+            StageArg::Separate => StageId::Separate,
+            StageArg::CleanLyrics => StageId::CleanLyrics,
+            StageArg::Align => StageId::Align,
+            StageArg::Export => StageId::Export,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum JobsCmd {
+    /// List every job in the registry, newest first
+    List(JobsListArgs),
+}
+
+#[derive(Args)]
+struct JobsListArgs {
+    /// Jobs registry directory (default: %LOCALAPPDATA%\karaoke\jobs)
+    #[arg(long)]
+    jobs_dir: Option<PathBuf>,
+
+    /// Print machine-readable JSON to stdout
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct AccuracyArgs {
+    /// What to grade: a job out-dir (or its job.json), a timing-map
+    /// .align.json, or an audio file (the pipeline runs / resumes first).
+    /// Omit when using --suite.
+    target: Option<PathBuf>,
+
+    /// Hand-made UltraStar .txt reference to grade against
+    #[arg(long = "ref")]
+    reference: Option<PathBuf>,
+
+    /// Synthetic self-check: export the map as UltraStar, re-import, grade
+    /// against the same map — error must stay within one beat (50 ms)
+    #[arg(long)]
+    self_check: bool,
+
+    /// Grade a folder of (audio + reference .txt) pairs in one run:
+    /// "<stem>.ultrastar.txt" (or "<stem>.txt") beside each audio file is
+    /// the reference; optional "<stem>.lyrics.txt" is pasted lyrics
+    #[arg(long)]
+    suite: Option<PathBuf>,
+
+    /// Pasted-lyrics file (single-target mode, when the pipeline must run)
+    #[arg(long)]
+    lyrics: Option<PathBuf>,
+
+    /// Model root (default: %LOCALAPPDATA%\karaoke\models)
+    #[arg(long)]
+    model_dir: Option<PathBuf>,
+
+    /// Jobs registry directory (default: %LOCALAPPDATA%\karaoke\jobs)
+    #[arg(long)]
+    jobs_dir: Option<PathBuf>,
+
+    /// Execution provider when the pipeline runs
+    #[arg(long, value_enum, default_value_t = EpArg::Auto)]
+    ep: EpArg,
+
+    /// Print machine-readable JSON to stdout
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -234,6 +394,9 @@ impl From<FormatArg> for OutputFormat {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.cmd {
+        Cmd::Generate(args) => run_generate(&args),
+        Cmd::Jobs(JobsCmd::List(args)) => run_jobs_list(&args),
+        Cmd::Accuracy(args) => run_accuracy(&args),
         Cmd::Separate(args) => run_separate(&args),
         Cmd::Align(args) => run_align(&args),
         Cmd::Export(args) => run_export(&args),
@@ -793,6 +956,529 @@ fn run_lyrics_clean(args: &LyricsCleanArgs) -> Result<(), Box<dyn std::error::Er
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         print!("{}", cleaned.to_text());
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// karaoke generate / jobs / accuracy (Phase 1 milestone 5)
+// ---------------------------------------------------------------------------
+
+/// Render pipeline events to stderr. Fractional progress (separation
+/// segments) redraws one line; everything else is line-per-event.
+struct EventPrinter {
+    line_open: bool,
+}
+
+impl EventPrinter {
+    fn new() -> Self {
+        Self { line_open: false }
+    }
+
+    fn close_line(&mut self) {
+        if self.line_open {
+            eprintln!();
+            self.line_open = false;
+        }
+    }
+
+    fn print(&mut self, e: &PipelineEvent) {
+        match e {
+            PipelineEvent::StageStarted { stage } => {
+                self.close_line();
+                eprintln!("[{stage}] started");
+            }
+            PipelineEvent::StageProgress {
+                stage,
+                fraction: Some(f),
+                message,
+            } if *f < 1.0 => {
+                eprint!(
+                    "\r[{stage}] {:3.0}% {}",
+                    f * 100.0,
+                    message.as_deref().unwrap_or("")
+                );
+                let _ = std::io::stderr().flush();
+                self.line_open = true;
+            }
+            PipelineEvent::StageProgress { stage, message, .. } => {
+                self.close_line();
+                if let Some(m) = message {
+                    eprintln!("[{stage}] {m}");
+                }
+            }
+            PipelineEvent::StageSkipped { stage, reason } => {
+                self.close_line();
+                eprintln!("[{stage}] skipped: {reason}");
+            }
+            PipelineEvent::StageCompleted { stage, seconds } => {
+                self.close_line();
+                eprintln!("[{stage}] done in {seconds:.1}s");
+            }
+            PipelineEvent::StageFailed { stage, message } => {
+                self.close_line();
+                eprintln!("[{stage}] FAILED: {message}");
+            }
+            PipelineEvent::Note { message } => {
+                self.close_line();
+                eprintln!("note: {message}");
+            }
+        }
+    }
+}
+
+fn generate_request_from(args: &GenerateArgs) -> GenerateRequest {
+    let mut req = GenerateRequest::new(args.audio.clone());
+    req.lyrics = args.lyrics.clone();
+    req.out_dir = args.out_dir.clone();
+    req.model_dir = args.model_dir.clone();
+    req.jobs_dir = args.jobs_dir.clone();
+    req.ep = args.ep.into();
+    if !args.export.is_empty() {
+        let mut formats: Vec<Format> = Vec::new();
+        for &f in &args.export {
+            let f: Format = f.into();
+            if !formats.contains(&f) {
+                formats.push(f);
+            }
+        }
+        req.exports = formats;
+    }
+    req.title = args.title.clone();
+    req.artist = args.artist.clone();
+    req.whisper_int8 = args.int8;
+    req.onset_bias_s = args.onset_bias;
+    req.force = args.force;
+    req.force_stages = args.force_stage.iter().map(|&s| s.into()).collect();
+    req
+}
+
+fn run_generate(args: &GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let req = generate_request_from(args);
+    let mut printer = EventPrinter::new();
+    let outcome = pipeline::generate(&req, &mut |e| printer.print(e))?;
+    printer.close_line();
+
+    if args.json {
+        let summary = serde_json::json!({
+            "job_id": outcome.manifest.job_id,
+            "manifest": outcome.manifest_path,
+            "map": outcome.map_path,
+            "exports": outcome.export_paths,
+            "stages": outcome.stages,
+            "status": outcome.manifest.summary_status(),
+            "total_s": round3(outcome.total_s),
+        });
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        let ran: Vec<String> = outcome
+            .stages
+            .iter()
+            .map(|s| {
+                if s.ran {
+                    format!("{} {:.1}s", s.stage, s.seconds)
+                } else {
+                    format!("{} (skipped)", s.stage)
+                }
+            })
+            .collect();
+        println!(
+            "job {} {} in {:.1}s: {}",
+            outcome.manifest.job_id,
+            outcome.manifest.summary_status(),
+            outcome.total_s,
+            ran.join(", ")
+        );
+        println!("  manifest: {}", outcome.manifest_path.display());
+        println!("  map:      {}", outcome.map_path.display());
+        for p in &outcome.export_paths {
+            println!("  export:   {}", p.display());
+        }
+    }
+    Ok(())
+}
+
+fn ago(unix: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dt = now.saturating_sub(unix);
+    match dt {
+        0..=59 => format!("{dt}s ago"),
+        60..=3599 => format!("{}m ago", dt / 60),
+        3600..=86399 => format!("{}h ago", dt / 3600),
+        _ => format!("{}d ago", dt / 86400),
+    }
+}
+
+fn run_jobs_list(args: &JobsListArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let jobs_dir = args
+        .jobs_dir
+        .clone()
+        .unwrap_or_else(manifest::default_jobs_dir);
+    let jobs = manifest::list_jobs(&jobs_dir)?;
+    if args.json {
+        let rows: Vec<serde_json::Value> = jobs
+            .iter()
+            .map(|(ptr, man)| {
+                serde_json::json!({
+                    "job_id": ptr.job_id,
+                    "audio": ptr.audio,
+                    "out_dir": ptr.out_dir,
+                    "manifest": ptr.manifest,
+                    "updated_unix": ptr.updated_unix,
+                    "status": man.as_ref().map(|m| m.summary_status()),
+                    "stages": man.as_ref().map(|m| &m.stages),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+        return Ok(());
+    }
+    if jobs.is_empty() {
+        println!("no jobs in {}", jobs_dir.display());
+        return Ok(());
+    }
+    println!(
+        "{:<14} {:<22} {:<10} {}",
+        "JOB", "STATUS", "UPDATED", "AUDIO"
+    );
+    for (ptr, man) in &jobs {
+        let status = man
+            .as_ref()
+            .map(|m| m.summary_status())
+            .unwrap_or_else(|| "missing".into());
+        let audio = ptr
+            .audio
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| ptr.audio.display().to_string());
+        println!(
+            "{:<14} {:<22} {:<10} {}",
+            ptr.job_id,
+            status,
+            ago(ptr.updated_unix),
+            audio
+        );
+    }
+    Ok(())
+}
+
+const AUDIO_EXTS: &[&str] = &["mp3", "flac", "wav", "m4a", "ogg", "opus", "aac"];
+
+fn is_audio_file(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| AUDIO_EXTS.contains(&e.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// Resolve an accuracy target to (song name, timing map). Audio files run
+/// (or resume — the manifest decides) the pipeline first.
+fn resolve_map(
+    target: &Path,
+    lyrics: Option<&Path>,
+    model_dir: Option<&Path>,
+    jobs_dir: Option<&Path>,
+    ep: EpArg,
+) -> Result<(String, WordTimingMap), Box<dyn std::error::Error>> {
+    let name = |p: &Path| {
+        p.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| p.display().to_string())
+    };
+    let load_map = |p: &Path| -> Result<WordTimingMap, Box<dyn std::error::Error>> {
+        let raw = std::fs::read_to_string(p)
+            .map_err(|e| format!("cannot read timing map {}: {e}", p.display()))?;
+        Ok(WordTimingMap::from_json(&raw)?)
+    };
+    let from_manifest = |p: &Path| -> Result<(String, WordTimingMap), Box<dyn std::error::Error>> {
+        let man = JobManifest::load(p)?;
+        let map_path = man
+            .artifact_path(StageId::Align, "map")
+            .ok_or_else(|| {
+                format!(
+                    "job {} has no completed align stage (status {}) — run `karaoke generate` first",
+                    man.job_id,
+                    man.summary_status()
+                )
+            })?;
+        Ok((name(&man.audio.path), load_map(map_path)?))
+    };
+
+    if target.is_dir() {
+        return from_manifest(&target.join(manifest::MANIFEST_FILE_NAME));
+    }
+    if target.file_name().and_then(|s| s.to_str()) == Some(manifest::MANIFEST_FILE_NAME) {
+        return from_manifest(target);
+    }
+    let fname = target
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if fname.ends_with(".align.json") {
+        return Ok((
+            fname.trim_end_matches(".align.json").to_string(),
+            load_map(target)?,
+        ));
+    }
+    if is_audio_file(target) {
+        let mut req = GenerateRequest::new(target.to_path_buf());
+        req.lyrics = lyrics.map(|p| p.to_path_buf());
+        req.model_dir = model_dir.map(|p| p.to_path_buf());
+        req.jobs_dir = jobs_dir.map(|p| p.to_path_buf());
+        req.ep = ep.into();
+        let mut printer = EventPrinter::new();
+        let outcome = pipeline::generate(&req, &mut |e| printer.print(e))?;
+        printer.close_line();
+        return Ok((name(target), load_map(&outcome.map_path)?));
+    }
+    Err(format!(
+        "cannot grade {}: expected a job dir, job.json, .align.json map, or audio file",
+        target.display()
+    )
+    .into())
+}
+
+fn accuracy_row(name: &str, r: &AccuracyReport) -> String {
+    let s = &r.stats;
+    format!(
+        "{name:<24} {:>5} {:>7} {:>8} {:>8} {:>8} {:>8} {:>7} {:>8} {:>5} {:>6}",
+        r.n_ref,
+        r.n_matched,
+        fmt_ms(s.median_ms),
+        fmt_ms(s.p90_ms),
+        fmt_ms(s.p95_ms),
+        fmt_ms(s.max_ms),
+        fmt_pct(s.pct_within_50ms),
+        fmt_pct(s.pct_within_100ms),
+        r.unmatched_ref.len(),
+        r.unmatched_hyp.len(),
+    )
+}
+
+fn accuracy_header() -> String {
+    format!(
+        "{:<24} {:>5} {:>7} {:>8} {:>8} {:>8} {:>8} {:>7} {:>8} {:>5} {:>6}",
+        "SONG", "REF", "MATCH", "MEDIAN", "P90", "P95", "MAX", "<=50MS", "<=100MS", "MISS", "EXTRA"
+    )
+}
+
+fn fmt_ms(v: f64) -> String {
+    if v.is_nan() {
+        "-".into()
+    } else {
+        format!("{v:.0}ms")
+    }
+}
+
+fn fmt_pct(v: f64) -> String {
+    if v.is_nan() {
+        "-".into()
+    } else {
+        format!("{v:.1}%")
+    }
+}
+
+fn print_unmatched(r: &AccuracyReport) {
+    for u in &r.unmatched_ref {
+        eprintln!(
+            "  missed reference word {} \"{}\" at {:.2}s",
+            u.index, u.word, u.start
+        );
+    }
+    for u in &r.unmatched_hyp {
+        eprintln!(
+            "  hypothesis word {} \"{}\" at {:.2}s has no reference",
+            u.index, u.word, u.start
+        );
+    }
+}
+
+fn run_accuracy(args: &AccuracyArgs) -> Result<(), Box<dyn std::error::Error>> {
+    // ---- suite mode: grade a folder of (audio + reference) pairs ----
+    if let Some(suite_dir) = &args.suite {
+        return run_accuracy_suite(args, suite_dir);
+    }
+
+    let target = args
+        .target
+        .as_ref()
+        .ok_or("pass a target (job dir / job.json / .align.json / audio) or --suite")?;
+    let (name, map) = resolve_map(
+        target,
+        args.lyrics.as_deref(),
+        args.model_dir.as_deref(),
+        args.jobs_dir.as_deref(),
+        args.ep,
+    )?;
+
+    if args.self_check {
+        let meta = ExportMeta {
+            title: Some(name.clone()),
+            artist: None,
+            audio_name: None,
+        };
+        let r = accuracy::self_check(&map, &meta)?;
+        let pass = r.unmatched_ref.is_empty()
+            && r.unmatched_hyp.is_empty()
+            && r.stats.max_ms <= SELF_CHECK_BOUND_MS + 1e-6;
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "song": name,
+                    "mode": "self_check",
+                    "bound_ms": SELF_CHECK_BOUND_MS,
+                    "pass": pass,
+                    "report": r,
+                }))?
+            );
+        } else {
+            println!("{}", accuracy_header());
+            println!("{}", accuracy_row(&name, &r));
+            print_unmatched(&r);
+            println!(
+                "self-check ({} words): max onset error {} vs quantization bound {:.0}ms -> {}",
+                r.n_matched,
+                fmt_ms(r.stats.max_ms),
+                SELF_CHECK_BOUND_MS,
+                if pass { "PASS" } else { "FAIL" }
+            );
+        }
+        if !pass {
+            return Err("self-check failed (see report)".into());
+        }
+        return Ok(());
+    }
+
+    let ref_path = args
+        .reference
+        .as_ref()
+        .ok_or("pass --ref <ultrastar.txt> (or --self-check)")?;
+    let raw = std::fs::read_to_string(ref_path)
+        .map_err(|e| format!("cannot read reference {}: {e}", ref_path.display()))?;
+    let song = ultrastar::import(&raw)?;
+    let refs = accuracy::ref_words(&song);
+    let r = accuracy::grade(&map, &refs);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "song": name,
+                "reference": ref_path,
+                "report": r,
+            }))?
+        );
+    } else {
+        println!("{}", accuracy_header());
+        println!("{}", accuracy_row(&name, &r));
+        print_unmatched(&r);
+    }
+    Ok(())
+}
+
+fn run_accuracy_suite(
+    args: &AccuracyArgs,
+    suite_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // pair every audio file with "<stem>.ultrastar.txt" (preferred) or
+    // "<stem>.txt"; "<stem>.lyrics.txt" beside it is pasted lyrics
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(suite_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| is_audio_file(p))
+        .collect();
+    entries.sort();
+    if entries.is_empty() {
+        return Err(format!("no audio files in {}", suite_dir.display()).into());
+    }
+
+    let mut rows: Vec<(String, AccuracyReport)> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for audio in &entries {
+        let stem = audio
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let ref_path = [
+            suite_dir.join(format!("{stem}.ultrastar.txt")),
+            suite_dir.join(format!("{stem}.txt")),
+        ]
+        .into_iter()
+        .find(|p| p.is_file());
+        let Some(ref_path) = ref_path else {
+            skipped.push(format!("{stem}: no reference .txt"));
+            continue;
+        };
+        let lyrics_path = suite_dir.join(format!("{stem}.lyrics.txt"));
+        let lyrics = lyrics_path.is_file().then_some(lyrics_path);
+
+        eprintln!("== {stem} ==");
+        let (name, map) = resolve_map(
+            audio,
+            lyrics.as_deref(),
+            args.model_dir.as_deref(),
+            args.jobs_dir.as_deref(),
+            args.ep,
+        )?;
+        let raw = std::fs::read_to_string(&ref_path)
+            .map_err(|e| format!("cannot read reference {}: {e}", ref_path.display()))?;
+        let song = ultrastar::import(&raw)
+            .map_err(|e| format!("{}: {e}", ref_path.display()))?;
+        let r = accuracy::grade(&map, &accuracy::ref_words(&song));
+        rows.push((name, r));
+    }
+
+    // aggregate: pool every matched pair's signed error
+    let pooled: Vec<f64> = rows
+        .iter()
+        .flat_map(|(_, r)| r.matched.iter().map(|p| p.error_s))
+        .collect();
+    let agg = ErrorStats::from_signed_errors(&pooled);
+    let miss: usize = rows.iter().map(|(_, r)| r.unmatched_ref.len()).sum();
+    let extra: usize = rows.iter().map(|(_, r)| r.unmatched_hyp.len()).sum();
+
+    if args.json {
+        let songs: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(n, r)| serde_json::json!({"song": n, "report": r}))
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "suite": suite_dir,
+                "songs": songs,
+                "skipped": skipped,
+                "aggregate": {
+                    "stats": agg,
+                    "unmatched_ref": miss,
+                    "unmatched_hyp": extra,
+                },
+            }))?
+        );
+    } else {
+        println!("{}", accuracy_header());
+        for (n, r) in &rows {
+            println!("{}", accuracy_row(n, r));
+        }
+        for s in &skipped {
+            eprintln!("skipped {s}");
+        }
+        println!(
+            "{:<24} {:>5} {:>7} {:>8} {:>8} {:>8} {:>8} {:>7} {:>8} {:>5} {:>6}",
+            "AGGREGATE",
+            rows.iter().map(|(_, r)| r.n_ref).sum::<usize>(),
+            agg.n,
+            fmt_ms(agg.median_ms),
+            fmt_ms(agg.p90_ms),
+            fmt_ms(agg.p95_ms),
+            fmt_ms(agg.max_ms),
+            fmt_pct(agg.pct_within_50ms),
+            fmt_pct(agg.pct_within_100ms),
+            miss,
+            extra,
+        );
     }
     Ok(())
 }

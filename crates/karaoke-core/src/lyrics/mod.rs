@@ -23,7 +23,7 @@
 //! ("removed 4 section headers, expanded one x2 chorus" — PLAN.md §4). The
 //! default requires no decisions.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::alignment::anchor;
 use crate::error::{Error, Result};
@@ -59,7 +59,7 @@ const SECTION_KEYWORDS: &[&str] = &[
 ];
 
 /// One kept word. Display text is verbatim (including any parentheses).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanWord {
     pub display: String,
     /// Parenthetical ad-lib — alignment may place it, display may style it.
@@ -68,7 +68,7 @@ pub struct CleanWord {
 
 /// One kept lyric line. Lines matter downstream: LRC/ASS/UltraStar exporters
 /// are line-oriented.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanLine {
     /// Verbatim kept text (only removed markers/suffixes are gone).
     pub display: String,
@@ -84,7 +84,7 @@ pub struct CleanLine {
 }
 
 /// What a repeat marker applied to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RepeatScope {
     /// Marker trailing a lyric line — that line repeats.
@@ -97,7 +97,7 @@ pub enum RepeatScope {
 
 /// One recorded edit, with a source-line reference. Machine-readable change
 /// summary (PLAN.md §4).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Edit {
     SectionHeaderRemoved {
@@ -170,7 +170,7 @@ impl std::fmt::Display for Edit {
 }
 
 /// Cleanup output: kept line/word structure + the edit log.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanLyrics {
     pub lines: Vec<CleanLine>,
     pub edits: Vec<Edit>,

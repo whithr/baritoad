@@ -17,17 +17,25 @@
 //!   (PLAN.md §3) and produces the machine-readable change summary (§4)
 //! - export stage ([`formats`]): Enhanced LRC, ASS karaoke subtitles, and
 //!   UltraStar .txt from the timing map (PLAN.md §3 "Formats & interop");
-//!   original-song time verbatim, no stretch translation (§5)
+//!   original-song time verbatim, no stretch translation (§5); UltraStar
+//!   *import* lands beside the exporter (pitch preserved, unused in v1)
+//! - pipeline orchestrator ([`pipeline`]): the four stages above as
+//!   resumable jobs with a persisted manifest and progress events
+//!   (PLAN.md §5 "job queue, resume")
+//! - accuracy harness ([`accuracy`]): word-onset error vs hand-made
+//!   UltraStar references (PLAN.md §9 Phase 1)
 //!
 //! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg only ever
 //! as a subprocess (not used by these stages at all), no GPL/AGPL dependencies.
 
+pub mod accuracy;
 pub mod alignment;
 pub mod audio;
 pub mod error;
 pub mod formats;
 pub mod lyrics;
 pub mod output;
+pub mod pipeline;
 pub mod separation;
 pub mod timing;
 
