@@ -1,0 +1,45 @@
+{
+  "spike": "lyric-render",
+  "timestamp": "2026-08-05T07:07:41.037Z",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+  "devicePixelRatio": 1,
+  "windowInnerSize": [
+    1280,
+    800
+  ],
+  "songLines": 200,
+  "songWords": 1199,
+  "calibratedRefreshMs": 8.3,
+  "modes": {
+    "dom": {
+      "frames": 3541,
+      "durationMs": 30007.8,
+      "avgFps": 118,
+      "p50Ms": 8.3,
+      "p95Ms": 8.4,
+      "p99Ms": 16.7,
+      "maxMs": 33.4,
+      "droppedOver1_5x": 48,
+      "droppedOver2_5x": 4,
+      "over60fpsBudget": 4,
+      "over34ms": 0,
+      "dropThreshMs": 12.45,
+      "badThreshMs": 20.75
+    },
+    "canvas": {
+      "frames": 3491,
+      "durationMs": 30007.8,
+      "avgFps": 116.34,
+      "p50Ms": 8.3,
+      "p95Ms": 8.5,
+      "p99Ms": 16.7,
+      "maxMs": 41.8,
+      "droppedOver1_5x": 84,
+      "droppedOver2_5x": 12,
+      "over60fpsBudget": 12,
+      "over34ms": 1,
+      "dropThreshMs": 12.45,
+      "badThreshMs": 20.75
+    }
+  }
+}

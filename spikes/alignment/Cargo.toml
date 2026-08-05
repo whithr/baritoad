@@ -1,0 +1,20 @@
+[package]
+name = "alignment-spike"
+version = "0.1.0"
+edition = "2021"
+# Spike prototype — not shipped. All deps commercial-safe (PLAN.md §6):
+# ort MIT/Apache-2.0, symphonia MPL-2.0, rubato MIT, rustfft MIT/Apache-2.0,
+# serde/serde_json MIT/Apache-2.0, anyhow MIT/Apache-2.0.
+
+[dependencies]
+ort = { version = "=2.0.0-rc.10", features = ["download-binaries", "directml"] }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "wav", "pcm"] }
+rubato = "0.16"
+rustfft = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

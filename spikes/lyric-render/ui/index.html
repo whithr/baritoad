@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lyric Render Spike</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e1a; }
+  body { font-family: "Segoe UI", "Noto Sans", sans-serif; }
+
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+
+  /* Animated background wash (representative of a real player scene) */
+  #bg {
+    position: absolute; inset: -20%;
+    background: radial-gradient(circle at 30% 30%, #2a2f5e 0%, #0b0e1a 60%),
+                radial-gradient(circle at 70% 70%, #4a2a5e 0%, transparent 55%);
+    will-change: transform;
+  }
+
+  /* DOM-mode lyric scroller */
+  #lyricsViewport { position: absolute; inset: 0; overflow: hidden; }
+  #lyricsScroller { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+  .line {
+    height: 72px; line-height: 72px; text-align: center;
+    font-size: 40px; font-weight: 700; color: #6b7194;
+    white-space: nowrap;
+  }
+  .line.past { color: #3d425e; }
+  .line.active { color: #e8eaf6; }
+  .word { display: inline-block; padding: 0 0.18em; }
+  .word.sung { color: #ffd54a; }
+  .line.active .word.current {
+    background-image: linear-gradient(90deg, #ffd54a var(--f), #e8eaf6 var(--f));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  #cv { position: absolute; inset: 0; display: none; }
+
+  #progressTrack {
+    position: absolute; left: 40px; right: 40px; bottom: 28px; height: 8px;
+    background: #232743; border-radius: 4px; overflow: hidden; z-index: 5;
+  }
+  #progressFill {
+    width: 100%; height: 100%; background: #ffd54a;
+    transform-origin: 0 50%; transform: scaleX(0); will-change: transform;
+  }
+
+  #hud {
+    position: absolute; top: 10px; left: 10px; z-index: 10;
+    font: 13px/1.5 Consolas, monospace; color: #9fd6a0;
+    background: rgba(0,0,0,0.55); padding: 8px 12px; border-radius: 6px;
+    white-space: pre;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="bg"></div>
+  <div id="lyricsViewport"><div id="lyricsScroller"></div></div>
+  <canvas id="cv"></canvas>
+  <div id="progressTrack"><div id="progressFill"></div></div>
+</div>
+<div id="hud">starting…</div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Fully automatic benchmark:
+//   calibrate refresh (1 s) ->
+//   for each mode in [dom, canvas]: warmup 3 s + measure 30 s ->
+//   report JSON via Tauri command `report_results`, then quit.
+// Add ?stay=1 to keep the window open after the run.
+// ---------------------------------------------------------------------------
+
+const CALIBRATE_MS = 1000;
+const WARMUP_MS = 3000;
+const MEASURE_MS = 30000;
+const MODES = ["dom", "canvas"];
+
+// --- Deterministic synthetic song (seeded PRNG) ----------------------------
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const WORDS = ["shine","night","heart","fire","never","gonna","hold","light",
+  "dream","away","forever","dancing","midnight","echo","golden","river",
+  "thunder","whisper","falling","alive","stronger","together","memory","sky"];
+
+function buildSong(seed, totalSec) {
+  const rnd = mulberry32(seed);
+  const lines = [];
+  let t = 1.5;
+  while (t < totalSec) {
+    const n = 4 + Math.floor(rnd() * 5);          // 4–8 words per line
+    const words = [];
+    for (let i = 0; i < n; i++) {
+      const dur = 0.25 + rnd() * 0.30;            // 250–550 ms per word
+      words.push({ text: WORDS[Math.floor(rnd() * WORDS.length)], start: t, end: t + dur });
+      t += dur;
+    }
+    lines.push({ start: words[0].start, end: t, words });
+    t += 0.3 + rnd() * 0.6;                       // inter-line gap
+  }
+  return lines;
+}
+const song = buildSong(0x5EED, 600);
+const LINE_H = 72;
+
+// --- Shared playback state --------------------------------------------------
+const hud = document.getElementById("hud");
+const bg = document.getElementById("bg");
+const progressFill = document.getElementById("progressFill");
+const viewport = document.getElementById("lyricsViewport");
+const scroller = document.getElementById("lyricsScroller");
+const cv = document.getElementById("cv");
+const ctx2d = cv.getContext("2d");
+
+function songPosAt(line, tSong) {
+  // index of current line: last line whose start <= tSong
+  // (lines are sorted; linear scan from a cached index for O(1) per frame)
+  return tSong;
+}
+
+// Find active line/word for song time t. Cached cursor for per-frame O(1).
+let lineCursor = 0;
+function locate(t) {
+  while (lineCursor < song.length - 1 && song[lineCursor + 1].start <= t) lineCursor++;
+  while (lineCursor > 0 && song[lineCursor].start > t) lineCursor--;
+  const line = song[lineCursor];
+  let wordIdx = -1, frac = 0;
+  if (t >= line.start && t < line.end + 0.001) {
+    for (let i = 0; i < line.words.length; i++) {
+      const w = line.words[i];
+      if (t >= w.start && t < w.end) { wordIdx = i; frac = (t - w.start) / (w.end - w.start); break; }
+      if (t >= w.end) wordIdx = i, frac = 1;
+    }
+  } else if (t >= line.end) {
+    wordIdx = line.words.length - 1; frac = 1;
+  }
+  return { lineIdx: lineCursor, wordIdx, frac };
+}
+
+// --- DOM renderer -----------------------------------------------------------
+const domState = { built: false, lineEls: [], wordEls: [], scrollY: 0, activeLine: -1, markedWords: -1, curWordEl: null };
+
+function domBuild() {
+  const frag = document.createDocumentFragment();
+  for (const line of song) {
+    const lineEl = document.createElement("div");
+    lineEl.className = "line";
+    const wEls = [];
+    for (const w of line.words) {
+      const s = document.createElement("span");
+      s.className = "word";
+      s.textContent = w.text;
+      lineEl.appendChild(s);
+      wEls.push(s);
+    }
+    frag.appendChild(lineEl);
+    domState.lineEls.push(lineEl);
+    domState.wordEls.push(wEls);
+  }
+  scroller.appendChild(frag);
+  domState.built = true;
+}
+
+function domRender(t, now) {
+  const { lineIdx, wordIdx, frac } = locate(t);
+  const h = viewport.clientHeight;
+
+  // Smooth scroll: target = active line centered; critically-damped-ish lerp.
+  const target = lineIdx * LINE_H - (h / 2 - LINE_H / 2);
+  domState.scrollY += (target - domState.scrollY) * 0.12;
+  scroller.style.transform = "translateY(" + (-domState.scrollY).toFixed(2) + "px)";
+
+  // Line active/past classes (only on change)
+  if (lineIdx !== domState.activeLine) {
+    if (domState.activeLine >= 0) {
+      const prev = domState.lineEls[domState.activeLine];
+      prev.classList.remove("active");
+      prev.classList.add("past");
+      for (const el of domState.wordEls[domState.activeLine]) el.classList.add("sung");
+    }
+    domState.lineEls[lineIdx].classList.add("active");
+    domState.activeLine = lineIdx;
+    domState.markedWords = -1;
+    if (domState.curWordEl) { domState.curWordEl.classList.remove("current"); domState.curWordEl = null; }
+  }
+
+  // Word-level karaoke wipe on the current word, "sung" class on finished words
+  const wEls = domState.wordEls[lineIdx];
+  if (wordIdx >= 0) {
+    for (let i = domState.markedWords + 1; i < wordIdx; i++) wEls[i].classList.add("sung");
+    domState.markedWords = wordIdx - 1;
+    const el = wEls[wordIdx];
+    if (domState.curWordEl !== el) {
+      if (domState.curWordEl) { domState.curWordEl.classList.remove("current"); domState.curWordEl.classList.add("sung"); }
+      el.classList.add("current");
+      domState.curWordEl = el;
+    }
+    el.style.setProperty("--f", (frac * 100).toFixed(1) + "%");
+  }
+
+  // Background drift + progress bar (every frame, like a real player)
+  bg.style.transform = "translate(" + (Math.sin(now / 4000) * 30).toFixed(1) + "px," + (Math.cos(now / 5000) * 30).toFixed(1) + "px)";
+  progressFill.style.transform = "scaleX(" + (t / 240).toFixed(4) + ")";
+}
+
+// --- Canvas 2D renderer -----------------------------------------------------
+const cvState = { scrollY: 0, dpr: 1 };
+
+function canvasSetup() {
+  cvState.dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(cv.clientWidth * cvState.dpr);
+  cv.height = Math.round(cv.clientHeight * cvState.dpr);
+}
+
+function canvasRender(t, now) {
+  const { lineIdx, wordIdx, frac } = locate(t);
+  const dpr = cvState.dpr;
+  const W = cv.width, H = cv.height;
+  const lineH = LINE_H * dpr;
+
+  const target = lineIdx * lineH - (H / 2 - lineH / 2);
+  cvState.scrollY += (target - cvState.scrollY) * 0.12;
+
+  // Background: animated two-stop vertical gradient (cheap but per-frame)
+  const g = ctx2d.createLinearGradient(0, 0, W, H);
+  const hue = 232 + Math.sin(now / 4000) * 8;
+  g.addColorStop(0, "hsl(" + hue.toFixed(1) + ",38%,16%)");
+  g.addColorStop(1, "#0b0e1a");
+  ctx2d.fillStyle = g;
+  ctx2d.fillRect(0, 0, W, H);
+
+  ctx2d.font = "700 " + Math.round(40 * dpr) + "px 'Segoe UI', sans-serif";
+  ctx2d.textBaseline = "middle";
+
+  const first = Math.max(0, Math.floor(cvState.scrollY / lineH) - 1);
+  const last = Math.min(song.length - 1, Math.ceil((cvState.scrollY + H) / lineH) + 1);
+
+  for (let li = first; li <= last; li++) {
+    const line = song[li];
+    const y = li * lineH - cvState.scrollY + lineH / 2;
+    // measure + layout words (widths cached per line lazily)
+    if (!line._w) {
+      line._w = line.words.map(w => ctx2d.measureText(w.text).width);
+      line._pad = ctx2d.measureText("  ").width;
+      line._total = line._w.reduce((a, b) => a + b + line._pad, -line._pad);
+    }
+    let x = (W - line._total) / 2;
+    for (let wi = 0; wi < line.words.length; wi++) {
+      const ww = line._w[wi];
+      let color;
+      if (li < lineIdx || (li === lineIdx && wi < wordIdx)) color = li === lineIdx ? "#ffd54a" : "#3d425e";
+      else if (li === lineIdx) color = "#e8eaf6";
+      else color = "#6b7194";
+      ctx2d.fillStyle = color;
+      ctx2d.fillText(line.words[wi].text, x, y);
+      // karaoke wipe on the current word: clip left `frac` of the word
+      if (li === lineIdx && wi === wordIdx) {
+        ctx2d.save();
+        ctx2d.beginPath();
+        ctx2d.rect(x, y - lineH / 2, ww * frac, lineH);
+        ctx2d.clip();
+        ctx2d.fillStyle = "#ffd54a";
+        ctx2d.fillText(line.words[wi].text, x, y);
+        ctx2d.restore();
+      }
+      x += ww + line._pad;
+    }
+  }
+
+  // Progress bar drawn in-canvas
+  const px = 40 * dpr, ph = 8 * dpr, py = H - 36 * dpr;
+  ctx2d.fillStyle = "#232743";
+  ctx2d.fillRect(px, py, W - 2 * px, ph);
+  ctx2d.fillStyle = "#ffd54a";
+  ctx2d.fillRect(px, py, (W - 2 * px) * Math.min(1, t / 240), ph);
+}
+
+// --- Mode switching ---------------------------------------------------------
+function setMode(mode) {
+  lineCursor = 0;
+  if (mode === "dom") {
+    cv.style.display = "none";
+    viewport.style.display = "";
+    document.getElementById("progressTrack").style.display = "";
+    if (!domState.built) domBuild();
+    // reset DOM highlight state
+    for (const el of domState.lineEls) el.classList.remove("active", "past");
+    for (const wEls of domState.wordEls) for (const el of wEls) el.classList.remove("sung", "current");
+    domState.activeLine = -1; domState.markedWords = -1; domState.curWordEl = null; domState.scrollY = 0;
+  } else {
+    viewport.style.display = "none";
+    document.getElementById("progressTrack").style.display = "none";
+    cv.style.display = "block";
+    canvasSetup();
+    cvState.scrollY = 0;
+  }
+}
+
+// --- Stats ------------------------------------------------------------------
+function computeStats(deltas, refreshMs) {
+  const sorted = deltas.slice().sort((a, b) => a - b);
+  const q = p => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+  const sum = deltas.reduce((a, b) => a + b, 0);
+  const dropThresh = refreshMs * 1.5;   // missed at least one vsync
+  const badThresh = refreshMs * 2.5;    // missed two+ vsyncs (visible stutter)
+  return {
+    frames: deltas.length,
+    durationMs: +sum.toFixed(1),
+    avgFps: +(1000 / (sum / deltas.length)).toFixed(2),
+    p50Ms: +q(0.50).toFixed(2),
+    p95Ms: +q(0.95).toFixed(2),
+    p99Ms: +q(0.99).toFixed(2),
+    maxMs: +sorted[sorted.length - 1].toFixed(2),
+    droppedOver1_5x: deltas.filter(d => d > dropThresh).length,
+    droppedOver2_5x: deltas.filter(d => d > badThresh).length,
+    over60fpsBudget: deltas.filter(d => d > 16.9).length,  // frames exceeding a 60fps frame budget, regardless of panel refresh
+    over34ms: deltas.filter(d => d > 34).length,           // >2 missed frames at 60Hz — visible stutter
+    dropThreshMs: +dropThresh.toFixed(2),
+    badThreshMs: +badThresh.toFixed(2)
+  };
+}
+
+// --- Benchmark driver -------------------------------------------------------
+const results = {
+  spike: "lyric-render",
+  timestamp: new Date().toISOString(),
+  userAgent: navigator.userAgent,
+  devicePixelRatio: window.devicePixelRatio,
+  windowInnerSize: [window.innerWidth, window.innerHeight],
+  songLines: song.length,
+  songWords: song.reduce((a, l) => a + l.words.length, 0),
+  calibratedRefreshMs: null,
+  modes: {}
+};
+
+let phase = "calibrate";
+let phaseStart = 0;
+let modeIdx = -1;
+let deltas = [];
+let lastTs = 0;
+let playStart = 0;
+let refreshMs = 16.67;
+
+function hudText(extra) {
+  return "lyric-render spike\nphase: " + phase +
+    (modeIdx >= 0 ? " (" + MODES[modeIdx] + ")" : "") +
+    "\nrefresh: " + refreshMs.toFixed(2) + " ms" + (extra || "");
+}
+
+function nextPhase(now) {
+  if (phase === "calibrate") {
+    // modal refresh interval from calibration deltas (median)
+    const s = deltas.slice().sort((a, b) => a - b);
+    refreshMs = s[Math.floor(s.length / 2)] || 16.67;
+    results.calibratedRefreshMs = +refreshMs.toFixed(3);
+    modeIdx = 0;
+    setMode(MODES[modeIdx]);
+    phase = "warmup";
+    playStart = now;
+  } else if (phase === "warmup") {
+    phase = "measure";
+  } else if (phase === "measure") {
+    results.modes[MODES[modeIdx]] = computeStats(deltas, refreshMs);
+    modeIdx++;
+    if (modeIdx < MODES.length) {
+      setMode(MODES[modeIdx]);
+      phase = "warmup";
+      playStart = now;
+    } else {
+      phase = "done";
+      finish();
+      return;
+    }
+  }
+  deltas = [];
+  phaseStart = now;
+}
+
+async function finish() {
+  const json = JSON.stringify(results, null, 2);
+  let saved = "(no tauri bridge — results in console)";
+  console.log(json);
+  try {
+    if (window.__TAURI__) {
+      saved = await window.__TAURI__.core.invoke("report_results", { json });
+    }
+  } catch (e) {
+    saved = "save failed: " + e;
+  }
+  const lines = ["lyric-render spike DONE", "saved: " + saved];
+  for (const m of MODES) {
+    const s = results.modes[m];
+    lines.push(m + ": " + s.avgFps + " fps avg, p99 " + s.p99Ms + "ms, max " + s.maxMs +
+      "ms, dropped " + s.droppedOver1_5x + "/" + s.frames);
+  }
+  hud.textContent = lines.join("\n");
+  const stay = new URLSearchParams(location.search).get("stay") || window.STAY;
+  if (!stay && window.__TAURI__) {
+    setTimeout(() => window.__TAURI__.core.invoke("quit").catch(() => {}), 1500);
+  }
+}
+
+function frame(ts) {
+  if (phase === "done") return;
+  if (lastTs > 0) deltas.push(ts - lastTs);
+  lastTs = ts;
+  if (phaseStart === 0) phaseStart = ts;
+
+  if (phase !== "calibrate") {
+    const t = (ts - playStart) / 1000; // song position, seconds (plays at 1x)
+    if (MODES[modeIdx] === "dom") domRender(t, ts);
+    else canvasRender(t, ts);
+  }
+
+  const dur = phase === "calibrate" ? CALIBRATE_MS : phase === "warmup" ? WARMUP_MS : MEASURE_MS;
+  if (ts - phaseStart >= dur) nextPhase(ts);
+
+  if (deltas.length % 30 === 0) hud.textContent = hudText();
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener("load", () => requestAnimationFrame(frame));
+</script>
+</body>
+</html>

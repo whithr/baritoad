@@ -1,0 +1,4 @@
+# Rendered listening outputs (wav) — never commit audio (root .gitignore also
+# covers *.wav; this belt-and-suspenders covers the whole dir).
+out/
+target/

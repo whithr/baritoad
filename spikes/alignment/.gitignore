@@ -1,0 +1,5 @@
+# Spike outputs: raw audio dumps, emissions, alignment JSON — never commit
+out*/
+# Model weights (repo .gitignore also covers weights/ and *.onnx; belt+braces)
+weights/
+target/
