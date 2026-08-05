@@ -5,6 +5,10 @@ dist/
 build/
 
 # Audio & video — test songs are copyrighted, never commit them (CLAUDE.md hard rule)
+# The whole testdata tree is excluded, not just audio extensions: pipeline
+# outputs there (timing maps, LRC/ASS/UltraStar exports) embed full lyrics,
+# which are copyrighted too.
+spikes/testdata/
 *.mp3
 *.flac
 *.wav
