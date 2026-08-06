@@ -22,6 +22,16 @@ colors:
   amber-bright: "#ffc36b"
   amber-wash: "rgba(242, 163, 60, 0.12)"
   amber-glow: "rgba(242, 163, 60, 0.35)"
+  green: "#49e57d"
+  green-dim: "#1d5f38"
+  green-bright: "#8df2ae"
+  green-wash: "rgba(73, 229, 125, 0.10)"
+  green-glow: "rgba(73, 229, 125, 0.35)"
+  magenta: "#ee7fdb"
+  magenta-dim: "#75285e"
+  magenta-bright: "#f9b0e5"
+  magenta-wash: "rgba(238, 127, 219, 0.10)"
+  magenta-glow: "rgba(238, 127, 219, 0.35)"
   red: "#e8654f"
   red-dim: "#6e2418"
   red-deep: "#e8452c"
@@ -171,14 +181,14 @@ brightness/saturation settle), suppressed under `prefers-reduced-motion`.
 
 Density is moderate and honest: real chrome (borders, inset shadows, seams)
 rather than flat washes, but a strictly rationed light budget. Color is never
-decoration — three glow families each carry one meaning, on a near-black
+decoration — five glow families each carry one meaning, on a near-black
 ground. Contrast is tuned for a TV at 3 meters (PRODUCT.md accessibility
 commitments): every text step clears WCAG AA at its size, and the core
 sung/unsung lyric mechanic never relies on hue alone.
 
 **Key Characteristics:**
 - Smoked-glass near-black ground (#0b0d10) with layered bezel panels and recessed wells
-- Three-glow discipline: cyan = information, amber = live, red = redline only
+- Five-glow discipline: cyan = information, amber = live, green = done, magenta = celebrate, red = redline only
 - Instrument chrome: lamps, segmented meters, faders, DSEG segment readouts
 - Silk-screen typography: uppercase, tracked Barlow labels on the panel
 - Angular, machined geometry — 3px corners, chamfered notches, square-capped icons
@@ -189,23 +199,25 @@ silk-screened title, search well, cover grid; the primary action is the
 amber-lit key.
 
 **Provenance:** the Digital Dash direction is a user-steered re-roll of grounded
-candidate 3 (Component Deck), seed `fe5a66cf`, locked 2026-08-05.
+candidate 3 (Component Deck), seed `fe5a66cf`, locked 2026-08-05. Amplification
+pass (five-glow palette, bar-graph-note brand mark, dashboard chrome pass)
+approved by the owner 2026-08-05.
 
 ## Colors
 
-A near-black smoked-glass neutral stack lit by three glow families, each with
+A near-black smoked-glass neutral stack lit by five glow families, each with
 a fixed meaning; washes and glows are the translucent halo steps of each
-family.
+family. (Ratios below are standard WCAG 2.1 relative luminance.)
 
 ### Primary
-- **VFD Cyan** (#45e0d8, 9.9:1 on ground): the information voice — selection
+- **VFD Cyan** (#45e0d8, 12.0:1 on ground): the information voice — selection
   states, links, focus rings, checked lamps, sung lyrics, clock/duration
-  readouts, completed stages. `cyan-bright` (#8ff2ec) is highlighted-item
+  readouts. `cyan-bright` (#8ff2ec) is highlighted-item
   text; `cyan-dim` (#1d5f5c) is borders and quiet marks; `cyan-wash` is the
   selected-row fill; `cyan-glow` is the lamp/focus halo.
 
 ### Secondary
-- **Live Amber** (#f2a33c, 8.0:1 on ground as text): whatever is live *right
+- **Live Amber** (#f2a33c, 9.3:1 on ground as text): whatever is live *right
   now* — the primary action key, the active nav lamp, the running stage,
   the active lyric word's wipe, playhead fills, the player clock. As a fill
   it takes dark ink (#131007), never light text. `amber-bright` (#ffc36b) is
@@ -215,7 +227,25 @@ family.
 ### Tertiary
 - **Signal Red** (#e8452c as `red-deep`): redline only — errors, destructive
   actions, failed jobs, clipping. `red-deep` is for fills and lamps, never
-  body text; the readable text step is `red` (#e8654f, 5.4:1 on ground).
+  body text; the readable text step is `red` (#e8654f, 5.9:1 on ground).
+
+### Quaternary
+- **VFD Green** (#49e57d, 11.9:1 on ground — luminance-matched to cyan so
+  adjacent lamps and meter segments read evenly): done and success —
+  completed stages and jobs, ready badges, the low range of any future
+  green→amber→red meter ladder, and collection accents (the active
+  collection is *your* named shelf). `green-bright` (#8df2ae) is highlighted
+  text, `green-dim` (#1d5f38) borders and quiet marks; wash/glow follow the
+  family pattern. Green states never ride hue alone — always paired with a
+  label, lamp, or filled bar (deutan-safe next to cyan).
+
+### Quinary
+- **Magenta** (#ee7fdb, 8.1:1 on ground): celebrate and personality — the
+  song-finished moment, the one-shot job-completion flare, the brand mark's
+  voice, and the generated cover-art palette. The rarest glow in the cabin:
+  it marks moments, never persistent state. `magenta-bright` (#f9b0e5),
+  `magenta-dim` (#75285e), wash/glow follow the family pattern. Never white
+  text on a magenta fill (2.4:1) — magenta fills take ink.
 
 ### Neutral
 - **Ground** (#0b0d10): the cabin at night; the app background.
@@ -226,13 +256,16 @@ family.
 - **Ink** (#131007): dark ink on amber fills.
 
 ### Named Rules
-**The Three-Glow Rule.** Cyan carries information, amber carries what is live
-right now, red is redline only. A glow is never used outside its meaning —
-no decorative accents, no fourth color.
+**The Five-Glow Rule.** Cyan carries information, amber carries what is live
+right now, green carries done/success, magenta carries celebrate/personality,
+red is redline only. A glow is never used outside its meaning — no decorative
+accents, no sixth color. Green and magenta are additive and job-bound; the
+original three meanings are untouched.
 
-**The Dark-Ink-On-Amber Rule.** Amber as a fill always takes dark ink
-(#131007); amber as text sits only on the dark ground. Never light text on an
-amber fill (2.6:1).
+**The Dark-Ink Rule.** Every lit fill — amber, green, magenta — takes dark
+ink (#131007); the family color as text sits only on the dark ground. Only
+`red-deep` takes white. Never light text on an amber (2.6:1), green (1.6:1),
+or magenta (2.4:1) fill.
 
 **The Redline-Text Rule.** `red-deep` (#e8452c) is for lamps and fills;
 running text in the red family uses `red` (#e8654f), the step that clears
@@ -389,9 +422,9 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep the Three-Glow Rule absolute: cyan = information/selection/sung, amber = live/active-now/primary action, red = redline (errors, destructive) only.
+- **Do** keep the Five-Glow Rule absolute: cyan = information/selection/sung, amber = live/active-now/primary action, green = done/success/collections, magenta = celebrate moments and brand personality, red = redline (errors, destructive) only.
 - **Do** express state as instrument chrome — a lamp, a meter, a readout — before reaching for text or toasts; every meter gets segment gaps.
-- **Do** put dark ink (#131007) on every amber fill, and use `red` (#e8654f) not `red-deep` for red running text.
+- **Do** put dark ink (#131007) on every lit fill — amber, green, magenta — and use `red` (#e8654f) not `red-deep` for red running text.
 - **Do** keep exactly one amber-lit primary key per surface; secondary actions stay membrane-gray.
 - **Do** keep the cyan `:focus-visible` outline (2px, offset 2px) and full keyboard operation on every new control; destructive confirms use the ConfirmStrip pattern, not `window.confirm`.
 - **Do** carry sung/unsung lyric state through luminance, fill-edge position, and italics — never hue alone (`--text-faint` #7e899c is the AA floor for tertiary text).
@@ -401,6 +434,6 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Don't** set words in DSEG — segment faces are instrument chrome for digits and `: . -` only; lyrics, labels, and body copy are Barlow.
 - **Don't** touch the player's per-frame path: no transitions, no React renders, and no new per-frame mutations beyond the Four-Hook contract; never place SegText (the ghost readout) inside the rAF-mutated spans.
 - **Don't** introduce circles, pills, or corner radii beyond 6px — the world is angular (2–3px, 6px bezels, chamfered notches); icons keep square caps and miter joins.
-- **Don't** glow decoratively, add a fourth accent family, or use a colored glow to imply elevation — black offset shadows carry depth.
+- **Don't** glow decoratively, add a sixth accent family, or use a colored glow to imply elevation — black offset shadows carry depth. Green and magenta stay job-bound: green is done/success, magenta is celebrate/personality — neither ever restates cyan/amber/red's jobs.
 - **Don't** add an npm package or font without its PLAN.md §6 licensing row; no CDN assets — everything ships self-hosted.
 - **Don't** describe the product as "open source" in any UI copy — it is source-available (binding, PRODUCT.md).

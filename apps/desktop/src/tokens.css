@@ -1,6 +1,7 @@
 /* Digital Dash tokens — the world's physics, one place.
-   Three glow families on smoked glass: cyan carries information, amber
-   carries whatever is live right now, red is redline (errors) only.
+   Five glow families on smoked glass: cyan carries information, amber
+   carries whatever is live right now, green is done/success, magenta is
+   celebrate/personality, red is redline (errors) only.
    Scales are hand-authored (no palette dependency — §6 discipline stays).
    Contrast is tuned for TV-at-3m: every text step on --ground clears
    WCAG AA at its size (PRODUCT.md accessibility commitments). */
@@ -41,8 +42,24 @@
   --red-wash: rgba(232, 69, 44, 0.12);
   --red-glow: rgba(232, 69, 44, 0.35);
 
+  /* ---- VFD green: success / ready / done, meter-ladder low range,
+         collection accents ---- */
+  --green-dim: #1d5f38;
+  --green: #49e57d;         /* 11.9:1 on --ground; luminance-matched to cyan */
+  --green-bright: #8df2ae;
+  --green-wash: rgba(73, 229, 125, 0.10);
+  --green-glow: rgba(73, 229, 125, 0.35);
+
+  /* ---- magenta: celebrate moments, brand flourish, cover art,
+         personality accents ---- */
+  --magenta-dim: #75285e;
+  --magenta: #ee7fdb;       /* 8.1:1 on --ground; fills take dark ink, never white */
+  --magenta-bright: #f9b0e5;
+  --magenta-wash: rgba(238, 127, 219, 0.10);
+  --magenta-glow: rgba(238, 127, 219, 0.35);
+
   /* ---- ink on glow fills ---- */
-  --ink: #131007;           /* dark ink on amber keys */
+  --ink: #131007;           /* dark ink on every lit fill (amber/green/magenta) */
 
   /* ---- type ---- */
   --font-ui: "Barlow", "Segoe UI", system-ui, sans-serif;
