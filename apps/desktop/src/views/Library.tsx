@@ -30,7 +30,7 @@ import {
   type LibrarySort,
 } from "../libraryState";
 import { progressHeadline, type JobProgress, type JobsState } from "../jobEvents";
-import { IconDots, IconNote, IconPencil, IconPlay, IconPlus, IconX } from "../icons";
+import { IconBrandNoteLarge, IconDots, IconPencil, IconPlay, IconPlus, IconX } from "../icons";
 import {
   ConfirmStrip,
   DashMenu,
@@ -202,7 +202,7 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
           {loaded && visible.length === 0 && processing.length === 0 && (
             <div className="empty-state">
               <div className="empty-mark">
-                <IconNote size={56} />
+                <IconBrandNoteLarge size={56} />
               </div>
               <p>
                 {search.trim() !== ""

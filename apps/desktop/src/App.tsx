@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { measurePlan, onJobEvent, listJobs } from "./api";
-import { IconJobs, IconLibrary, IconNote, IconQueue } from "./icons";
+import { IconBrandNote, IconCartridgeNew, IconJobs, IconLibrary, IconQueue } from "./icons";
 import { emptyJobsState, reduceJobEvent, seedFromSnapshots, type JobsState } from "./jobEvents";
 import Library from "./views/Library";
 import NewSong from "./views/NewSong";
@@ -159,7 +159,7 @@ export default function App() {
       <nav className="sidebar">
         <div className="brand">
           <span className="brand-mark">
-            <IconNote size={18} />
+            <IconBrandNote size={18} />
           </span>
           Karascape
         </div>
@@ -171,7 +171,7 @@ export default function App() {
         />
         <NavButton
           label="New Song"
-          icon={<IconNote />}
+          icon={<IconCartridgeNew />}
           active={route.view === "new"}
           onClick={() => go({ view: "new" })}
         />
@@ -187,7 +187,6 @@ export default function App() {
           active={route.view === "jobs"}
           onClick={() => go({ view: "jobs" })}
         />
-        <div className="sidebar-foot">Everything stays on this computer</div>
       </nav>
       <main className="content">
         {route.view === "library" && <Library go={go} jobs={jobs} />}

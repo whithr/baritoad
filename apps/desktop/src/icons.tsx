@@ -128,52 +128,105 @@ export function IconGrip(p: IconProps) {
   );
 }
 
+// Machined adjuster screw: chamfered-octagon head + diagonal slot.
 export function IconGear(p: IconProps) {
   return (
     <Base {...p}>
-      <rect x="5.5" y="5.5" width="5" height="5" />
-      <path d="M8 1.5 V3.5 M8 12.5 V14.5 M1.5 8 H3.5 M12.5 8 H14.5 M3.4 3.4 L4.8 4.8 M11.2 11.2 L12.6 12.6 M12.6 3.4 L11.2 4.8 M4.8 11.2 L3.4 12.6" />
+      <path d="M5.7 2.5 H10.3 L13.5 5.7 V10.3 L10.3 13.5 H5.7 L2.5 10.3 V5.7 Z" />
+      <path d="M5.9 10.1 L10.1 5.9" />
     </Base>
   );
 }
 
-export function IconNote(p: IconProps) {
+// The brand mark: an eighth note whose body is ascending VU bars — the
+// tallest bar is the stem, carrying an angular flag. Reads as a note at a
+// glance, as a segmented meter up close (the app's own instrument grammar).
+export function IconBrandNote(p: IconProps) {
   return (
     <Base {...p}>
-      <path d="M6 12.5 V3.5 L13 2 V11" />
-      <rect x="2.8" y="10.7" width="3.2" height="3" fill="currentColor" stroke="none" />
-      <rect x="9.8" y="9.2" width="3.2" height="3" fill="currentColor" stroke="none" />
+      <rect x="2" y="11.6" width="2.6" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="2" y="8.4" width="2.6" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="6" y="11.6" width="2.6" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="6" y="8.4" width="2.6" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="6" y="5.2" width="2.6" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="10" y="2" width="2.6" height="12" fill="currentColor" stroke="none" />
+      <path d="M12.6 2 L15.4 4.8 V8.2 L12.6 5.4 Z" fill="currentColor" stroke="none" />
     </Base>
   );
 }
 
+// 32-grid variant for large renders (library empty state at 56px) — the
+// 16-grid mark's 0.8px segment gaps blur when upscaled.
+export function IconBrandNoteLarge({ size = 32, ...rest }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="currentColor"
+      aria-hidden
+      focusable="false"
+      {...rest}
+    >
+      <rect x="4" y="25" width="5" height="3" />
+      <rect x="4" y="20.5" width="5" height="3" />
+      <rect x="4" y="16" width="5" height="3" />
+      <rect x="12" y="25" width="5" height="3" />
+      <rect x="12" y="20.5" width="5" height="3" />
+      <rect x="12" y="16" width="5" height="3" />
+      <rect x="12" y="11.5" width="5" height="3" />
+      <rect x="20" y="4" width="5" height="24" />
+      <path d="M25 4 L31 10 V16 L25 10 Z" />
+    </svg>
+  );
+}
+
+// New Song: a cartridge (song-card chamfer notch) taking a plus — its own
+// icon, so the brand mark stays unique to the brand.
+export function IconCartridgeNew(p: IconProps) {
+  return (
+    <Base {...p}>
+      <path d="M2 5 H9 L12.5 8.5 V13.5 H2 Z" />
+      <path d="M4.5 11 H8" />
+      <path d="M12.75 2.25 V6.25 M10.75 4.25 H14.75" />
+    </Base>
+  );
+}
+
+// Run order: lamped rows, the solid play wedge sitting on who's next.
 export function IconQueue(p: IconProps) {
   return (
     <Base {...p}>
-      <path d="M2.5 3.5 H10" />
-      <path d="M2.5 8 H10" />
-      <path d="M2.5 12.5 H7" />
-      <path d="M10.5 8.5 L14.5 11 L10.5 13.5 Z" fill="currentColor" stroke="none" />
+      <rect x="2" y="2.6" width="2.2" height="2.2" fill="currentColor" stroke="none" />
+      <path d="M6.2 3.7 H10.2" />
+      <path d="M11.2 2.1 L14.4 3.7 L11.2 5.3 Z" fill="currentColor" stroke="none" />
+      <rect x="2" y="6.9" width="2.2" height="2.2" fill="currentColor" stroke="none" />
+      <path d="M6.2 8 H14.4" />
+      <rect x="2" y="11.2" width="2.2" height="2.2" fill="currentColor" stroke="none" />
+      <path d="M6.2 12.3 H14.4" />
     </Base>
   );
 }
 
+// Cartridge rack: one seated, one half-ejected, both chamfer-notched.
 export function IconLibrary(p: IconProps) {
   return (
     <Base {...p}>
-      <rect x="2" y="2.5" width="3.2" height="11" />
-      <rect x="7" y="2.5" width="3.2" height="11" />
-      <path d="M11.6 3.2 L14.4 13.2" />
+      <path d="M2.5 6.5 H5.2 L6.5 7.8 V13.5 H2.5 Z" />
+      <path d="M9.5 2.5 H12.2 L13.5 3.8 V13.5 H9.5 Z" />
+      <path d="M1.5 13.5 H14.5" />
     </Base>
   );
 }
 
+// In-progress meters (horizontal — the vertical bars now belong to the
+// brand mark).
 export function IconJobs(p: IconProps) {
   return (
     <Base {...p}>
-      <rect x="2.5" y="9" width="2.4" height="4.5" fill="currentColor" stroke="none" />
-      <rect x="6.8" y="5.5" width="2.4" height="8" fill="currentColor" stroke="none" />
-      <rect x="11.1" y="2.5" width="2.4" height="11" fill="currentColor" stroke="none" />
+      <rect x="2" y="3" width="11.5" height="2.6" fill="currentColor" stroke="none" />
+      <rect x="2" y="6.7" width="7.5" height="2.6" fill="currentColor" stroke="none" />
+      <rect x="2" y="10.4" width="4" height="2.6" fill="currentColor" stroke="none" />
     </Base>
   );
 }
