@@ -157,9 +157,9 @@ input {
 }
 
 .brand-mark {
-  color: var(--cyan);
+  color: var(--magenta);
   display: inline-flex;
-  filter: drop-shadow(0 0 6px var(--cyan-glow));
+  filter: drop-shadow(0 0 6px var(--magenta-glow));
 }
 
 .nav-btn {
@@ -710,7 +710,7 @@ input[type="checkbox"] {
 }
 
 .job-card.status-completed {
-  border-color: var(--cyan-dim);
+  border-color: var(--green-dim);
 }
 
 .job-card.status-failed {
@@ -744,7 +744,7 @@ input[type="checkbox"] {
 }
 
 .status-completed .job-headline {
-  color: var(--cyan);
+  color: var(--green);
 }
 
 .status-failed .job-headline {
@@ -821,9 +821,9 @@ input[type="checkbox"] {
 }
 
 .stage-pill.done span::before {
-  background: var(--cyan);
-  border-color: var(--cyan);
-  box-shadow: 0 0 6px var(--cyan-glow);
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow: 0 0 6px var(--green-glow);
 }
 
 /* segmented bar-graph */
@@ -908,9 +908,9 @@ input[type="checkbox"] {
 
 .coll-btn.active,
 .coll-row.active .coll-name {
-  background: var(--cyan-wash);
-  border-color: var(--cyan-dim);
-  color: var(--cyan-bright);
+  background: var(--green-wash);
+  border-color: var(--green-dim);
+  color: var(--green-bright);
   font-weight: 600;
 }
 
@@ -948,7 +948,7 @@ input[type="checkbox"] {
 }
 
 .coll-new {
-  color: var(--cyan);
+  color: var(--green);
 }
 
 .coll-input {
@@ -984,7 +984,7 @@ input[type="checkbox"] {
 }
 
 .empty-mark {
-  color: var(--cyan-dim);
+  color: var(--magenta-dim);
   margin-bottom: var(--s3);
   display: flex;
   justify-content: center;
@@ -1458,8 +1458,8 @@ input[type="checkbox"] {
 }
 
 .badge.fresh {
-  background: var(--cyan-wash);
-  color: var(--cyan);
+  background: var(--green-wash);
+  color: var(--green);
 }
 
 .badge.stale {
@@ -1812,6 +1812,8 @@ label.check {
 .pk-finished-title {
   font-size: 34px;
   font-weight: 700;
+  color: var(--magenta);
+  text-shadow: 0 0 22px var(--magenta-glow);
 }
 
 /* ---- player console ---- */
