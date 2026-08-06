@@ -131,9 +131,14 @@ impl W2v {
     /// Full-song emissions. Chunks of `CHUNK_SEC` with `OVERLAP_SEC` overlap;
     /// interior chunk edges are discarded (half the overlap each side) before
     /// concatenation. Fails closed: non-finite emissions on a GPU EP trigger
-    /// one CPU rebuild + retry.
-    pub fn emissions(&mut self, audio16k: &[f32]) -> Result<Emissions> {
-        let em = self.emissions_inner(audio16k)?;
+    /// one CPU rebuild + retry. `on_chunk(done, total)` fires after each
+    /// chunk's inference (restarts from 1 on the CPU retry).
+    pub fn emissions(
+        &mut self,
+        audio16k: &[f32],
+        on_chunk: &mut dyn FnMut(usize, usize),
+    ) -> Result<Emissions> {
+        let em = self.emissions_inner(audio16k, on_chunk)?;
         if em.logprobs.iter().all(|v| v.is_finite()) {
             return Ok(em);
         }
@@ -146,7 +151,7 @@ impl W2v {
         // separation stage's parity check).
         self.session = build_session(&self.dir, self.threads, W2vEp::Cpu)?;
         self.ep = W2vEp::Cpu;
-        let em = self.emissions_inner(audio16k)?;
+        let em = self.emissions_inner(audio16k, on_chunk)?;
         if em.logprobs.iter().all(|v| v.is_finite()) {
             Ok(em)
         } else {
@@ -156,13 +161,22 @@ impl W2v {
         }
     }
 
-    fn emissions_inner(&mut self, audio16k: &[f32]) -> Result<Emissions> {
+    fn emissions_inner(
+        &mut self,
+        audio16k: &[f32],
+        on_chunk: &mut dyn FnMut(usize, usize),
+    ) -> Result<Emissions> {
         let sr = 16000usize;
         let chunk = CHUNK_SEC * sr;
         let overlap = OVERLAP_SEC * sr;
         let hop = chunk - overlap;
         let trim_frames = (OVERLAP_SEC as f64 / 2.0 / FRAME_SEC) as usize; // frames cut per interior edge
 
+        let n_chunks = if audio16k.len() <= chunk {
+            1
+        } else {
+            1 + (audio16k.len() - chunk).div_ceil(hop)
+        };
         let mut all: Vec<f32> = Vec::new();
         let mut n_frames_total = 0usize;
         let mut n_vocab: Option<usize> = None;
@@ -201,6 +215,7 @@ impl W2v {
                 all.extend(row.iter().map(|v| v - lse));
             }
             n_frames_total += f_hi - f_lo;
+            on_chunk(chunk_idx + 1, n_chunks);
             if is_last {
                 break;
             }

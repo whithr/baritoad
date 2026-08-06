@@ -175,14 +175,16 @@ impl Whisper {
 
     /// Transcribe pre-planned silence-aware chunks of 16 kHz mono audio.
     /// Each chunk is padded to whisper's 30 s window; the returned transcripts
-    /// carry each chunk's time window in song seconds.
+    /// carry each chunk's time window in song seconds. `on_chunk(done, total)`
+    /// fires after each chunk (whisper dominates align wall time on CPU).
     pub fn transcribe_chunks(
         &mut self,
         audio16k: &[f32],
         chunks: &[Chunk],
+        on_chunk: &mut dyn FnMut(usize, usize),
     ) -> Result<Vec<ChunkTranscript>> {
         let mut out = Vec::with_capacity(chunks.len());
-        for c in chunks {
+        for (ci, c) in chunks.iter().enumerate() {
             debug_assert!(c.len <= mel::CHUNK_SAMPLES);
             let mut padded = vec![0.0f32; mel::CHUNK_SAMPLES];
             let n = c.len.min(mel::CHUNK_SAMPLES);
@@ -195,6 +197,7 @@ impl Whisper {
                 end_s: c.end_s(mel::SAMPLE_RATE),
                 text,
             });
+            on_chunk(ci + 1, chunks.len());
         }
         Ok(out)
     }

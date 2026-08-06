@@ -161,7 +161,7 @@ impl Aligner {
         &mut self,
         vocals16k: &[f32],
         lyrics_text: &str,
-        progress: &mut dyn FnMut(&str),
+        progress: &mut dyn FnMut(Option<f64>, &str),
     ) -> Result<AlignOutput> {
         let words = anchor::parse_lyrics(lyrics_text);
         self.align_words(vocals16k, &words, progress)
@@ -169,11 +169,13 @@ impl Aligner {
 
     /// Align pre-parsed lyric words (the cleanup pass's output) to a 16 kHz
     /// mono vocal stem. The output map's words are 1:1 with `lyric_words`.
+    /// `progress(fraction, message)`: fraction is the estimated share of the
+    /// whole align stage completed, in [0, 1], when quantifiable.
     pub fn align_words(
         &mut self,
         vocals16k: &[f32],
         lyric_words: &[anchor::LyricWord],
-        progress: &mut dyn FnMut(&str),
+        progress: &mut dyn FnMut(Option<f64>, &str),
     ) -> Result<AlignOutput> {
         if lyric_words.is_empty() {
             return Err(Error::InvalidInput("lyrics contain no words".into()));
@@ -188,7 +190,7 @@ impl Aligner {
     pub fn align_transcribe(
         &mut self,
         vocals16k: &[f32],
-        progress: &mut dyn FnMut(&str),
+        progress: &mut dyn FnMut(Option<f64>, &str),
     ) -> Result<AlignOutput> {
         self.align_core(vocals16k, None, progress)
     }
@@ -197,7 +199,7 @@ impl Aligner {
         &mut self,
         vocals16k: &[f32],
         pasted: Option<&[anchor::LyricWord]>,
-        progress: &mut dyn FnMut(&str),
+        progress: &mut dyn FnMut(Option<f64>, &str),
     ) -> Result<AlignOutput> {
         if vocals16k.is_empty() {
             return Err(Error::InvalidInput("empty audio".into()));
@@ -205,13 +207,29 @@ impl Aligner {
         let duration_s = vocals16k.len() as f64 / SAMPLE_RATE as f64;
 
         // ---- stage 1: whisper rough pass over silence-aware chunks ----
+        // Whisper vs wav2vec2 share of align wall time on CPU (measured:
+        // whisper 14.4-19.4 s vs w2v 15.1-15.5 s per 3-3.6 min song). Only
+        // shapes the progress fraction — never affects results.
+        const WHISPER_PROGRESS_WEIGHT: f64 = 0.55;
         let chunks = chunk::plan_chunks(vocals16k, SAMPLE_RATE as usize);
-        progress(&format!(
-            "whisper: transcribing {} chunk(s) (silence-aware boundaries)",
-            chunks.len()
-        ));
+        progress(
+            Some(0.0),
+            &format!(
+                "whisper: transcribing {} chunk(s) (silence-aware boundaries)",
+                chunks.len()
+            ),
+        );
         let t0 = Instant::now();
-        let chunk_transcripts = self.whisper.transcribe_chunks(vocals16k, &chunks)?;
+        let chunk_transcripts = self.whisper.transcribe_chunks(
+            vocals16k,
+            &chunks,
+            &mut |done, total| {
+                progress(
+                    Some(WHISPER_PROGRESS_WEIGHT * done as f64 / total.max(1) as f64),
+                    &format!("whisper: chunk {done}/{total}"),
+                );
+            },
+        )?;
         let whisper_s = t0.elapsed().as_secs_f64();
         let transcript = chunk_transcripts
             .iter()
@@ -237,10 +255,10 @@ impl Aligner {
                 transcript_meta.push((ci, w.to_string()));
             }
         }
-        progress(&format!(
-            "whisper: {} words in {whisper_s:.1}s",
-            transcript_words.len()
-        ));
+        progress(
+            None,
+            &format!("whisper: {} words in {whisper_s:.1}s", transcript_words.len()),
+        );
 
         // ---- resolve the lyric source ----
         // Pasted lyrics are ground truth: whisper output is only matched
@@ -266,7 +284,10 @@ impl Aligner {
                             .into(),
                     ));
                 }
-                progress("no pasted lyrics: using the whisper transcript as the lyric source");
+                progress(
+                    None,
+                    "no pasted lyrics: using the whisper transcript as the lyric source",
+                );
                 lyric_words = transcript_words
                     .iter()
                     .zip(&transcript_meta)
@@ -303,15 +324,23 @@ impl Aligner {
         }
 
         // ---- stage 2: wav2vec2 emissions + CTC trellis over the user's words ----
-        progress(&format!("wav2vec2 emissions ({})", self.w2v.ep.as_str()));
+        let w2v_ep = self.w2v.ep.as_str();
+        progress(None, &format!("wav2vec2 emissions ({w2v_ep})"));
         let t1 = Instant::now();
-        let em = self.w2v.emissions(vocals16k)?;
+        let em = self.w2v.emissions(vocals16k, &mut |done, total| {
+            let frac = WHISPER_PROGRESS_WEIGHT
+                + (1.0 - WHISPER_PROGRESS_WEIGHT) * done as f64 / total.max(1) as f64;
+            progress(Some(frac), &format!("wav2vec2: chunk {done}/{total} ({w2v_ep})"));
+        })?;
         let w2v_s = t1.elapsed().as_secs_f64();
-        progress(&format!(
-            "wav2vec2: {} frames in {w2v_s:.1}s ({})",
-            em.n_frames,
-            self.w2v.ep.as_str()
-        ));
+        progress(
+            None,
+            &format!(
+                "wav2vec2: {} frames in {w2v_s:.1}s ({})",
+                em.n_frames,
+                self.w2v.ep.as_str()
+            ),
+        );
 
         let norm_refs: Vec<&str> = lyric_words.iter().map(|w| w.norm.as_str()).collect();
         let (targets, ranges) = w2v::words_to_targets(&norm_refs, &self.w2v.vocab, self.w2v.word_delim);
@@ -468,10 +497,13 @@ impl Aligner {
             n_unsung,
             n_unalignable,
         };
-        progress(&format!(
-            "aligned {} words (anchored {}, unsung {}) in {total_s:.1}s (rtf {:.2})",
-            stats.n_lyric_words, stats.n_anchored, stats.n_unsung, stats.realtime_factor
-        ));
+        progress(
+            Some(1.0),
+            &format!(
+                "aligned {} words (anchored {}, unsung {}) in {total_s:.1}s (rtf {:.2})",
+                stats.n_lyric_words, stats.n_anchored, stats.n_unsung, stats.realtime_factor
+            ),
+        );
         Ok(AlignOutput {
             map,
             transcript,
@@ -537,7 +569,7 @@ impl WindowAligner {
         if window16k.is_empty() {
             return Err(Error::InvalidInput("empty audio window".into()));
         }
-        let em = self.w2v.emissions(window16k)?;
+        let em = self.w2v.emissions(window16k, &mut |_, _| {})?;
         window_words_from_emissions(
             &em,
             &self.w2v.vocab,
@@ -775,7 +807,7 @@ mod smoke {
         let (mut aligner, _notes) =
             Aligner::load(Path::new(&models), AlignConfig::default()).unwrap();
         let out = aligner
-            .align(&decoded.samples, &lyrics, &mut |m| eprintln!("[smoke] {m}"))
+            .align(&decoded.samples, &lyrics, &mut |_f, m| eprintln!("[smoke] {m}"))
             .unwrap();
 
         assert!(out.map.validate().is_empty(), "{:?}", out.map.validate());

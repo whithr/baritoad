@@ -288,9 +288,10 @@ pub fn generate(
         let t0 = Instant::now();
         let result = run_separate_stage(&audio_path, &stems_dir, &model_path, req.ep, on_event);
         match result {
-            Ok(artifacts) => {
+            Ok((artifacts, details)) => {
                 let secs = t0.elapsed().as_secs_f64();
                 man.mark_complete(StageId::Separate, SEPARATE_STAGE_VERSION, artifacts, secs);
+                man.set_details(StageId::Separate, details);
                 save(&mut man)?;
                 on_event(&PipelineEvent::StageCompleted {
                     stage: StageId::Separate,
@@ -485,7 +486,7 @@ pub fn generate(
             on_event,
         );
         match result {
-            Ok(m) => {
+            Ok((m, stats)) => {
                 let secs = t0.elapsed().as_secs_f64();
                 let bytes = std::fs::metadata(&map_path)?.len();
                 man.mark_complete(
@@ -497,6 +498,10 @@ pub fn generate(
                         bytes,
                     }],
                     secs,
+                );
+                man.set_details(
+                    StageId::Align,
+                    serde_json::to_value(&stats).unwrap_or(serde_json::Value::Null),
                 );
                 save(&mut man)?;
                 on_event(&PipelineEvent::StageCompleted {
@@ -642,7 +647,7 @@ fn run_separate_stage(
     model_path: &Path,
     ep: EpChoice,
     on_event: &mut dyn FnMut(&PipelineEvent),
-) -> Result<Vec<Artifact>> {
+) -> Result<(Vec<Artifact>, serde_json::Value)> {
     let progress_msg = |m: String, on_event: &mut dyn FnMut(&PipelineEvent)| {
         on_event(&PipelineEvent::StageProgress {
             stage: StageId::Separate,
@@ -696,6 +701,8 @@ fn run_separate_stage(
     };
     let prepared =
         separation::prepare_model(model_path, ep, Some(&parity_cache), &mut sep_events)?;
+    let init_seconds = prepared.init_seconds;
+    let parity_seconds = prepared.parity_seconds;
     let mut model = prepared.model;
     let ep_used = model.ep;
 
@@ -732,7 +739,14 @@ fn run_separate_stage(
             bytes,
         });
     }
-    Ok(artifacts)
+    let details = serde_json::json!({
+        "ep": format!("{ep_used}"),
+        "segments": stats.segments,
+        "infer_seconds": stats.infer_seconds,
+        "session_init_seconds": init_seconds,
+        "parity_seconds": parity_seconds,
+    });
+    Ok((artifacts, details))
 }
 
 fn run_align_stage(
@@ -743,7 +757,7 @@ fn run_align_stage(
     onset_bias_s: f64,
     map_path: &Path,
     on_event: &mut dyn FnMut(&PipelineEvent),
-) -> Result<WordTimingMap> {
+) -> Result<(WordTimingMap, crate::alignment::AlignStats)> {
     let vocals_path = stems_dir.join("vocals.wav");
     if !vocals_path.is_file() {
         return Err(Error::InvalidInput(format!(
@@ -773,10 +787,10 @@ fn run_align_stage(
         });
     }
 
-    let mut progress = |m: &str| {
+    let mut progress = |fraction: Option<f64>, m: &str| {
         on_event(&PipelineEvent::StageProgress {
             stage: StageId::Align,
-            fraction: None,
+            fraction,
             message: Some(m.to_string()),
         });
     };
@@ -799,5 +813,5 @@ fn run_align_stage(
         )));
     }
     manifest::write_atomic(map_path, out.map.to_json_pretty()?.as_bytes())?;
-    Ok(out.map)
+    Ok((out.map, out.stats))
 }

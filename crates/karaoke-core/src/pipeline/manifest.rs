@@ -141,6 +141,10 @@ pub struct StageEntry {
     pub seconds: Option<f64>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Stage-specific diagnostics (substage timings, EP used, counters).
+    /// Informational only — never part of fingerprints or output tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 impl StageEntry {
@@ -154,6 +158,7 @@ impl StageEntry {
             started_unix: None,
             seconds: None,
             error: None,
+            details: None,
         }
     }
 }
@@ -272,6 +277,7 @@ impl JobManifest {
         e.started_unix = Some(unix_now());
         e.seconds = None;
         e.error = None;
+        e.details = None;
     }
 
     /// Mark a stage complete and mint its fresh `output_token`.
@@ -299,6 +305,15 @@ impl JobManifest {
         e.seconds = Some(seconds);
         e.error = None;
         e.output_token = hash::sha256_hex(token_src.as_bytes());
+    }
+
+    /// Attach diagnostic details to a stage entry (call after
+    /// [`Self::mark_complete`], before saving). No-op if the stage was never
+    /// touched this run.
+    pub fn set_details(&mut self, id: StageId, details: serde_json::Value) {
+        if let Some(e) = self.stages.get_mut(&id) {
+            e.details = Some(details);
+        }
     }
 
     pub fn mark_failed(&mut self, id: StageId, stage_version: u32, message: &str) {

@@ -98,6 +98,41 @@ describe("reduceJobEvent", () => {
     expect(progressHeadline(p)).toBe("Aligning lyrics");
   });
 
+  it("tracks alignment fraction and shows its percent in the headline", () => {
+    const s = feed([
+      lifecycle({ status: "running" }),
+      pipe({ type: "stage_completed", stage: "separate", seconds: 18.4 }),
+      pipe({ type: "stage_started", stage: "align" }),
+      pipe({
+        type: "stage_progress",
+        stage: "align",
+        fraction: 0.55,
+        message: "whisper: chunk 8/8",
+      }),
+    ]);
+    const p = s.jobs[1];
+    expect(p.stage).toBe("aligning");
+    expect(p.fraction).toBe(0.55);
+    expect(progressHeadline(p)).toBe("Aligning lyrics — 55%");
+  });
+
+  it("align stage_started resets the bar; clean_lyrics/export ticks never clobber it", () => {
+    const s = feed([
+      lifecycle({ status: "running" }),
+      pipe({ type: "stage_progress", stage: "separate", fraction: 1 }),
+      pipe({ type: "stage_completed", stage: "separate", seconds: 18.4 }),
+      pipe({ type: "stage_started", stage: "align" }),
+    ]);
+    expect(s.jobs[1].fraction).toBeNull();
+    const s2 = feed([
+      lifecycle({ status: "running" }),
+      pipe({ type: "stage_progress", stage: "align", fraction: 0.9 }),
+      pipe({ type: "stage_started", stage: "export" }),
+      pipe({ type: "stage_progress", stage: "export", message: "writing lrc" }),
+    ]);
+    expect(s2.jobs[1].fraction).toBe(0.9);
+  });
+
   it("jumps to aligning when separation is skipped via resume", () => {
     const s = feed([
       lifecycle({ status: "running" }),

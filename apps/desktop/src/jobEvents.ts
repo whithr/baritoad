@@ -23,7 +23,7 @@ export interface JobProgress {
   job: JobSnapshot;
   /** Which display stage is active while running. */
   stage: DisplayStage;
-  /** 0..1 for the separation stage; null when unquantified. */
+  /** 0..1 within the active display stage; null when unquantified. */
   fraction: number | null;
   /** Latest human-readable progress message. */
   message: string | null;
@@ -60,12 +60,23 @@ const CLEANUP_PREFIX = "lyric cleanup: ";
 function applyPipeline(p: JobProgress, e: PipelineEvent): JobProgress {
   switch (e.type) {
     case "stage_started":
-      return { ...p, stage: displayStage(e.stage), fraction: null, message: null };
+      // Reset the bar only when a quantified stage begins its display stage;
+      // clean_lyrics/export starting must not blank align's progress.
+      return {
+        ...p,
+        stage: displayStage(e.stage),
+        fraction:
+          e.stage === "separate" || e.stage === "align" ? null : p.fraction,
+        message: null,
+      };
     case "stage_progress": {
+      // separate and align each quantify their own display stage;
+      // clean_lyrics/export ticks (instant) never clobber align's fraction.
+      const quantified = e.stage === "separate" || e.stage === "align";
       const next: JobProgress = {
         ...p,
         stage: displayStage(e.stage),
-        fraction: e.stage === "separate" ? (e.fraction ?? p.fraction) : null,
+        fraction: quantified ? (e.fraction ?? p.fraction) : p.fraction,
         message: e.message ?? p.message,
       };
       if (e.stage === "clean_lyrics" && e.message?.startsWith(CLEANUP_PREFIX)) {
@@ -134,9 +145,8 @@ export function progressHeadline(p: JobProgress): string {
     case "running":
       return p.job.cancel_requested
         ? "Cancelling…"
-        : DISPLAY_LABELS[p.stage] + (p.fraction != null && p.stage === "separating"
-            ? ` — ${Math.round(p.fraction * 100)}%`
-            : "");
+        : DISPLAY_LABELS[p.stage] +
+            (p.fraction != null ? ` — ${Math.round(p.fraction * 100)}%` : "");
     case "completed":
       return "Ready";
     case "failed":

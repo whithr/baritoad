@@ -710,7 +710,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("alignment models loaded in {load_s:.1}s");
 
     // ---- align ----
-    let mut progress = |m: &str| eprintln!("  {m}");
+    let mut progress = |_fraction: Option<f64>, m: &str| eprintln!("  {m}");
     let mut out = match &cleaned {
         Some(c) => {
             let words = c.lyric_words();
