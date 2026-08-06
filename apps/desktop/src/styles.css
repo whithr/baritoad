@@ -136,6 +136,7 @@ input {
   * {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0.01ms !important; /* staggered boot sweep must not delay state */
   }
 }
 
