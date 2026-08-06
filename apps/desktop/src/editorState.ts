@@ -13,6 +13,7 @@
 
 import type { TimingMap, WordTiming } from "./api";
 import type { RealignedWord } from "./api";
+import { breakLineAt, joinLineUp, reflowLines, retimeLine, tokenizeLyric } from "./lineEdit";
 
 /** Two proposed times closer than this count as "didn't move" — a micro-drag
  *  (accidental wiggle while clicking) neither dirties the map nor spends an
@@ -41,6 +42,10 @@ export type EditorAction =
   | { type: "nudge"; index: number; deltaS: number }
   | { type: "apply-realign"; first: number; last: number; timings: RealignedWord[] }
   | { type: "set-text"; index: number; text: string }
+  | { type: "set-line-text"; first: number; last: number; text: string }
+  | { type: "break-line"; at: number }
+  | { type: "join-line"; at: number }
+  | { type: "reflow-lines" }
   | { type: "insert-word"; after: number; word: string }
   | { type: "delete-word"; index: number }
   | { type: "nudge-range"; first: number; last: number; deltaS: number }
@@ -173,6 +178,59 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const words = state.words.slice();
       words[action.index] = { ...cur, word: text };
       return withEdit(state, words);
+    }
+
+    case "set-line-text": {
+      // Replace a whole line's text as one sentence: LCS-matched words keep
+      // their timing; replaced runs divide their old span evenly (lineEdit).
+      const { first, last } = action;
+      if (first < 0 || last >= state.words.length || first > last) return state;
+      const tokens = tokenizeLyric(action.text);
+      if (tokens.length === 0) return state;
+      const oldLine = state.words.slice(first, last + 1);
+      const newLine = retimeLine(oldLine, tokens);
+      if (newLine.length === 0) return state;
+      // Clamp the outer onsets against the neighbors so the map stays valid.
+      const prevOnset = first > 0 ? state.words[first - 1].start : 0;
+      const nextOnset =
+        last < state.words.length - 1 ? state.words[last + 1].start : state.duration;
+      let prev = prevOnset;
+      const clamped = newLine.map((w) => {
+        const start = Math.min(Math.max(w.start, prev), nextOnset);
+        prev = start;
+        return { ...w, start, end: Math.min(Math.max(w.end, start), state.duration) };
+      });
+      const same =
+        clamped.length === oldLine.length &&
+        clamped.every(
+          (w, k) =>
+            w.word === oldLine[k].word &&
+            !moved(w.start, oldLine[k].start) &&
+            !moved(w.end, oldLine[k].end),
+        );
+      if (same) return state;
+      const words = state.words.slice(0, first).concat(clamped, state.words.slice(last + 1));
+      return { ...withEdit(state, words), selected: null };
+    }
+
+    case "break-line": {
+      const words = breakLineAt(state.words, action.at);
+      return words ? withEdit(state, words) : state;
+    }
+
+    case "join-line": {
+      const words = joinLineUp(state.words, action.at);
+      return words ? withEdit(state, words) : state;
+    }
+
+    case "reflow-lines": {
+      const words = reflowLines(state.words);
+      // Reflow only rewrites line links — a no-op map stays clean.
+      const changed = words.some(
+        (w, i) =>
+          w.line !== state.words[i].line || w.word_in_line !== state.words[i].word_in_line,
+      );
+      return changed ? withEdit(state, words) : state;
     }
 
     case "insert-word": {

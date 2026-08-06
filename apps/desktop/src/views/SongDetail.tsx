@@ -334,6 +334,9 @@ function Preview(props: {
   const [draft, setDraft] = useState("");
   const [insertAfter, setInsertAfter] = useState<number | null>(null);
   const [insertDraft, setInsertDraft] = useState("");
+  // whole-line sentence editing: {first,last} word indices of the line
+  const [lineEdit, setLineEdit] = useState<{ first: number; last: number } | null>(null);
+  const [lineDraft, setLineDraft] = useState("");
   const [shiftScope, setShiftScope] = useState<ShiftScope>("word");
   const [editFlow, setEditFlow] = useState<EditFlow>(() => {
     const v = localStorage.getItem(EDIT_FLOW_KEY);
@@ -463,6 +466,36 @@ function Preview(props: {
   const deleteSelected = () => {
     if (ed.selected != null) dispatch({ type: "delete-word", index: ed.selected });
   };
+  // ---- line actions ----
+  const sel = ed.selected;
+  const selGroupIdx = sel != null ? lines.findIndex((g) => g.indices.includes(sel)) : -1;
+  const canBreak =
+    ed.selected != null &&
+    words[ed.selected]?.line != null &&
+    selGroupIdx >= 0 &&
+    lines[selGroupIdx].indices[0] !== ed.selected;
+  const canJoin = ed.selected != null && words[ed.selected]?.line != null && selGroupIdx > 0;
+  const beginLineEdit = () => {
+    const gi = selGroupIdx >= 0 ? selGroupIdx : Math.max(lineIdx, 0);
+    const g = lines[gi];
+    if (!g || g.indices.length === 0) return;
+    setEditing(null);
+    setInsertAfter(null);
+    setLineEdit({ first: g.indices[0], last: g.indices[g.indices.length - 1] });
+    setLineDraft(g.indices.map((i) => words[i].word).join(" "));
+    enterEditFlow(g.indices[0]);
+  };
+  const commitLineEdit = () => {
+    if (lineEdit != null) {
+      dispatch({ type: "set-line-text", first: lineEdit.first, last: lineEdit.last, text: lineDraft });
+    }
+    setLineEdit(null);
+    exitEditFlow();
+  };
+  const cancelLineEdit = () => {
+    setLineEdit(null);
+    exitEditFlow();
+  };
   const nudgeSelected = (dir: 1 | -1, coarse: boolean) => {
     if (ed.selected == null) return;
     const r = shiftRange(words, ed.selected, shiftScope);
@@ -538,6 +571,11 @@ function Preview(props: {
         e.preventDefault();
         return;
       }
+      if (e.key === "Enter" && e.shiftKey) {
+        beginLineEdit();
+        e.preventDefault();
+        return;
+      }
       if (e.key === "Enter" && ed.selected != null) {
         beginEdit(ed.selected);
         e.preventDefault();
@@ -565,6 +603,7 @@ function Preview(props: {
     ]);
     if (editing != null && !rendered.has(editing)) commitEdit();
     if (insertAfter != null && !rendered.has(insertAfter)) commitInsert();
+    if (lineEdit != null && !rendered.has(lineEdit.first)) commitLineEdit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renderedKey]);
 
@@ -677,17 +716,42 @@ function Preview(props: {
     );
   };
 
-  const renderLine = (g: LineGroup | undefined, kind: "prev" | "current" | "next") => (
-    <div className={`preview-line ${kind}`}>
-      {g?.indices.flatMap((wi) => {
-        const out = [renderWord(wi, kind)];
-        if (insertAfter === wi) {
-          out.push(wordInput(`ins-${wi}`, insertDraft, setInsertDraft, commitInsert, cancelInsert));
-        }
-        return out;
-      })}
-    </div>
-  );
+  const renderLine = (g: LineGroup | undefined, kind: "prev" | "current" | "next") => {
+    if (g && lineEdit != null && g.indices[0] === lineEdit.first) {
+      return (
+        <div className={`preview-line ${kind}`}>
+          <input
+            key="line-edit"
+            className="k-word-input line-input"
+            value={lineDraft}
+            autoFocus
+            onChange={(e) => setLineDraft(e.target.value)}
+            onBlur={commitLineEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitLineEdit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelLineEdit();
+              }
+            }}
+          />
+        </div>
+      );
+    }
+    return (
+      <div className={`preview-line ${kind}`}>
+        {g?.indices.flatMap((wi) => {
+          const out = [renderWord(wi, kind)];
+          if (insertAfter === wi) {
+            out.push(wordInput(`ins-${wi}`, insertDraft, setInsertDraft, commitInsert, cancelInsert));
+          }
+          return out;
+        })}
+      </div>
+    );
+  };
 
   const barClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!audio.ready) return;
@@ -863,6 +927,34 @@ function Preview(props: {
               Redo
             </button>
           </div>
+          <div className="bench-module" role="group" aria-label="Shape lines">
+            <button
+              onClick={beginLineEdit}
+              title="Retype the whole line as one sentence — matched words keep their timing (Shift+Enter)"
+            >
+              Edit line
+            </button>
+            <button
+              disabled={!canBreak}
+              onClick={() => sel != null && dispatch({ type: "break-line", at: sel })}
+              title="Start a new line at the selected word"
+            >
+              Break here
+            </button>
+            <button
+              disabled={!canJoin}
+              onClick={() => sel != null && dispatch({ type: "join-line", at: sel })}
+              title="Fold this line into the previous one"
+            >
+              Join up
+            </button>
+            <button
+              onClick={() => dispatch({ type: "reflow-lines" })}
+              title="Rebuild every line break from punctuation and the song's own pauses — undoable"
+            >
+              Reflow lines
+            </button>
+          </div>
           <span className="spacer" />
           <div className="bench-module" role="group" aria-label="While editing, playback should">
             <span className="label">On edit</span>
@@ -893,8 +985,8 @@ function Preview(props: {
         </div>
       </div>
       <p className="preview-hints muted small">
-        Click a word to jump · double-click to retype · Tab next word · ←/→ shift the selection
-        (Shift: ×10) · Del remove · Space play/pause · Ctrl+Z undo
+        Click a word to jump · double-click to retype · Shift+Enter edit the whole line · Tab next
+        word · ←/→ shift the selection (Shift: ×10) · Del remove · Space play/pause · Ctrl+Z undo
       </p>
       {confirmLeave && (
         <ConfirmStrip

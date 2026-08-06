@@ -439,8 +439,17 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Console bench row:** the Shift module (scope keys WORD | LINE |
   FROM HERE, chevron nudge keys ±10 ms / shift ±100 ms, DSEG offset
   readout showing the net shift since selection), word keys (Retype /
-  + Word / Remove / Undo / Redo), and the edit-flow selector (LOOP LINE |
+  + Word / Remove / Undo / Redo), line keys (Edit line / Break here /
+  Join up / Reflow lines), and the edit-flow selector (LOOP LINE |
   PAUSE | ROLL — what playback does while typing; sticky preference).
+- **Line editing:** "Edit line" (Shift+Enter) opens the whole line as one
+  sentence input — LCS-matched words keep their timing and flags, a
+  same-count replacement inherits the replaced words' timings 1:1, and
+  changed runs divide their old span evenly. "Reflow lines" rebuilds every
+  break from the song's own pauses (>0.8 s), terminal punctuation, and an
+  8-word cap — the poetic karaoke line shape — and gives structure to maps
+  that never had lines. All line ops renumber canonically (validator-safe)
+  and take one undo entry.
 - **Flow:** "Looks good" (the one amber key, chamfered) saves fixes +
   marks reviewed; "Precision editor" is the linkish escape to the
   chip-track FixEditor (re-align selection, end-stretch); dirty exits are
