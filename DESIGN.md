@@ -296,10 +296,14 @@ as instrument chrome.
   control label — field labels, popup group labels, sidebar footer.
 - **Seg** (DSEG7 italic, tabular-nums, 0.06em): clocks, durations, queue
   positions, key/tempo readouts. Sized in context (10–15px observed).
+- **Seg14** (DSEG14 upright, 0.08em): 4-character annunciator mnemonics
+  only (STBY/RUN/RDY/ERR/OFF, PLAY/PAUS), 12–13px, voiced in the status
+  family. Celebrate moments (34px/700 Barlow) voice in magenta.
 
 ### Named Rules
-**The Instrument-Chrome Rule.** DSEG faces render digits and `: . -` only —
-never lyric, body, or label type. Words belong to Barlow.
+**The Instrument-Chrome Rule.** DSEG faces render digits, `: . -`, and
+4-character machine mnemonics (SegWord annunciators) only — never lyric,
+body, or label type. Real words belong to Barlow.
 
 **The Silk-Screen Rule.** Anything printed "on the panel" (labels, module
 titles, key caps, nav) is uppercase Barlow with tracking (0.05–0.14em);
@@ -374,7 +378,7 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 
 ### Indicator Lamps
 - **Style:** 7–8px squares (1px radius), unlit = well fill + line border; lit = family fill + family border + `0 0 6–8px` family glow.
-- **Meaning:** amber lamp = the active source (nav) or running stage; cyan lamp = selected/checked/done; red lamp = the annunciator dot on error banners. Lamps are the app's state language — nav rows, menu items, select options, stage pills, and banners all carry one.
+- **Meaning:** amber lamp = the active source (nav) or running stage; cyan lamp = selected/checked; green lamp = done/success (completed stages); red lamp = the annunciator dot on error banners; magenta = the one-shot celebrate flare, never a steady lamp. Lamps are the app's state language — nav rows, menu items, select options, stage pills, and banners all carry one. On boot the nav lamps sweep amber once, top to bottom, with the power-on flash.
 
 ### Inputs / Fields
 - **Style:** recessed wells — well fill, 1px line seam, 3px corner, `inset-well` shadow; placeholder in text-faint; labels are silk-screen labels above.
@@ -389,14 +393,18 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Style:** the vocal-guide control — a 10px recessed track with amber fill, segment gaps cut by a repeating gradient (7px on / 2px gap), and a 10×22px rectangular fader cap with an amber grip line. 150px wide, 24px hit area.
 
 ### Segmented Meters
-- **Style:** every progress readout is a segmented bar-graph: ground/well track, amber fill, and a repeating-gradient overlay cutting 2px gaps every 6–8px. Stage bars animate via `transform` scale (300ms); the player timebar fill mutates `width` directly. Completed states re-voice to cyan.
+- **Style:** every progress readout is a segmented bar-graph: ground/well track, amber fill, and a repeating-gradient overlay cutting 2px gaps every 6–8px. Stage bars animate via `transform` scale (300ms); the player timebar fill mutates `width` directly. Completed states re-voice to green.
 
 ### SegText Readout
-- **Style:** the VFD readout — DSEG7 italic digits with the signature unlit-segment ghost: a stacked `8`-shapes layer at 0.22 opacity behind the lit digits (inline-grid, both layers in the same cell). Used for the editor clock, queue positions, cover durations.
+- **Style:** the VFD readout — DSEG7 italic digits with the signature unlit-segment ghost: a stacked `8`-shapes layer at 0.22 opacity behind the lit digits (inline-grid, both layers in the same cell). Used for the editor clock, queue positions, cover durations, and the library's odometer song count (green, leading zeros).
 - **Constraint:** static DOM only — never inside the player's rAF-mutated spans (the ghost doubles DOM per digit).
 
+### SegWord Annunciator
+- **Style:** the 14-segment word readout (DSEG14, upright) with the same `~` all-segments ghost — short status words only: `STBY`/`RUN`/`RDY`/`ERR`/`OFF` on job cards, `PLAY`/`PAUS` in the player console, voiced in the status's glow family. Status is always triple-coded (word + family color + Barlow headline), never hue alone.
+- **Constraint:** instrument chrome, not copy — the Instrument-Chrome Rule still gives every real word to Barlow; SegWord is capped at 4-character machine mnemonics. Same static-DOM rule as SegText.
+
 ### Song Cards (cartridges)
-- **Style:** panel fill, line seam, 3px corner; square cover with the 14px chamfered cartridge notch (top-right); title 14px/600, artist 13px dim; duration as a cyan mini-readout on the cover.
+- **Style:** panel fill, line seam, 3px corner; square cover with the 14px chamfered cartridge notch (top-right); title 14px/600, artist 13px dim; duration as a cyan mini-readout on the cover. Generated fallback covers are deterministic hash gradients with a wide hue spread (+70°) at cassette-sleeve saturation — covers are **content** (the album-art zone) and exempt from the five-glow discipline.
 - **Hover (openable):** cyan seam + `0 0 0 1px cyan-dim` ring + drop shadow.
 - **Play key:** the amber-lit key rests visible on every ready card (bottom-left, amber icon on dark, amber-dim seam); hover/focus lights the seam and glow; direct hover fills solid amber with ink. The card menu key (top-right) appears on hover/focus only.
 - **Processing cards:** a bottom gradient overlay with an amber processing headline and a live segmented meter.
@@ -406,7 +414,11 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Confirm strip:** destructive confirms are an in-world red annunciator with its own keys (danger key + cancel), `role="alertdialog"`, Escape to cancel, initial focus on Cancel — replacing system dialogs.
 
 ### Icons
-- **Grammar:** one grammar for the whole dash — 16×16 grid, 1.75 stroke, square caps, miter joins; angular instrument pictograms, not rounded consumer glyphs. Fill is reserved for the two solid transport marks (play/pause) and small square dot-clusters (dots, grip, jobs bars); everything else is stroked. `currentColor` throughout.
+- **Grammar:** one grammar for the whole dash — 16×16 grid, 1.75 stroke, square caps, miter joins; angular instrument pictograms, not rounded consumer glyphs. Fill is reserved for the solid transport marks (play/pause), small square dot-clusters (dots, grip, queue lamps, jobs meters), and the brand mark; everything else is stroked. `currentColor` throughout.
+
+### Brand Mark (the bar-graph note)
+- **Mark:** an eighth note whose body is ascending VU segments — two segmented bars rising into a full-height solid stem carrying an angular flag. Reads as a note at a glance, as one of the app's own segmented meters up close. Solid fill, two variants: 16-grid (`IconBrandNote`, brand slot at 18px) and 32-grid (`IconBrandNoteLarge`, large renders like the 56px empty state — the 16-grid's 0.8px gaps blur upscaled).
+- **Voice:** magenta with the family glow in the brand slot (personality is magenta's job); flares brighter once on boot. The mark is unique to the brand — nav and empty states that aren't the brand use their own icons (New Song is the cartridge-plus).
 
 ### Full-Screen Player (signature)
 - **Character:** the night-mode cockpit — a fixed overlay on the well, with the song cover blurred to a dim backdrop (blur 48px, brightness 0.22) under a radial scrim.
@@ -415,8 +427,8 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe` CSS var on the active word, (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks.
 
 ### Deferred (open items, not yet built — do not treat absence as a rule)
-- Live stem VU meters await level data from the audio engine.
-- App icon is still the Tauri default; no brand mark asset exists beyond the cyan note glyph.
+- Live stem VU meters await level data from the audio engine (the natural home of the full green→amber→red ladder).
+- App icon: `src-tauri/icons/*` is still an off-brand pink circle (`bundle.active: false`) — regenerate from `IconBrandNoteLarge` (magenta on ground, chamfered-square tile, no circle) when bundling turns on.
 - Media-key handling in the player is deferred (PRODUCT.md commits to it).
 
 ## Do's and Don'ts
@@ -431,7 +443,7 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Do** honor `prefers-reduced-motion`, keep state transitions at 120ms on the world's ease-out, and vendor any new font with its OFL text.
 
 ### Don't:
-- **Don't** set words in DSEG — segment faces are instrument chrome for digits and `: . -` only; lyrics, labels, and body copy are Barlow.
+- **Don't** set words in DSEG — segment faces are instrument chrome for digits, `: . -`, and 4-character annunciator mnemonics only; lyrics, labels, and body copy are Barlow.
 - **Don't** touch the player's per-frame path: no transitions, no React renders, and no new per-frame mutations beyond the Four-Hook contract; never place SegText (the ghost readout) inside the rAF-mutated spans.
 - **Don't** introduce circles, pills, or corner radii beyond 6px — the world is angular (2–3px, 6px bezels, chamfered notches); icons keep square caps and miter joins.
 - **Don't** glow decoratively, add a sixth accent family, or use a colored glow to imply elevation — black offset shadows carry depth. Green and magenta stay job-bound: green is done/success, magenta is celebrate/personality — neither ever restates cyan/amber/red's jobs.
