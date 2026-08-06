@@ -1,12 +1,14 @@
 // Song detail = the review screen (PLAN.md §3, §4 step 4 "Preview & fix").
 //
 // Three modes:
-//  - preview: auto-plays the densest ~20 s of lyrics with karaoke-style word
-//    highlighting; big "Looks good" / "Fix timings" buttons. Entered
+//  - preview: the review bench — auto-plays the densest ~20 s with karaoke
+//    highlighting AND is the main lyric editor: click a word to jump,
+//    double-click to retype, shift word/line/tail timings, insert/delete
+//    words. "Looks good" saves fixes and marks reviewed. Entered
 //    automatically for songs not yet reviewed.
-//  - detail: metadata, word list, exports (with freshness badges), and
-//    "Preview again" / "Fix timings" affordances. Reviewed songs land here.
-//  - edit: the fix editor (FixEditor.tsx).
+//  - detail: metadata, word list, exports (with freshness badges).
+//  - edit: the precision editor (FixEditor.tsx) — chip-track escape hatch
+//    with re-align selection and end-stretch.
 //
 // Audio here is the review-screen player only (useAudio module docs): plain
 // playback, no key/tempo — the Phase 3 cpal player replaces it for singing.
@@ -14,9 +16,12 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -27,23 +32,34 @@ import {
   librarySong,
   playbackSources,
   readTimingMap,
+  saveTimingMap,
   songSetReviewed,
   type ExportStatus,
   type PlaybackSources,
   type Song,
   type TimingMap,
 } from "../api";
-import { exportFreshness } from "../editorState";
+import {
+  editorReducer,
+  exportFreshness,
+  initEditor,
+  isDirty,
+  mapFromEditor,
+  NUDGE_COARSE_S,
+  NUDGE_S,
+} from "../editorState";
 import {
   groupByLine,
   pickHighlightWindow,
   sungThroughIndexAt,
   wordIndexAt,
 } from "../highlight";
+import { wipeFraction } from "../playerView";
+import { puckFrameAt, shiftRange, type ShiftScope } from "../previewEditor";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
 import { useAudio } from "../useAudio";
-import { IconPlay } from "../icons";
-import { DashSelect, SegText } from "../ui";
+import { IconBack, IconPlay } from "../icons";
+import { ConfirmStrip, DashSelect, SegText } from "../ui";
 import FixEditor from "./FixEditor";
 import type { Route } from "../App";
 
@@ -183,11 +199,13 @@ export default function SongDetail(props: {
     return (
       <Preview
         map={map}
+        mapPath={mapPath}
         title={title}
         sources={sources}
         initialScope={previewScope}
         onLooksGood={markReviewed}
-        onFix={() => setMode("edit")}
+        onSaved={(m) => setMap(m)}
+        onPrecision={() => setMode("edit")}
         onSkip={() => setMode("detail")}
       />
     );
@@ -231,9 +249,11 @@ export default function SongDetail(props: {
                 setMode("preview");
               }}
             >
-              Play full song
+              Fix words &amp; timings
             </button>
-            <button onClick={() => setMode("edit")}>Fix timings</button>
+            <button onClick={() => setMode("edit")} title="Chip-track timing editor">
+              Precision editor
+            </button>
             {EXPORT_FORMATS.map((f) => (
               <ExportButton
                 key={f}
@@ -269,20 +289,33 @@ export default function SongDetail(props: {
 }
 
 // ---------------------------------------------------------------------------
-// preview (golden path step 4)
-// ---------------------------------------------------------------------------
+// preview = the review bench (golden path step 4, now also the main editor):
+// listen to the original, click a word to jump there, double-click to retype
+// it, shift a word / its line / everything after it in time, and watch the
+// cue puck arc onto each upcoming word so mistimings are visible before they
+// are explainable. The chip-track FixEditor stays as the precision escape
+// hatch (re-align selection, end-stretch).
+
+type EditFlow = "loop" | "pause" | "roll";
+const EDIT_FLOW_KEY = "karascape.editFlow";
+type LineGroup = ReturnType<typeof groupByLine>[number];
+
+const fmtOffset = (s: number) => `${s < 0 ? "-" : "+"}${Math.abs(s).toFixed(2)}`;
 
 function Preview(props: {
   map: TimingMap;
+  mapPath: string;
   title: string;
   sources: PlaybackSources | null;
   /** Range to open with; the user can switch inside the preview. */
   initialScope?: PreviewScope;
   onLooksGood: () => void;
-  onFix: () => void;
+  /** Parent keeps its map copy in sync after a bench save. */
+  onSaved: (m: TimingMap) => void;
+  onPrecision: () => void;
   onSkip: () => void;
 }) {
-  const { map, sources } = props;
+  const { map, mapPath, sources } = props;
   const audio = useAudio();
   const [scope, setScope] = useState<PreviewScope>(props.initialScope ?? "highlight");
   const [srcKind, setSrcKind] = useState<SourceKind>(() =>
@@ -290,11 +323,27 @@ function Preview(props: {
   );
   // Position to restore after a source switch reloads the media element.
   const resumeRef = useRef<number | null>(null);
-  const hl = useMemo(
-    () => pickHighlightWindow(map.words, map.duration),
-    [map],
-  );
+  const hl = useMemo(() => pickHighlightWindow(map.words, map.duration), [map]);
   const src = sources?.[srcKind] ?? null;
+
+  // ---- bench state: the editable words live in the fix-editor reducer ----
+  const [ed, dispatch] = useReducer(editorReducer, map, initEditor);
+  const words = ed.words;
+  const dirty = isDirty(ed);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [insertAfter, setInsertAfter] = useState<number | null>(null);
+  const [insertDraft, setInsertDraft] = useState("");
+  const [shiftScope, setShiftScope] = useState<ShiftScope>("word");
+  const [editFlow, setEditFlow] = useState<EditFlow>(() => {
+    const v = localStorage.getItem(EDIT_FLOW_KEY);
+    return v === "loop" || v === "roll" ? v : "pause";
+  });
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [benchError, setBenchError] = useState<string | null>(null);
+  // Baseline onset of the selected word — the shift readout shows the net
+  // offset applied since selection (truthful through clamps and undo).
+  const shiftBaseRef = useRef<number | null>(null);
 
   // Load the chosen source; playback (re)starts via the ready effect below.
   // Autoplay may be blocked pre-gesture — the overlay button covers that.
@@ -305,7 +354,6 @@ function Preview(props: {
   }, [src]);
 
   // On (re)load or scope switch: aim the loop window and start playing.
-  // Highlight loops the densest ~20 s; full plays straight through the song.
   useEffect(() => {
     if (!audio.ready) return;
     audio.setLoop(scope === "highlight" ? hl : null);
@@ -316,15 +364,330 @@ function Preview(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audio.ready, scope]);
 
-  // The range the timebar spans — original-song seconds, the map's only time
-  // base, which is also exactly what <audio>.currentTime reports here
-  // (useAudio module docs: this player never stretches).
+  useEffect(() => {
+    shiftBaseRef.current = ed.selected != null ? (words[ed.selected]?.start ?? null) : null;
+    // reset only when the selection itself moves
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ed.selected]);
+  const shiftOffset =
+    ed.selected != null && shiftBaseRef.current != null
+      ? (words[ed.selected]?.start ?? shiftBaseRef.current) - shiftBaseRef.current
+      : 0;
+
   const range =
     scope === "highlight"
       ? hl
       : { start: 0, end: audio.duration || map.duration || hl.end };
   const rangeLen = Math.max(range.end - range.start, 0.001);
   const frac = Math.min(1, Math.max(0, (audio.time - range.start) / rangeLen));
+
+  const active = wordIndexAt(words, audio.time);
+  const sungThrough = sungThroughIndexAt(words, audio.time);
+  const lines = useMemo(() => groupByLine(words), [words]);
+  const lineIdx = useMemo(() => {
+    if (active != null) return lines.findIndex((g) => g.indices.includes(active));
+    const next = words.findIndex((w) => w.start > audio.time);
+    if (next === -1) return lines.length - 1;
+    return lines.findIndex((g) => g.indices.includes(next));
+  }, [active, lines, words, audio.time]);
+  const line = lines[Math.max(lineIdx, 0)];
+  const prevLine = lineIdx > 0 ? lines[lineIdx - 1] : undefined;
+  const nextLine = lines[Math.max(lineIdx, 0) + 1];
+
+  // ---- edit-flow: what playback does the moment you start typing ----
+  const enterEditFlow = (wi: number) => {
+    if (editFlow === "pause") {
+      audio.pause();
+    } else if (editFlow === "loop") {
+      const g = lines.find((l) => l.indices.includes(wi));
+      if (g && g.indices.length > 0) {
+        const first = words[g.indices[0]];
+        const last = words[g.indices[g.indices.length - 1]];
+        audio.setLoop({ start: Math.max(0, first.start - 0.3), end: last.end + 0.3 });
+      }
+    }
+  };
+  const exitEditFlow = () => {
+    if (editFlow === "loop") audio.setLoop(scope === "highlight" ? hl : null);
+  };
+  const pickEditFlow = (f: EditFlow) => {
+    setEditFlow(f);
+    try {
+      localStorage.setItem(EDIT_FLOW_KEY, f);
+    } catch {
+      // storage unavailable — the toggle still works for this session
+    }
+  };
+
+  // ---- word actions ----
+  const selectWord = (wi: number) => {
+    dispatch({ type: "select", index: wi });
+    if (audio.ready) audio.seek(words[wi].start);
+  };
+  const beginEdit = (wi: number) => {
+    dispatch({ type: "select", index: wi });
+    setInsertAfter(null);
+    setEditing(wi);
+    setDraft(words[wi].word);
+    enterEditFlow(wi);
+  };
+  const commitEdit = () => {
+    if (editing != null) dispatch({ type: "set-text", index: editing, text: draft });
+    setEditing(null);
+    exitEditFlow();
+  };
+  const cancelEdit = () => {
+    setEditing(null);
+    exitEditFlow();
+  };
+  const beginInsert = () => {
+    if (ed.selected == null) return;
+    setEditing(null);
+    setInsertAfter(ed.selected);
+    setInsertDraft("");
+    enterEditFlow(ed.selected);
+  };
+  const commitInsert = () => {
+    if (insertAfter != null && insertDraft.trim() !== "") {
+      dispatch({ type: "insert-word", after: insertAfter, word: insertDraft });
+    }
+    setInsertAfter(null);
+    setInsertDraft("");
+    exitEditFlow();
+  };
+  const cancelInsert = () => {
+    setInsertAfter(null);
+    setInsertDraft("");
+    exitEditFlow();
+  };
+  const deleteSelected = () => {
+    if (ed.selected != null) dispatch({ type: "delete-word", index: ed.selected });
+  };
+  const nudgeSelected = (dir: 1 | -1, coarse: boolean) => {
+    if (ed.selected == null) return;
+    const r = shiftRange(words, ed.selected, shiftScope);
+    if (!r) return;
+    dispatch({
+      type: "nudge-range",
+      first: r.first,
+      last: r.last,
+      deltaS: dir * (coarse ? NUDGE_COARSE_S : NUDGE_S),
+    });
+  };
+
+  // ---- save & exits ----
+  const save = async (): Promise<TimingMap | null> => {
+    const m2 = mapFromEditor(map, words);
+    try {
+      await saveTimingMap(mapPath, m2);
+      dispatch({ type: "mark-saved" });
+      props.onSaved(m2);
+      return m2;
+    } catch (e) {
+      setBenchError(String(e));
+      return null;
+    }
+  };
+  const looksGood = async () => {
+    audio.pause();
+    if (dirty && (await save()) == null) return;
+    props.onLooksGood();
+  };
+  const openPrecision = async () => {
+    audio.pause();
+    if (dirty && (await save()) == null) return;
+    props.onPrecision();
+  };
+  const skip = () => {
+    if (dirty) setConfirmLeave(true);
+    else {
+      audio.pause();
+      props.onSkip();
+    }
+  };
+
+  // Bench keyboard: registered fresh each render so closures never go stale.
+  // Inputs (the inline word editor included) are guarded out by tag.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "z" || e.key === "Z")) {
+        dispatch({ type: e.shiftKey ? "redo" : "undo" });
+        e.preventDefault();
+        return;
+      }
+      if (mod && (e.key === "y" || e.key === "Y")) {
+        dispatch({ type: "redo" });
+        e.preventDefault();
+        return;
+      }
+      if (e.key === " ") {
+        audio.toggle();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const dir: 1 | -1 = e.key === "ArrowRight" ? 1 : -1;
+        if (ed.selected != null) nudgeSelected(dir, e.shiftKey);
+        else if (audio.ready)
+          audio.seek(
+            Math.max(range.start, Math.min(range.end, audio.time + dir * (e.shiftKey ? 30 : 5))),
+          );
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Enter" && ed.selected != null) {
+        beginEdit(ed.selected);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Delete" && ed.selected != null) {
+        deleteSelected();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape") dispatch({ type: "select", index: null });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // If the word being edited scrolls out of the rendered lines (roll mode),
+  // commit rather than lose the typed text.
+  const renderedKey = `${prevLine?.indices.join()}|${line?.indices.join()}|${nextLine?.indices.join()}`;
+  useEffect(() => {
+    const rendered = new Set([
+      ...(prevLine?.indices ?? []),
+      ...(line?.indices ?? []),
+      ...(nextLine?.indices ?? []),
+    ]);
+    if (editing != null && !rendered.has(editing)) commitEdit();
+    if (insertAfter != null && !rendered.has(insertAfter)) commitInsert();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderedKey]);
+
+  // ---- cue puck: positioned directly on the DOM after each render ----
+  const linesRef = useRef<HTMLDivElement | null>(null);
+  const puckRef = useRef<HTMLDivElement | null>(null);
+  const wordRefs = useRef(new Map<number, HTMLSpanElement>());
+  const setWordRef = (wi: number) => (el: HTMLSpanElement | null) => {
+    if (el) wordRefs.current.set(wi, el);
+    else wordRefs.current.delete(wi);
+  };
+  useLayoutEffect(() => {
+    const puck = puckRef.current;
+    const cont = linesRef.current;
+    if (!puck || !cont) return;
+    const frame = puckFrameAt(words, audio.time);
+    const contRect = cont.getBoundingClientRect();
+    const centerOf = (i: number) => {
+      const r = wordRefs.current.get(i)?.getBoundingClientRect();
+      return r ? { x: r.left + r.width / 2 - contRect.left, y: r.top - contRect.top } : null;
+    };
+    let pos: { x: number; y: number } | null = null;
+    if (frame.kind === "rest") {
+      pos = centerOf(frame.index);
+    } else if (frame.kind === "flight") {
+      const to = centerOf(frame.to);
+      if (to) {
+        const from = (frame.from != null ? centerOf(frame.from) : null) ?? {
+          x: to.x - 64,
+          y: to.y,
+        };
+        const p = frame.progress;
+        pos = {
+          x: from.x + (to.x - from.x) * p,
+          // the bounce: a sine arc lifting the hop between onsets
+          y: from.y + (to.y - from.y) * p - Math.sin(Math.PI * p) * 18,
+        };
+      }
+    }
+    if (pos && audio.playing) {
+      puck.style.opacity = "1";
+      puck.style.transform = `translate(${pos.x - 4}px, ${pos.y - 14}px)`;
+    } else {
+      puck.style.opacity = "0";
+    }
+  });
+
+  // ---- word / line rendering ----
+  const wordInput = (
+    key: string,
+    value: string,
+    setValue: (v: string) => void,
+    commit: () => void,
+    cancel: () => void,
+    tabNext?: () => void,
+  ) => (
+    <input
+      key={key}
+      className="k-word-input"
+      value={value}
+      size={Math.max(value.length, 2)}
+      autoFocus
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancel();
+        } else if (e.key === "Tab" && tabNext) {
+          e.preventDefault();
+          tabNext();
+        }
+      }}
+    />
+  );
+
+  const renderWord = (wi: number, kind: "prev" | "current" | "next") => {
+    const w = words[wi];
+    if (editing === wi) {
+      return wordInput(`edit-${wi}`, draft, setDraft, commitEdit, cancelEdit, () => {
+        commitEdit();
+        if (wi + 1 < words.length) beginEdit(wi + 1);
+      });
+    }
+    const sung =
+      kind === "prev"
+        ? true
+        : kind === "current" &&
+          (active != null ? wi < active : sungThrough != null && wi <= sungThrough);
+    const isActive = kind === "current" && active === wi;
+    const weak = !w.unsung && (!w.anchored || w.confidence < 0.5);
+    return (
+      <span
+        key={wi}
+        ref={setWordRef(wi)}
+        className={`k-word${isActive ? " active wipe" : ""}${sung ? " sung" : ""}${w.unsung ? " unsung" : ""}${ed.selected === wi ? " selected" : ""}${weak ? " weak" : ""}`}
+        style={
+          isActive
+            ? ({ "--wipe": `${(wipeFraction(w, audio.time) * 100).toFixed(1)}%` } as CSSProperties)
+            : undefined
+        }
+        onClick={() => selectWord(wi)}
+        onDoubleClick={() => beginEdit(wi)}
+      >
+        {w.word}
+      </span>
+    );
+  };
+
+  const renderLine = (g: LineGroup | undefined, kind: "prev" | "current" | "next") => (
+    <div className={`preview-line ${kind}`}>
+      {g?.indices.flatMap((wi) => {
+        const out = [renderWord(wi, kind)];
+        if (insertAfter === wi) {
+          out.push(wordInput(`ins-${wi}`, insertDraft, setInsertDraft, commitInsert, cancelInsert));
+        }
+        return out;
+      })}
+    </div>
+  );
 
   const barClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!audio.ready) return;
@@ -338,37 +701,24 @@ function Preview(props: {
       const step = (e.key === "ArrowLeft" ? -5 : 5) * (e.shiftKey ? 6 : 1);
       audio.seek(Math.min(range.end, Math.max(range.start, audio.time + step)));
       e.preventDefault();
+      e.stopPropagation(); // the bench's global arrows must not also fire
     }
   };
-
-  const active = wordIndexAt(map.words, audio.time);
-  // Words at or before this index have been sung — stays put during gaps,
-  // so the sung tint doesn't vanish while nobody is singing.
-  const sungThrough = sungThroughIndexAt(map.words, audio.time);
-  const lines = useMemo(() => groupByLine(map.words), [map]);
-  // Line being sung (or the next one coming up).
-  const lineIdx = useMemo(() => {
-    if (active != null) return lines.findIndex((g) => g.indices.includes(active));
-    const next = map.words.findIndex((w) => w.start > audio.time);
-    if (next === -1) return lines.length - 1;
-    return lines.findIndex((g) => g.indices.includes(next));
-  }, [active, lines, map, audio.time]);
-  const line = lines[Math.max(lineIdx, 0)];
-  const nextLine = lines[Math.max(lineIdx, 0) + 1];
 
   return (
     <div className="page preview-page">
       <h1>{props.title}</h1>
+      {benchError && <div className="error-banner">{benchError}</div>}
       <p className="muted">
         {scope === "highlight"
-          ? `Previewing the busiest ${Math.round(hl.end - hl.start)} seconds — how do the timings look?`
-          : "Playing the whole song — click the bar to jump around and spot-check timings."}
+          ? `Previewing the busiest ${Math.round(hl.end - hl.start)} seconds — click any word to fix it.`
+          : "Playing the whole song — click any word to jump there and fix it."}
       </p>
       <div className="preview-stage">
         {!src && (
           <p className="muted">
-            No playable audio found for this song (stems may have been moved) — you can still
-            fix timings or open the detail view.
+            No playable audio found for this song (stems may have been moved) — you can still fix
+            words and timings below.
           </p>
         )}
         {src && !audio.playing && (
@@ -377,31 +727,11 @@ function Preview(props: {
             {scope === "highlight" ? "Play preview" : "Play song"}
           </button>
         )}
-        <div className="preview-lines">
-          <div className="preview-line current">
-            {line?.indices.map((wi) => {
-              const w = map.words[wi];
-              const sung =
-                active != null
-                  ? wi < active
-                  : sungThrough != null && wi <= sungThrough;
-              return (
-                <span
-                  key={wi}
-                  className={`k-word${active === wi ? " active" : ""}${sung ? " sung" : ""}${w.unsung ? " unsung" : ""}`}
-                >
-                  {w.word}
-                </span>
-              );
-            })}
-          </div>
-          <div className="preview-line next">
-            {nextLine?.indices.map((wi) => (
-              <span key={wi} className="k-word">
-                {map.words[wi].word}
-              </span>
-            ))}
-          </div>
+        <div className="preview-lines" ref={linesRef}>
+          <div className="preview-puck" ref={puckRef} aria-hidden />
+          {renderLine(prevLine, "prev")}
+          {renderLine(line, "current")}
+          {renderLine(nextLine, "next")}
         </div>
         <div
           className="preview-timebar"
@@ -433,10 +763,7 @@ function Preview(props: {
             >
               20 s highlight
             </button>
-            <button
-              className={scope === "full" ? "active" : ""}
-              onClick={() => setScope("full")}
-            >
+            <button className={scope === "full" ? "active" : ""} onClick={() => setScope("full")}>
               Full song
             </button>
           </div>
@@ -455,15 +782,144 @@ function Preview(props: {
             ]}
           />
         </div>
+        <div className="bench-row">
+          <div className="bench-module" role="group" aria-label="Shift timing">
+            <span className="label">Shift</span>
+            <div className="scope-toggle">
+              <button
+                className={shiftScope === "word" ? "active" : ""}
+                onClick={() => setShiftScope("word")}
+              >
+                Word
+              </button>
+              <button
+                className={shiftScope === "line" ? "active" : ""}
+                onClick={() => setShiftScope("line")}
+              >
+                Line
+              </button>
+              <button
+                className={shiftScope === "tail" ? "active" : ""}
+                onClick={() => setShiftScope("tail")}
+                title="This word and everything after it"
+              >
+                From here
+              </button>
+            </div>
+            <button
+              className="bench-key"
+              disabled={ed.selected == null}
+              onClick={(e) => nudgeSelected(-1, e.shiftKey)}
+              aria-label="Shift earlier"
+              title="Earlier 10 ms (Shift-click: 100 ms)"
+            >
+              <IconBack size={12} />
+            </button>
+            <SegText className="bench-offset" value={fmtOffset(shiftOffset)} />
+            <button
+              className="bench-key bench-key-fwd"
+              disabled={ed.selected == null}
+              onClick={(e) => nudgeSelected(1, e.shiftKey)}
+              aria-label="Shift later"
+              title="Later 10 ms (Shift-click: 100 ms)"
+            >
+              <IconBack size={12} />
+            </button>
+          </div>
+          <div className="bench-module" role="group" aria-label="Edit words">
+            <button
+              disabled={ed.selected == null}
+              onClick={() => ed.selected != null && beginEdit(ed.selected)}
+              title="Retype the selected word (Enter)"
+            >
+              Retype
+            </button>
+            <button
+              disabled={ed.selected == null}
+              onClick={beginInsert}
+              title="Add a missed word after the selected one"
+            >
+              + Word
+            </button>
+            <button
+              disabled={ed.selected == null}
+              onClick={deleteSelected}
+              title="Remove the selected word (Del)"
+            >
+              Remove
+            </button>
+            <button
+              disabled={ed.past.length === 0}
+              onClick={() => dispatch({ type: "undo" })}
+              title="Undo (Ctrl+Z)"
+            >
+              Undo
+            </button>
+            <button
+              disabled={ed.future.length === 0}
+              onClick={() => dispatch({ type: "redo" })}
+              title="Redo (Ctrl+Y)"
+            >
+              Redo
+            </button>
+          </div>
+          <span className="spacer" />
+          <div className="bench-module" role="group" aria-label="While editing, playback should">
+            <span className="label">On edit</span>
+            <div className="scope-toggle">
+              <button
+                className={editFlow === "loop" ? "active" : ""}
+                onClick={() => pickEditFlow("loop")}
+                title="Loop the line while you type"
+              >
+                Loop line
+              </button>
+              <button
+                className={editFlow === "pause" ? "active" : ""}
+                onClick={() => pickEditFlow("pause")}
+                title="Pause while you type"
+              >
+                Pause
+              </button>
+              <button
+                className={editFlow === "roll" ? "active" : ""}
+                onClick={() => pickEditFlow("roll")}
+                title="Keep playing while you type"
+              >
+                Roll
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
+      <p className="preview-hints muted small">
+        Click a word to jump · double-click to retype · Tab next word · ←/→ shift the selection
+        (Shift: ×10) · Del remove · Space play/pause · Ctrl+Z undo
+      </p>
+      {confirmLeave && (
+        <ConfirmStrip
+          message="Discard unsaved lyric fixes?"
+          confirmLabel="Discard"
+          onConfirm={() => {
+            setConfirmLeave(false);
+            audio.pause();
+            props.onSkip();
+          }}
+          onCancel={() => setConfirmLeave(false)}
+        />
+      )}
       <div className="preview-actions">
-        <button className="primary big" onClick={() => { audio.pause(); props.onLooksGood(); }}>
-          Looks good
+        <button className="primary big" onClick={looksGood}>
+          {dirty ? "Save fixes — looks good" : "Looks good"}
         </button>
-        <button className="big" onClick={() => { audio.pause(); props.onFix(); }}>
-          Fix timings
+        <button
+          className="linkish"
+          onClick={openPrecision}
+          title="Chip-track timing editor with re-align and end-stretch"
+        >
+          Precision editor
         </button>
-        <button className="linkish" onClick={() => { audio.pause(); props.onSkip(); }}>
+        <button className="linkish" onClick={skip}>
           Skip to details
         </button>
       </div>

@@ -1536,9 +1536,33 @@ h1.with-readout {
 }
 
 .preview-lines {
+  position: relative; /* the cue puck positions against this box */
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* the cue puck: an 8px square lamp that rides the words — resting on the
+   one being sung, arcing to land exactly on the next onset. DOM-positioned
+   per frame (transform + opacity only); square, never a circle. */
+.preview-puck {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber-glow);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.preview-line.prev {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text-dim);
 }
 
 .preview-line {
@@ -1555,6 +1579,61 @@ h1.with-readout {
   font-size: 20px;
   font-weight: 500;
   color: var(--text-dim);
+}
+
+/* bench: words on the glass are clickable instruments */
+.preview-line .k-word {
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0 -2px;
+}
+
+.preview-line .k-word:hover {
+  background: var(--cyan-wash);
+}
+
+/* selection is information: cyan seam ring */
+.preview-line .k-word.selected {
+  box-shadow: 0 0 0 1px var(--cyan-dim), 0 0 10px var(--cyan-glow);
+}
+
+/* low-confidence timing ("look here first"): dashed underline, amber-dim */
+.preview-line .k-word.weak {
+  text-decoration: underline dashed var(--amber-dim);
+  text-underline-offset: 5px;
+  text-decoration-thickness: 1px;
+}
+
+/* the active word carries the player's amber wipe in the bench too */
+.preview-line .k-word.active.wipe {
+  background-image: linear-gradient(
+    90deg,
+    var(--amber) var(--wipe, 0%),
+    currentColor var(--wipe, 0%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+/* inline word editor: a display well the size of the word */
+.k-word-input {
+  font: inherit;
+  color: var(--cyan-bright);
+  background: var(--well);
+  border: 1px solid var(--cyan);
+  border-radius: 2px;
+  padding: 0 4px;
+  margin: 0 -2px;
+  box-shadow: 0 0 0 1px var(--cyan-dim), 0 0 12px var(--cyan-glow);
+  text-align: center;
+  min-width: 2ch;
+}
+
+.k-word-input:focus {
+  outline: none;
 }
 
 /* karaoke word states — shared with the performance player.
@@ -1660,6 +1739,57 @@ h1.with-readout {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+/* ---- the bench row: shift module, word keys, edit-flow selector ---- */
+
+.bench-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+
+.bench-row .spacer {
+  flex: 1;
+}
+
+.bench-module {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.bench-module > button {
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.bench-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 7px 0;
+}
+
+.bench-key-fwd svg {
+  transform: scaleX(-1); /* the back chevron, mirrored forward */
+}
+
+/* net shift applied to the selection since it was picked */
+.bench-offset {
+  font-size: 12px;
+  color: var(--amber);
+  min-width: 52px;
+  text-align: center;
+}
+
+.preview-hints {
+  margin-top: var(--s3);
 }
 
 /* ---- export freshness badges ---- */

@@ -420,6 +420,33 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Mark:** an eighth note whose body is ascending VU segments — two segmented bars rising into a full-height solid stem carrying an angular flag. Reads as a note at a glance, as one of the app's own segmented meters up close. Solid fill, two variants: 16-grid (`IconBrandNote`, brand slot at 18px) and 32-grid (`IconBrandNoteLarge`, large renders like the 56px empty state — the 16-grid's 0.8px gaps blur upscaled).
 - **Voice:** magenta with the family glow in the brand slot (personality is magenta's job); flares brighter once on boot. The mark is unique to the brand — nav and empty states that aren't the brand use their own icons (New Song is the cartridge-plus).
 
+### Review Bench (preview + main lyric editor)
+- **Character:** the review preview *is* the editor — words on the display
+  glass are live instruments; the controls live on the console below, never
+  floating on the glass. Big current line with prev/next context lines,
+  couch-readable type.
+- **Word states:** sung = cyan; active = the amber wipe (same fill-edge
+  mechanic as the player); selected = cyan seam ring (information voice);
+  low-confidence timing = dashed amber-dim underline ("look here first");
+  unsung stays 0.55 italic. Click = select + seek to onset; double-click /
+  Enter = inline retype (a well-styled input swapped in place, Tab commits
+  and hops to the next word).
+- **Cue puck:** an 8px amber square (1px radius — never a circle) riding
+  above the lyric lines: rests on the word being sung, arcs (sine hop,
+  ≤0.6 s flight) to land exactly on the next onset — the "bouncing ball"
+  that makes mistimed words visible. DOM-positioned per frame via
+  transform/opacity only; hidden when paused.
+- **Console bench row:** the Shift module (scope keys WORD | LINE |
+  FROM HERE, chevron nudge keys ±10 ms / shift ±100 ms, DSEG offset
+  readout showing the net shift since selection), word keys (Retype /
+  + Word / Remove / Undo / Redo), and the edit-flow selector (LOOP LINE |
+  PAUSE | ROLL — what playback does while typing; sticky preference).
+- **Flow:** "Looks good" (the one amber key, chamfered) saves fixes +
+  marks reviewed; "Precision editor" is the linkish escape to the
+  chip-track FixEditor (re-align selection, end-stretch); dirty exits are
+  guarded by a ConfirmStrip. Full keyboard: Space, arrows, Enter, Del,
+  Ctrl+Z/Y.
+
 ### Full-Screen Player (signature)
 - **Character:** the night-mode cockpit — a fixed overlay on the well, with the song cover blurred to a dim backdrop (blur 48px, brightness 0.22) under a radial scrim.
 - **Lyrics:** centered lines in a masked viewport; current line grows to display size (clamp 34–62px); sung words glow cyan (`0 0 22px cyan-glow`), the active word carries an amber **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat — and unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone.
