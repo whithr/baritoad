@@ -168,6 +168,7 @@ input {
   color: var(--magenta);
   display: inline-flex;
   filter: drop-shadow(0 0 6px var(--magenta-glow));
+  animation: brand-flare 480ms var(--ease-out);
 }
 
 .nav-btn {
@@ -219,6 +220,56 @@ input {
   background: var(--amber);
   border-color: var(--amber);
   box-shadow: 0 0 8px var(--amber-glow);
+}
+
+/* boot: the lamps sweep amber once, top to bottom, as the cabin powers on */
+@keyframes lamp-boot {
+  0%,
+  30% {
+    background: var(--well);
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  55% {
+    background: var(--amber);
+    border-color: var(--amber);
+    box-shadow: 0 0 8px var(--amber-glow);
+  }
+  100% {
+    background: var(--well);
+    border-color: var(--line);
+    box-shadow: none;
+  }
+}
+
+.nav-btn:nth-of-type(1) .nav-lamp {
+  animation: lamp-boot 260ms var(--ease-out) 120ms backwards;
+}
+
+.nav-btn:nth-of-type(2) .nav-lamp {
+  animation: lamp-boot 260ms var(--ease-out) 220ms backwards;
+}
+
+.nav-btn:nth-of-type(3) .nav-lamp {
+  animation: lamp-boot 260ms var(--ease-out) 320ms backwards;
+}
+
+.nav-btn:nth-of-type(4) .nav-lamp {
+  animation: lamp-boot 260ms var(--ease-out) 420ms backwards;
+}
+
+/* the brand mark flares magenta with the power-on flash, then settles */
+@keyframes brand-flare {
+  0% {
+    filter: drop-shadow(0 0 2px var(--magenta-glow));
+  }
+  45% {
+    filter: drop-shadow(0 0 14px var(--magenta-glow))
+      drop-shadow(0 0 24px var(--magenta-glow));
+  }
+  100% {
+    filter: drop-shadow(0 0 6px var(--magenta-glow));
+  }
 }
 
 .sidebar-foot {
@@ -784,6 +835,19 @@ input[type="checkbox"] {
   border-color: var(--green-dim);
 }
 
+/* one-shot magenta flare when a job completes while watched, settling to
+   the green-dim done border */
+.job-card.celebrate {
+  animation: done-flare 700ms var(--ease-out);
+}
+
+@keyframes done-flare {
+  0% {
+    border-color: var(--magenta);
+    box-shadow: 0 0 18px var(--magenta-glow), var(--shadow-panel);
+  }
+}
+
 .job-card.status-failed {
   border-color: var(--red-dim);
 }
@@ -1319,8 +1383,38 @@ h1.with-readout {
 .queue-pos {
   width: 30px;
   text-align: right;
-  color: var(--amber);
+  color: var(--text-dim);
   font-size: 13px;
+}
+
+/* who's next: only position 1 is the lit readout (position + brightness
+   carry "next", not hue alone) */
+.queue-row:first-child .queue-pos {
+  color: var(--amber);
+  text-shadow: 0 0 10px var(--amber-glow);
+}
+
+/* turn-signal drop target while dragging — transient, drag-only */
+.queue-row.drag-over {
+  position: relative;
+  border-color: var(--amber-dim);
+}
+
+.queue-row.drag-over::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--amber);
+  animation: blink-signal 700ms steps(2, jump-none) infinite;
+}
+
+@keyframes blink-signal {
+  50% {
+    opacity: 0.15;
+  }
 }
 
 .drag-grip {

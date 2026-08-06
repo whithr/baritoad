@@ -2,6 +2,7 @@
 // rendered as the two honest display stages (PLAN.md §4):
 // Separating vocals → Aligning lyrics.
 
+import { useEffect, useRef, useState } from "react";
 import { cancelJob } from "../api";
 import {
   DISPLAY_LABELS,
@@ -43,8 +44,18 @@ function JobCard({ p, go }: { p: JobProgress; go: (r: Route) => void }) {
   const { job } = p;
   const running = job.status === "running";
   const cancellable = job.status === "queued" || (running && !job.cancel_requested);
+  // one-shot magenta flare only when completion happens while watched —
+  // revisiting the page with an already-done job stays quiet
+  const prevStatus = useRef(job.status);
+  const [celebrate, setCelebrate] = useState(false);
+  useEffect(() => {
+    if (prevStatus.current !== "completed" && job.status === "completed") {
+      setCelebrate(true);
+    }
+    prevStatus.current = job.status;
+  }, [job.status]);
   return (
-    <div className={`job-card status-${job.status}`}>
+    <div className={`job-card status-${job.status}${celebrate ? " celebrate" : ""}`}>
       <div className="job-head">
         <div>
           <div className="job-title">{job.title}</div>

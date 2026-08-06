@@ -23,6 +23,8 @@ export default function UpNext({ go }: { go: (r: Route) => void }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dragFrom = useRef<number | null>(null);
+  // row currently under the dragged entry — carries the turn-signal strip
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -129,13 +131,21 @@ export default function UpNext({ go }: { go: (r: Route) => void }) {
             {entries.map((e, i) => (
               <li
                 key={e.id}
-                className="queue-row"
+                className={`queue-row${dragOver === i ? " drag-over" : ""}`}
                 draggable
                 onDragStart={() => {
                   dragFrom.current = i;
                 }}
-                onDragOver={(ev) => ev.preventDefault()}
-                onDrop={() => drop(i)}
+                onDragOver={(ev) => {
+                  ev.preventDefault();
+                  setDragOver(i);
+                }}
+                onDragLeave={() => setDragOver((v) => (v === i ? null : v))}
+                onDragEnd={() => setDragOver(null)}
+                onDrop={() => {
+                  setDragOver(null);
+                  drop(i);
+                }}
               >
                 <SegText className="queue-pos" value={String(i + 1)} />
                 <span className="drag-grip" title="Drag to reorder">
