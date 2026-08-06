@@ -17,7 +17,7 @@ use ndarray::Array3;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::separation::{EpKind, SEGMENT};
+use crate::separation::SEGMENT;
 
 pub const GOLDEN_SNR_THRESHOLD_DB: f64 = 40.0;
 
@@ -150,13 +150,16 @@ impl ParityCache {
 
     /// A cached *pass* for this EP+model. Failures are never trusted from
     /// cache — they trigger a re-check (the environment may have been fixed).
-    pub fn cached_pass(&self, ep: EpKind) -> Option<f64> {
+    /// `ep` is the EP's string name — the cache is shared between models
+    /// (separation htdemucs, alignment wav2vec2), disambiguated by the model
+    /// identity captured at [`Self::load`].
+    pub fn cached_pass(&self, ep: &str) -> Option<f64> {
         self.file
             .entries
             .iter()
             .find(|e| {
                 e.passed
-                    && e.ep == ep.as_str()
+                    && e.ep == ep
                     && e.model_size == self.model_size
                     && e.model_mtime_unix == self.model_mtime_unix
                     && e.core_version == env!("CARGO_PKG_VERSION")
@@ -169,7 +172,7 @@ impl ParityCache {
                     .iter()
                     .find(|e| {
                         e.passed
-                            && e.ep == ep.as_str()
+                            && e.ep == ep
                             && e.model_size == self.model_size
                             && e.model_mtime_unix == self.model_mtime_unix
                             && e.core_version == env!("CARGO_PKG_VERSION")
@@ -178,14 +181,14 @@ impl ParityCache {
             })
     }
 
-    pub fn record(&mut self, ep: EpKind, snr_db: Option<f64>, passed: bool) {
+    pub fn record(&mut self, ep: &str, snr_db: Option<f64>, passed: bool) {
         self.file.entries.retain(|e| {
-            !(e.ep == ep.as_str()
+            !(e.ep == ep
                 && e.model_size == self.model_size
                 && e.model_mtime_unix == self.model_mtime_unix)
         });
         self.file.entries.push(CacheEntry {
-            ep: ep.as_str().into(),
+            ep: ep.into(),
             model_size: self.model_size,
             model_mtime_unix: self.model_mtime_unix,
             core_version: env!("CARGO_PKG_VERSION").into(),
@@ -241,15 +244,15 @@ mod tests {
         let cache_path = dir.join("parity.json");
 
         let mut c = ParityCache::load(&cache_path, &model);
-        assert!(c.cached_pass(EpKind::DirectML).is_none());
-        c.record(EpKind::DirectML, Some(12.0), false);
+        assert!(c.cached_pass("directml").is_none());
+        c.record("directml", Some(12.0), false);
         // failures are re-checked, not trusted
         let c2 = ParityCache::load(&cache_path, &model);
-        assert!(c2.cached_pass(EpKind::DirectML).is_none());
+        assert!(c2.cached_pass("directml").is_none());
 
         let mut c3 = ParityCache::load(&cache_path, &model);
-        c3.record(EpKind::DirectML, Some(80.0), true);
+        c3.record("directml", Some(80.0), true);
         let c4 = ParityCache::load(&cache_path, &model);
-        assert_eq!(c4.cached_pass(EpKind::DirectML), Some(80.0));
+        assert_eq!(c4.cached_pass("directml"), Some(80.0));
     }
 }

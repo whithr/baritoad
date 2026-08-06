@@ -2,18 +2,25 @@
 //! stitching, log-softmax normalized.
 //!
 //! Execution provider: DirectML measured **13x faster** than 8-core CPU for
-//! these emissions (28.3 s → 2.1 s on she-said — spikes/alignment/REPORT.md),
-//! but it is **not safe to enable by default**. Each 30 s chunk is a single
-//! large dispatch, and on an RTX 2080 SUPER these dispatches can exceed
-//! Windows' ~2 s TDR budget: the OS resets the display driver (System event
-//! 4101 / nvlddmkm), which crashes unrelated GPU-accelerated apps on the
-//! user's desktop even when our own run happens to succeed. Product fix
-//! direction before DML becomes the alignment default: bound per-dispatch
-//! work (smaller model input chunks / smaller command lists), not raising
-//! TdrDelay — that is a dev-only workaround. Until then DML here is opt-in
-//! ([`crate::alignment::AlignConfig::w2v_try_dml`]), and failures still fall
-//! closed: a session-build failure or non-finite emissions on a GPU EP fall
-//! back to CPU.
+//! these emissions (28.3 s → 2.1 s on she-said — spikes/alignment/REPORT.md).
+//! Two hazards are mitigated before it may be trusted:
+//!
+//! 1. **TDR resets.** A 30 s chunk is one large dispatch; on an RTX 2080
+//!    SUPER those exceeded Windows' ~2 s TDR budget under load, resetting the
+//!    display driver (System event 4101 / nvlddmkm) and crashing unrelated
+//!    GPU apps. DML therefore runs [`CHUNK_SEC_DML`]-second chunks: attention
+//!    cost scales quadratically with chunk length, so 10 s dispatches carry
+//!    ≤ 1/9 the attention work and stay far inside the watchdog budget. (The
+//!    dev-only alternative — raising TdrDelay — is deliberately not used.)
+//! 2. **Silent garbage.** The separation spike caught DirectML producing
+//!    *finite* wrong numbers with no error (graph fusion bug); the non-finite
+//!    check below cannot see that failure mode. So a DML session must pass a
+//!    golden-signal parity check against a CPU baseline at load (SNR ≥ the
+//!    separation stage's threshold, cached per model+EP in the shared
+//!    ep-parity cache) before it is used.
+//!
+//! Failures still fall closed at every layer: session build → CPU, parity
+//! fail → CPU, non-finite emissions mid-song → CPU rebuild + retry.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -22,12 +29,24 @@ use ort::session::Session;
 use ort::value::Tensor;
 
 use crate::error::{Error, Result};
+use crate::separation::{snr_db, ParityCache, GOLDEN_SNR_THRESHOLD_DB};
 
 /// wav2vec2 emission frame duration: 320 input samples at 16 kHz = 20 ms.
 pub const FRAME_SEC: f64 = 320.0 / 16000.0;
-const CHUNK_SEC: usize = 30;
+/// CPU chunk length: large chunks minimize overlap waste; latency per chunk
+/// is irrelevant on CPU.
+const CHUNK_SEC_CPU: usize = 30;
+/// DirectML chunk length: bounds per-dispatch GPU work under the Windows TDR
+/// watchdog (module docs, hazard 1).
+const CHUNK_SEC_DML: usize = 10;
 const OVERLAP_SEC: usize = 4; // 2 s discarded on each side of interior joins
 pub const MODEL_FILE: &str = "wav2vec2-base-960h.onnx";
+/// EP name key for the shared parity cache (distinct from separation's
+/// "directml" only via the model identity the cache also records).
+const PARITY_EP_KEY: &str = "directml";
+/// Golden parity signal length (seconds). Small enough to be a trivially
+/// TDR-safe dispatch, long enough to exercise the conv frontend + attention.
+const GOLDEN_SEC: usize = 5;
 
 /// EP actually used by the wav2vec2 session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,14 +91,153 @@ fn build_session(dir: &Path, threads: usize, ep: W2vEp) -> Result<Session> {
         .map_err(|e| Error::Model(format!("load {} ({}): {e}", path.display(), ep.as_str())))
 }
 
+/// Deterministic speech-shaped golden signal: syllabic-rate (~3 Hz) amplitude
+/// envelope over harmonics in the vocal band, plus low-level noise.
+/// Determinism only needs to hold within one machine (the CPU baseline is
+/// computed on the same machine).
+fn golden_signal() -> Vec<f32> {
+    let sr = 16_000usize;
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut noise = move || {
+        // xorshift64* — deterministic, dependency-free
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        let r = state.wrapping_mul(0x2545_F491_4F6C_DD1D);
+        (r >> 40) as f32 / (1u64 << 24) as f32 - 0.5
+    };
+    let tau = 2.0 * std::f32::consts::PI;
+    (0..GOLDEN_SEC * sr)
+        .map(|i| {
+            let t = i as f32 / sr as f32;
+            let syllable = (tau * 3.0 * t).sin().abs();
+            let tones = 0.08 * (tau * 180.0 * t).sin()
+                + 0.05 * (tau * 360.0 * t).sin()
+                + 0.03 * (tau * 720.0 * t).sin()
+                + 0.02 * (tau * 1440.0 * t).sin();
+            syllable * tones + 0.01 * noise()
+        })
+        .collect()
+}
+
+/// One whole-signal inference pass → per-frame log-softmax rows (the same
+/// math as `emissions_inner` without chunking/trimming — the golden signal
+/// fits in a single chunk on every EP).
+fn run_logprobs(session: &mut Session, audio: &[f32], do_normalize: bool) -> Result<Vec<f32>> {
+    let mut seg = audio.to_vec();
+    if do_normalize {
+        let mean = seg.iter().sum::<f32>() / seg.len() as f32;
+        let var = seg.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / seg.len() as f32;
+        let denom = (var + 1e-7).sqrt();
+        for v in seg.iter_mut() {
+            *v = (*v - mean) / denom;
+        }
+    }
+    let n = seg.len();
+    let input = Tensor::from_array((vec![1usize, n], seg))?;
+    let out = session.run(ort::inputs!["input_values" => input])?;
+    let (shape, data) = out["logits"].try_extract_tensor::<f32>()?;
+    let t = shape[1] as usize;
+    let c = shape[2] as usize;
+    let mut all = Vec::with_capacity(t * c);
+    for f in 0..t {
+        let row = &data[f * c..(f + 1) * c];
+        let m = row.iter().cloned().fold(f32::MIN, f32::max);
+        let lse = m + row.iter().map(|v| (v - m).exp()).sum::<f32>().ln();
+        all.extend(row.iter().map(|v| v - lse));
+    }
+    Ok(all)
+}
+
+/// Outcome of the DML golden-parity gate (module docs, hazard 2).
+struct ParityOutcome {
+    passed: bool,
+    snr_db: Option<f64>,
+    from_cache: bool,
+    /// The CPU baseline session, when one was built — reused as the fallback
+    /// session on parity failure so the 360 MB model is not loaded twice.
+    cpu_session: Option<Session>,
+}
+
+/// Gate a freshly built DirectML session behind a golden-signal parity check
+/// against a CPU baseline (cached per model+EP in the shared ep-parity file).
+fn dml_parity_gate(
+    dir: &Path,
+    threads: usize,
+    dml: &mut Session,
+    do_normalize: bool,
+) -> Result<ParityOutcome> {
+    let model_path = dir.join(MODEL_FILE);
+    let cache_path = crate::separation::default_parity_cache_path();
+    let mut cache = ParityCache::load(&cache_path, &model_path);
+    if let Some(snr) = cache.cached_pass(PARITY_EP_KEY) {
+        return Ok(ParityOutcome {
+            passed: true,
+            snr_db: (!snr.is_nan()).then_some(snr),
+            from_cache: true,
+            cpu_session: None,
+        });
+    }
+    let golden = golden_signal();
+    let candidate = run_logprobs(dml, &golden, do_normalize)?;
+    let mut cpu = build_session(dir, threads, W2vEp::Cpu)?;
+    let baseline = run_logprobs(&mut cpu, &golden, do_normalize)?;
+    let snr = snr_db(&baseline, &candidate);
+    let passed =
+        snr.is_finite() && snr >= GOLDEN_SNR_THRESHOLD_DB || snr.is_infinite() && snr > 0.0;
+    cache.record(PARITY_EP_KEY, Some(snr), passed);
+    Ok(ParityOutcome {
+        passed,
+        snr_db: Some(snr),
+        from_cache: false,
+        cpu_session: Some(cpu),
+    })
+}
+
 impl W2v {
     /// Load the wav2vec2 session from a model directory. When `try_dml` is
-    /// set, DirectML is attempted first and CPU is the fallback.
+    /// set, DirectML is attempted first — gated behind the golden-signal
+    /// parity check (module docs, hazard 2) — and CPU is the fallback at
+    /// every layer.
     pub fn load(dir: &Path, threads: usize, try_dml: bool) -> Result<(Self, Option<String>)> {
+        // do_normalize is needed before any parity inference can run.
+        let pre: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("preprocessor_config.json"))?)
+                .map_err(|e| Error::Model(format!("wav2vec2 preprocessor_config.json: {e}")))?;
+        let do_normalize = pre["do_normalize"].as_bool().unwrap_or(false);
+
         let mut note = None;
         let (session, ep) = if try_dml {
             match build_session(dir, threads, W2vEp::DirectML) {
-                Ok(s) => (s, W2vEp::DirectML),
+                Ok(mut dml) => match dml_parity_gate(dir, threads, &mut dml, do_normalize) {
+                    Ok(o) if o.passed => {
+                        note = Some(match (o.from_cache, o.snr_db) {
+                            (true, _) => "wav2vec2 DirectML parity: pass (cached)".to_string(),
+                            (false, Some(s)) => {
+                                format!("wav2vec2 DirectML parity: pass ({s:.1} dB)")
+                            }
+                            (false, None) => "wav2vec2 DirectML parity: pass".to_string(),
+                        });
+                        (dml, W2vEp::DirectML)
+                    }
+                    Ok(o) => {
+                        note = Some(format!(
+                            "wav2vec2 DirectML parity FAIL ({}) — using CPU",
+                            o.snr_db.map(|s| format!("{s:.1} dB")).unwrap_or_default()
+                        ));
+                        let cpu = match o.cpu_session {
+                            Some(s) => s,
+                            None => build_session(dir, threads, W2vEp::Cpu)?,
+                        };
+                        (cpu, W2vEp::Cpu)
+                    }
+                    Err(e) => {
+                        note = Some(format!(
+                            "wav2vec2 DirectML parity check failed to run ({e}) — using CPU"
+                        ));
+                        (build_session(dir, threads, W2vEp::Cpu)?, W2vEp::Cpu)
+                    }
+                },
                 Err(e) => {
                     note = Some(format!("wav2vec2 DirectML unavailable, using CPU: {e}"));
                     (build_session(dir, threads, W2vEp::Cpu)?, W2vEp::Cpu)
@@ -109,10 +267,6 @@ impl W2v {
         let word_delim = *vocab
             .get("|")
             .ok_or_else(|| Error::Model("wav2vec2 vocab missing '|'".into()))?;
-        let pre: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join("preprocessor_config.json"))?)
-                .map_err(|e| Error::Model(format!("wav2vec2 preprocessor_config.json: {e}")))?;
-        let do_normalize = pre["do_normalize"].as_bool().unwrap_or(false);
         Ok((
             Self {
                 session,
@@ -128,7 +282,8 @@ impl W2v {
         ))
     }
 
-    /// Full-song emissions. Chunks of `CHUNK_SEC` with `OVERLAP_SEC` overlap;
+    /// Full-song emissions. EP-sized chunks ([`CHUNK_SEC_CPU`] /
+    /// [`CHUNK_SEC_DML`]) with `OVERLAP_SEC` overlap;
     /// interior chunk edges are discarded (half the overlap each side) before
     /// concatenation. Fails closed: non-finite emissions on a GPU EP trigger
     /// one CPU rebuild + retry. `on_chunk(done, total)` fires after each
@@ -167,7 +322,13 @@ impl W2v {
         on_chunk: &mut dyn FnMut(usize, usize),
     ) -> Result<Emissions> {
         let sr = 16000usize;
-        let chunk = CHUNK_SEC * sr;
+        // Read the chunk length from the current EP each call: after a
+        // mid-song CPU fallback the retry automatically widens to CPU chunks.
+        let chunk_sec = match self.ep {
+            W2vEp::DirectML => CHUNK_SEC_DML,
+            W2vEp::Cpu => CHUNK_SEC_CPU,
+        };
+        let chunk = chunk_sec * sr;
         let overlap = OVERLAP_SEC * sr;
         let hop = chunk - overlap;
         let trim_frames = (OVERLAP_SEC as f64 / 2.0 / FRAME_SEC) as usize; // frames cut per interior edge

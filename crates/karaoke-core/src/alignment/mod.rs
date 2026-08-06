@@ -51,17 +51,21 @@ pub const SAMPLE_RATE: u32 = 16_000;
 pub struct AlignConfig {
     /// Added to every word time at the end (negative shifts earlier).
     pub onset_bias_s: f64,
-    /// Use the dynamic-quantized whisper decoder (−22% whisper time, word
-    /// similarity 0.893 vs fp32 in the spike).
+    /// Use the dynamic-quantized whisper decoder. Measured 2026-08-06
+    /// (release build, 3-song pasted-lyrics A/B): **no speed win** (whisper
+    /// wall time within noise of fp32) and strictly worse anchors (she-said
+    /// 366→344 anchored, false unsung spans 1→9). Keep false; the flag stays
+    /// for experimentation only.
     pub whisper_int8: bool,
     /// Try DirectML for wav2vec2 emissions (13x on the spike GPU). Whisper
     /// always runs on CPU (DML measured 4x slower for its decoder).
     ///
-    /// **Default false**: wav2vec2's 30 s-chunk dispatches can exceed the
-    /// Windows TDR budget on mid-range GPUs, resetting the display driver and
-    /// crashing unrelated GPU apps (observed on an RTX 2080 SUPER, System
-    /// event 4101). Opt-in only until per-dispatch work is bounded — see the
-    /// [`w2v`] module docs.
+    /// **Default false, pending on-hardware validation.** The two DML hazards
+    /// are now mitigated in [`w2v`] — 10 s dispatches bound per-dispatch GPU
+    /// work under the TDR watchdog (an RTX 2080 SUPER reset its driver on the
+    /// old 30 s chunks, System event 4101), and a cached golden-signal parity
+    /// gate catches silent-garbage EPs. Flip the default only after the
+    /// bounded path survives a TDR soak on the affected hardware.
     pub w2v_try_dml: bool,
     /// Intra-op threads for the CPU sessions.
     pub threads: usize,

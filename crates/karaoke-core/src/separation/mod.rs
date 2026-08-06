@@ -122,7 +122,7 @@ pub fn prepare_model(
         let is_last = idx == last;
 
         // Cached pass → skip golden inference entirely.
-        if let Some(snr) = cache.as_ref().and_then(|c| c.cached_pass(ep)) {
+        if let Some(snr) = cache.as_ref().and_then(|c| c.cached_pass(ep.as_str())) {
             on_event(&Event::ModelInit { ep });
             let t0 = std::time::Instant::now();
             match reuse_or_load(ep, &mut cpu_baseline, model_path) {
@@ -176,7 +176,7 @@ pub fn prepare_model(
                 };
                 on_event(&Event::Parity(report.clone()));
                 if let Some(c) = cache.as_mut() {
-                    c.record(ep, None, passed);
+                    c.record(ep.as_str(), None, passed);
                 }
                 reports.push(report);
                 if !passed {
@@ -245,7 +245,7 @@ pub fn prepare_model(
                 };
                 on_event(&Event::Parity(report.clone()));
                 if let Some(c) = cache.as_mut() {
-                    c.record(ep, Some(snr), passed);
+                    c.record(ep.as_str(), Some(snr), passed);
                 }
                 reports.push(report);
                 if passed {
