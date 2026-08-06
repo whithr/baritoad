@@ -154,7 +154,14 @@ export default function Library({ go, jobs }: { go: (r: Route) => void; jobs: Jo
 
   return (
     <div className="page page-wide">
-      <h1>Library</h1>
+      <h1 className="with-readout">
+        Library
+        {/* odometer: total songs owned, leading zeros like a trip counter */}
+        <span className="lib-odometer">
+          <span className="label">Songs</span>
+          <SegText value={String(songs.length).padStart(3, "0")} />
+        </span>
+      </h1>
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice-banner">{notice}</div>}
       {pendingDelete && (

@@ -142,6 +142,24 @@ export function SegText(props: { value: string; className?: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// SegWord — the 14-segment word readout (DSEG14): short status words only
+// (STBY / RUN / RDY / ERR — instrument chrome, never label or body copy).
+// Ghost layer mirrors SegText: DSEG14 maps "~" to the all-segments-on glyph.
+// Static DOM — same rAF constraint as SegText.
+// ---------------------------------------------------------------------------
+
+export function SegWord(props: { value: string; className?: string }) {
+  return (
+    <span className={`seg-wrap${props.className ? ` ${props.className}` : ""}`}>
+      <span className="seg14 seg-ghost" aria-hidden>
+        {props.value.replace(/[A-Za-z0-9]/g, "~")}
+      </span>
+      <span className="seg14">{props.value}</span>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ConfirmStrip — in-world destructive confirm: a red annunciator strip with
 // its own keys, replacing window.confirm system dialogs.
 // ---------------------------------------------------------------------------

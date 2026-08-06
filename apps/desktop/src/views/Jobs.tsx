@@ -9,7 +9,18 @@ import {
   type JobProgress,
   type JobsState,
 } from "../jobEvents";
+import { SegWord } from "../ui";
 import type { Route } from "../App";
+
+// 14-segment annunciator words — status is triple-coded (word + family
+// color + Barlow headline), never hue alone.
+const STATUS_WORDS: Record<string, string> = {
+  queued: "STBY",
+  running: "RUN",
+  completed: "RDY",
+  failed: "ERR",
+  cancelled: "OFF",
+};
 
 export default function Jobs({ jobs, go }: { jobs: JobsState; go: (r: Route) => void }) {
   const list = [...jobs.order].reverse().map((id) => jobs.jobs[id]).filter(Boolean);
@@ -39,7 +50,12 @@ function JobCard({ p, go }: { p: JobProgress; go: (r: Route) => void }) {
           <div className="job-title">{job.title}</div>
           {job.artist && <div className="job-artist">{job.artist}</div>}
         </div>
-        <div className="job-headline">{progressHeadline(p)}</div>
+        <div className="job-status">
+          <div className="job-headline">{progressHeadline(p)}</div>
+          {STATUS_WORDS[job.status] && (
+            <SegWord className="job-seg" value={STATUS_WORDS[job.status]} />
+          )}
+        </div>
       </div>
 
       {(running || job.status === "queued") && (

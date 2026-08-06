@@ -79,6 +79,14 @@ input {
   letter-spacing: 0.06em;
 }
 
+/* 14-segment word readout — short status words only (STBY/RUN/RDY/ERR);
+   words otherwise belong to Barlow (Instrument-Chrome Rule) */
+.seg14 {
+  font-family: var(--font-seg14);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* VFD unlit-segment ghost: the dim "8" shapes behind lit digits */
 .seg-wrap {
   position: relative;
@@ -223,6 +231,20 @@ input {
   color: var(--text-faint);
 }
 
+/* vent slots machined into the pod's foot */
+.sidebar::after {
+  content: "";
+  margin-top: auto;
+  margin-left: var(--s3);
+  width: 56px;
+  height: 8px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--line) 0 2px,
+    transparent 2px 8px
+  );
+}
+
 /* ---- content panel ---- */
 
 .content {
@@ -303,6 +325,21 @@ button.primary:active:not(:disabled) {
 button.big {
   font-size: 15px;
   padding: 12px 26px;
+}
+
+/* golden-path keys get the signature chamfer cut */
+button.primary.big,
+.pk-play {
+  clip-path: var(--chamfer);
+  border-radius: 0;
+}
+
+/* clip-path swallows the outline ring — carry keyboard focus as an
+   inset ink ring on the amber fill instead (9:1) */
+button.primary.big:focus-visible,
+.pk-play:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--ink), 0 2px 10px rgba(242, 163, 60, 0.25);
 }
 
 button.linkish,
@@ -643,6 +680,17 @@ input[type="checkbox"] {
   margin-bottom: var(--s5);
 }
 
+/* faint VFD scanlines on the display wells (static; not the player
+   viewport — couch legibility outranks texture there) */
+.dropzone,
+.preview-stage {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(233, 237, 243, 0.025) 0 1px,
+    transparent 1px 3px
+  );
+}
+
 .dropzone:hover,
 .dropzone.over {
   border-color: var(--cyan);
@@ -701,12 +749,35 @@ input[type="checkbox"] {
 /* ---- jobs: the dubbing deck ---- */
 
 .job-card {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-panel);
   padding: 18px 20px;
   margin-bottom: var(--s4);
+}
+
+/* bezel screws in the deck's top corners */
+.job-card::before,
+.job-card::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: linear-gradient(135deg, #3a4654, #1a212b);
+  border: 1px solid var(--line);
+  pointer-events: none;
+}
+
+.job-card::before {
+  left: 6px;
+}
+
+.job-card::after {
+  right: 6px;
 }
 
 .job-card.status-completed {
@@ -732,6 +803,36 @@ input[type="checkbox"] {
 .job-artist {
   color: var(--text-dim);
   font-size: 14px;
+}
+
+.job-status {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+/* 14-segment annunciator word, voiced by the card's status family */
+.job-seg {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.status-running .job-seg {
+  color: var(--amber);
+  text-shadow: 0 0 10px var(--amber-glow);
+}
+
+.status-completed .job-seg {
+  color: var(--green);
+  text-shadow: 0 0 10px var(--green-glow);
+}
+
+.status-failed .job-seg {
+  color: var(--red);
+}
+
+.status-cancelled .job-seg {
+  color: var(--text-faint);
 }
 
 .job-headline {
@@ -963,6 +1064,26 @@ input[type="checkbox"] {
 .library-main {
   flex: 1;
   min-width: 0;
+}
+
+/* module title with an instrument readout on the right */
+h1.with-readout {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+/* trip-counter odometer: label + leading-zero green readout */
+.lib-odometer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.lib-odometer .seg-wrap {
+  font-size: 15px;
+  color: var(--green);
+  text-shadow: 0 0 10px var(--green-glow);
 }
 
 .library-controls {
@@ -1879,6 +2000,17 @@ label.check {
   width: 54px;
   height: 44px;
   padding: 0;
+}
+
+/* transport annunciator: PLAY lit amber, PAUS dim */
+.pk-transport-word {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.pk-transport-word.live {
+  color: var(--amber);
+  text-shadow: 0 0 10px var(--amber-glow);
 }
 
 .pk-clock {

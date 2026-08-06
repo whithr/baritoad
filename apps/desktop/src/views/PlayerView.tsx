@@ -661,6 +661,14 @@ export default function PlayerView(props: {
           <button className="pk-play primary" onClick={togglePlay} title="Play/pause (Space)">
             {status?.state === "playing" ? <IconPause size={20} /> : <IconPlay size={20} />}
           </button>
+          {/* transport annunciator — re-renders only on play/pause state
+              changes (throttled status), never on the rAF path */}
+          <span
+            className={`pk-transport-word seg14${status?.state === "playing" ? " live" : ""}`}
+            aria-hidden
+          >
+            {status?.state === "playing" ? "PLAY" : "PAUS"}
+          </span>
           <span className="pk-clock seg" ref={timeRef} />
           <div className="pk-guide" title="Vocal guide — blend the original vocal back in (↑/↓)">
             <span className="label">Guide</span>
