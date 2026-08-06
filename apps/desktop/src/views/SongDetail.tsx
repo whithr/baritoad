@@ -1,14 +1,14 @@
 // Song detail = the review screen (PLAN.md §3, §4 step 4 "Preview & fix").
 //
 // Three modes:
-//  - preview: the review bench — auto-plays the densest ~20 s with karaoke
-//    highlighting AND is the main lyric editor: click a word to jump,
-//    double-click to retype, shift word/line/tail timings, insert/delete
-//    words. "Looks good" saves fixes and marks reviewed. Entered
-//    automatically for songs not yet reviewed.
+//  - edit: the timeline editor (FixEditor.tsx) — the MAIN editor: chip
+//    tracks with drag timing, inline word/line retype, insert/delete,
+//    break/join/reflow, re-align selection. Entered automatically for
+//    songs not yet reviewed.
+//  - preview: the review bench — karaoke-style playback check (densest
+//    ~20 s or full song) that keeps its lyric console; "Looks good"
+//    saves fixes and marks reviewed.
 //  - detail: metadata, word list, exports (with freshness badges).
-//  - edit: the precision editor (FixEditor.tsx) — chip-track escape hatch
-//    with re-align selection and end-stretch.
 //
 // Audio here is the review-screen player only (useAudio module docs): plain
 // playback, no key/tempo — the Phase 3 cpal player replaces it for singing.
@@ -113,8 +113,8 @@ export default function SongDetail(props: {
         }
         if (disposed) return;
         setSong(s);
-        // Golden path: unreviewed songs open straight into the preview.
-        setMode(s && s.reviewed_at == null ? "preview" : "detail");
+        // Golden path: unreviewed songs open straight into the editor.
+        setMode(s && s.reviewed_at == null ? "edit" : "detail");
         try {
           const src = await playbackSources(
             songId != null ? { songId } : { mapPath },
@@ -184,6 +184,14 @@ export default function SongDetail(props: {
         sources={sources}
         status={status}
         refreshStatus={refreshStatus}
+        onSaved={(m) => {
+          setMap(m);
+          if (song) setSong({ ...song, reviewed_at: Math.floor(Date.now() / 1000) });
+        }}
+        onPreview={() => {
+          setPreviewScope("full");
+          setMode("preview");
+        }}
         onExit={(savedMap) => {
           if (savedMap) {
             setMap(savedMap);
@@ -243,16 +251,8 @@ export default function SongDetail(props: {
             >
               Preview again
             </button>
-            <button
-              onClick={() => {
-                setPreviewScope("full");
-                setMode("preview");
-              }}
-            >
+            <button onClick={() => setMode("edit")} title="Timeline editor — timings, words, and lines">
               Fix words &amp; timings
-            </button>
-            <button onClick={() => setMode("edit")} title="Chip-track timing editor">
-              Precision editor
             </button>
             {EXPORT_FORMATS.map((f) => (
               <ExportButton
@@ -289,12 +289,11 @@ export default function SongDetail(props: {
 }
 
 // ---------------------------------------------------------------------------
-// preview = the review bench (golden path step 4, now also the main editor):
-// listen to the original, click a word to jump there, double-click to retype
-// it, shift a word / its line / everything after it in time, and watch the
-// cue puck arc onto each upcoming word so mistimings are visible before they
-// are explainable. The chip-track FixEditor stays as the precision escape
-// hatch (re-align selection, end-stretch).
+// preview = the review bench (golden path step 4): the karaoke-style
+// playback check — listen while the cue puck arcs onto each upcoming word
+// so mistimings are visible before they are explainable. It keeps its lyric
+// console (retype, shift, insert/delete, line shaping) for fixes made while
+// listening; the timeline FixEditor is the main editor.
 
 type EditFlow = "loop" | "pause" | "roll";
 const EDIT_FLOW_KEY = "karascape.editFlow";
@@ -1007,9 +1006,9 @@ function Preview(props: {
         <button
           className="linkish"
           onClick={openPrecision}
-          title="Chip-track timing editor with re-align and end-stretch"
+          title="The main editor — drag timings on chip tracks, re-align, end-stretch"
         >
-          Precision editor
+          Timeline editor
         </button>
         <button className="linkish" onClick={skip}>
           Skip to details

@@ -4,6 +4,8 @@ import { editorReducer, initEditor } from "./editorState";
 import {
   breakLineAt,
   joinLineUp,
+  moveWordsDown,
+  moveWordsUp,
   reflowLines,
   retimeLine,
   tokenizeLyric,
@@ -131,6 +133,49 @@ describe("breakLineAt / joinLineUp", () => {
 
   it("join on the first line is a no-op", () => {
     expect(joinLineUp(words, 1)).toBeNull();
+  });
+});
+
+describe("moveWordsUp / moveWordsDown (drag rewrap)", () => {
+  // three lines: [a b c d] [e f g] [h i]
+  const words = [
+    ...mkLine(["a", "b", "c", "d"], 0, 0),
+    ...mkLine(["e", "f", "g"], 5, 1),
+    ...mkLine(["h", "i"], 10, 2),
+  ];
+
+  it("up moves the word and its line's head onto the previous line", () => {
+    const out = moveWordsUp(words, 5)!; // grab "f"
+    expect(out.map((w) => w.line)).toEqual([0, 0, 0, 0, 0, 0, 1, 2, 2]);
+    expect(out.map((w) => w.word_in_line)).toEqual([0, 1, 2, 3, 4, 5, 0, 0, 1]);
+    // timings untouched — rewrap only rewrites line links
+    out.forEach((w, i) => expect(w.start).toBeCloseTo(words[i].start));
+  });
+
+  it("up on the last word merges the whole line into the previous one", () => {
+    const out = moveWordsUp(words, 6)!; // grab "g"
+    expect(out.map((w) => w.line)).toEqual([0, 0, 0, 0, 0, 0, 0, 1, 1]);
+  });
+
+  it("down moves the word and its line's tail onto the next line", () => {
+    const out = moveWordsDown(words, 6)!; // grab "g"
+    expect(out.map((w) => w.line)).toEqual([0, 0, 0, 0, 1, 1, 2, 2, 2]);
+    expect(out.map((w) => w.word_in_line)).toEqual([0, 1, 2, 3, 0, 1, 0, 1, 2]);
+  });
+
+  it("down on the first word merges the whole line into the next one", () => {
+    const out = moveWordsDown(words, 4)!; // grab "e"
+    expect(out.map((w) => w.line)).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 1]);
+  });
+
+  it("no previous / next line is a no-op", () => {
+    expect(moveWordsUp(words, 1)).toBeNull(); // first line
+    expect(moveWordsDown(words, 8)).toBeNull(); // last line
+  });
+
+  it("words without line structure are a no-op", () => {
+    expect(moveWordsUp([word("a", 0, 1), word("b", 2, 3)], 1)).toBeNull();
+    expect(moveWordsDown([word("a", 0, 1), word("b", 2, 3)], 0)).toBeNull();
   });
 });
 

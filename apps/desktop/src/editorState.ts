@@ -13,7 +13,15 @@
 
 import type { TimingMap, WordTiming } from "./api";
 import type { RealignedWord } from "./api";
-import { breakLineAt, joinLineUp, reflowLines, retimeLine, tokenizeLyric } from "./lineEdit";
+import {
+  breakLineAt,
+  joinLineUp,
+  moveWordsDown,
+  moveWordsUp,
+  reflowLines,
+  retimeLine,
+  tokenizeLyric,
+} from "./lineEdit";
 
 /** Two proposed times closer than this count as "didn't move" — a micro-drag
  *  (accidental wiggle while clicking) neither dirties the map nor spends an
@@ -23,6 +31,26 @@ export const DRAG_NOOP_EPS_S = 0.005;
 /** Keyboard nudge steps (arrows / shift-arrows). */
 export const NUDGE_S = 0.01;
 export const NUDGE_COARSE_S = 0.1;
+
+/** Seconds of context shown either side of a line's words in the editor. */
+export const LINE_PAD_S = 0.6;
+
+/**
+ * A line track's visible time window: the line's extent padded by
+ * LINE_PAD_S, then snapped OUTWARD to a whole-second grid. The snap is what
+ * keeps a row's coordinate system still while its edge words are dragged or
+ * nudged — the window only re-maps when a word crosses a second boundary,
+ * instead of re-centering on every commit.
+ */
+export function lineWindow(
+  lineStart: number,
+  lineEnd: number,
+  duration: number,
+): { start: number; end: number } {
+  const start = Math.max(0, Math.floor(lineStart - LINE_PAD_S));
+  const end = Math.min(Math.max(duration, lineEnd), Math.ceil(lineEnd + LINE_PAD_S));
+  return { start, end: Math.max(end, start + 1) };
+}
 
 const MAX_UNDO = 200;
 
@@ -45,6 +73,8 @@ export type EditorAction =
   | { type: "set-line-text"; first: number; last: number; text: string }
   | { type: "break-line"; at: number }
   | { type: "join-line"; at: number }
+  | { type: "rewrap-up"; at: number }
+  | { type: "rewrap-down"; at: number }
   | { type: "reflow-lines" }
   | { type: "insert-word"; after: number; word: string }
   | { type: "delete-word"; index: number }
@@ -220,6 +250,16 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case "join-line": {
       const words = joinLineUp(state.words, action.at);
+      return words ? withEdit(state, words) : state;
+    }
+
+    case "rewrap-up": {
+      const words = moveWordsUp(state.words, action.at);
+      return words ? withEdit(state, words) : state;
+    }
+
+    case "rewrap-down": {
+      const words = moveWordsDown(state.words, action.at);
       return words ? withEdit(state, words) : state;
     }
 

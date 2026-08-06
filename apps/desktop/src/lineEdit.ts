@@ -171,6 +171,50 @@ export function breakLineAt(words: WordTiming[], at: number): WordTiming[] | nul
   return renumber(words, next);
 }
 
+/**
+ * Rewrap upward (drag a chip onto the row above): the head of `at`'s line —
+ * from the line start through `at` — joins the previous line. Grabbing the
+ * last word therefore merges the whole line up.
+ */
+export function moveWordsUp(words: WordTiming[], at: number): WordTiming[] | null {
+  if (at < 0 || at >= words.length || words[at].line == null) return null;
+  const groups = currentGroups(words);
+  const gi = groups.findIndex((g) => g.includes(at));
+  if (gi <= 0) return null;
+  const pos = groups[gi].indexOf(at);
+  const head = groups[gi].slice(0, pos + 1);
+  const rest = groups[gi].slice(pos + 1);
+  const next = [
+    ...groups.slice(0, gi - 1),
+    [...groups[gi - 1], ...head],
+    ...(rest.length > 0 ? [rest] : []),
+    ...groups.slice(gi + 1),
+  ];
+  return renumber(words, next);
+}
+
+/**
+ * Rewrap downward (drag a chip onto the row below): `at` and the rest of its
+ * line move to the start of the next line. Grabbing the first word therefore
+ * merges the whole line down.
+ */
+export function moveWordsDown(words: WordTiming[], at: number): WordTiming[] | null {
+  if (at < 0 || at >= words.length || words[at].line == null) return null;
+  const groups = currentGroups(words);
+  const gi = groups.findIndex((g) => g.includes(at));
+  if (gi === -1 || gi >= groups.length - 1) return null;
+  const pos = groups[gi].indexOf(at);
+  const head = groups[gi].slice(0, pos);
+  const tail = groups[gi].slice(pos);
+  const next = [
+    ...groups.slice(0, gi),
+    ...(head.length > 0 ? [head] : []),
+    [...tail, ...groups[gi + 1]],
+    ...groups.slice(gi + 2),
+  ];
+  return renumber(words, next);
+}
+
 /** Join the line containing `at` onto the previous line. */
 export function joinLineUp(words: WordTiming[], at: number): WordTiming[] | null {
   if (at < 0 || at >= words.length || words[at].line == null) return null;

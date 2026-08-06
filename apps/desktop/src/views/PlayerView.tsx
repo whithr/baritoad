@@ -658,7 +658,12 @@ export default function PlayerView(props: {
           <div className="pk-timebar-fill" ref={fillRef} />
         </div>
         <div className="pk-controls-row">
-          <button className="pk-play primary" onClick={togglePlay} title="Play/pause (Space)">
+          <button
+            className="pk-play primary"
+            onClick={togglePlay}
+            disabled={!status}
+            title="Play/pause (Space)"
+          >
             {status?.state === "playing" ? <IconPause size={20} /> : <IconPlay size={20} />}
           </button>
           {/* transport annunciator — re-renders only on play/pause state
@@ -667,7 +672,7 @@ export default function PlayerView(props: {
             className={`pk-transport-word seg14${status?.state === "playing" ? " live" : ""}`}
             aria-hidden
           >
-            {status?.state === "playing" ? "PLAY" : "PAUS"}
+            {status == null ? "LOAD" : status.state === "playing" ? "PLAY" : "PAUS"}
           </span>
           <span className="pk-clock seg" ref={timeRef} />
           <div className="pk-guide" title="Vocal guide — blend the original vocal back in (↑/↓)">
@@ -686,7 +691,7 @@ export default function PlayerView(props: {
             </span>
           </div>
           <div className="pk-stepper" title="Key change, ±6 semitones (− / +)">
-            <button onClick={() => nudgePitch(-1)} aria-label="Key down">−</button>
+            <button onClick={() => nudgePitch(-1)} disabled={!status} aria-label="Key down">−</button>
             <span>
               <span className="label">Key</span>{" "}
               <span className="seg">
@@ -694,19 +699,20 @@ export default function PlayerView(props: {
                 {Math.round(status?.pitch ?? 0)}
               </span>
             </span>
-            <button onClick={() => nudgePitch(1)} aria-label="Key up">+</button>
+            <button onClick={() => nudgePitch(1)} disabled={!status} aria-label="Key up">+</button>
           </div>
           <div className="pk-stepper" title="Tempo, 0.80–1.20x ([ / ])">
-            <button onClick={() => nudgeTempo(-TEMPO_STEP)} aria-label="Tempo down">−</button>
+            <button onClick={() => nudgeTempo(-TEMPO_STEP)} disabled={!status} aria-label="Tempo down">−</button>
             <span>
               <span className="seg">{(status?.tempo ?? 1).toFixed(2)}</span>×
             </span>
-            <button onClick={() => nudgeTempo(TEMPO_STEP)} aria-label="Tempo up">+</button>
+            <button onClick={() => nudgeTempo(TEMPO_STEP)} disabled={!status} aria-label="Tempo up">+</button>
           </div>
           <span className="spacer" />
           <div className="pk-advanced-wrap">
             <button
               onClick={() => setAdvancedOpen((v) => !v)}
+              disabled={!status}
               title="Advanced"
               className="with-icon"
             >

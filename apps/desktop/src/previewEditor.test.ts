@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PUCK_FLIGHT_MAX_S,
+  PUCK_FLIGHT_MIN_S,
   puckFrameAt,
   shiftRange,
   type PuckWord,
@@ -64,6 +65,33 @@ describe("puckFrameAt", () => {
   it("goes dark after the last word", () => {
     expect(puckFrameAt(words, 5.0)).toEqual({ kind: "hidden" });
     expect(puckFrameAt([], 1)).toEqual({ kind: "hidden" });
+  });
+
+  it("keeps a minimum flight on butted words, departing early", () => {
+    // a's end is cut right against b's onset — a zero gap must not teleport;
+    // the flight departs through a's tail: [2 - MIN, 2]
+    const butted = [w(1, 2), w(2, 2.4), w(4, 4.4)];
+    expect(puckFrameAt(butted, 1.5)).toEqual({ kind: "rest", index: 0 });
+    const f = puckFrameAt(butted, 2 - PUCK_FLIGHT_MIN_S / 2);
+    expect(f.kind).toBe("flight");
+    if (f.kind === "flight") {
+      expect(f.from).toBe(0);
+      expect(f.to).toBe(1);
+      expect(f.progress).toBeCloseTo(0.5);
+    }
+  });
+
+  it("caps chained rapid-fire words at the onset interval", () => {
+    // onsets 0.12 s apart: the flight takes the whole interval — continuous
+    // motion, and the puck is never due at b before it left a
+    const rapid = [w(1, 1.05), w(1.12, 1.2), w(3, 3.4)];
+    const f = puckFrameAt(rapid, 1.06);
+    expect(f.kind).toBe("flight");
+    if (f.kind === "flight") {
+      expect(f.from).toBe(0);
+      expect(f.to).toBe(1);
+      expect(f.progress).toBeCloseTo((1.06 - 1.0) / 0.12);
+    }
   });
 });
 

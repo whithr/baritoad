@@ -13,6 +13,12 @@ export interface PuckWord {
 /** Longest flight; shorter gaps fly the whole gap, longer ones rest first. */
 export const PUCK_FLIGHT_MAX_S = 0.6;
 
+/** Shortest flight: when the gap to the next onset is tighter than this,
+ *  the puck departs early — gliding out of the previous word's tail to land
+ *  on the beat — instead of teleporting across a near-zero gap (words whose
+ *  ends are cut short right against the next onset). */
+export const PUCK_FLIGHT_MIN_S = 0.18;
+
 export type PuckFrame =
   | { kind: "hidden" }
   | { kind: "rest"; index: number }
@@ -54,7 +60,12 @@ export function puckFrameAt(words: PuckWord[], t: number): PuckFrame {
 
   if (j != null) {
     const gap = Math.max(words[j].start - restEnd, 0);
-    const dur = Math.min(gap, PUCK_FLIGHT_MAX_S);
+    // Flight time: the whole gap up to MAX, but never under MIN — leaving
+    // early through the previous word's tail beats teleporting. A chain of
+    // rapid-fire words caps the flight at the onset-to-onset interval so
+    // the puck is never due at a word before it left the one prior.
+    const onsetSpan = p != null ? Math.max(words[j].start - words[p].start, 0.01) : Infinity;
+    const dur = Math.min(Math.max(gap, PUCK_FLIGHT_MIN_S), PUCK_FLIGHT_MAX_S, onsetSpan);
     const flightStart = words[j].start - dur;
     if (t >= flightStart) {
       return {

@@ -420,11 +420,66 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Mark:** an eighth note whose body is ascending VU segments — two segmented bars rising into a full-height solid stem carrying an angular flag. Reads as a note at a glance, as one of the app's own segmented meters up close. Solid fill, two variants: 16-grid (`IconBrandNote`, brand slot at 18px) and 32-grid (`IconBrandNoteLarge`, large renders like the 56px empty state — the 16-grid's 0.8px gaps blur upscaled).
 - **Voice:** magenta with the family glow in the brand slot (personality is magenta's job); flares brighter once on boot. The mark is unique to the brand — nav and empty states that aren't the brand use their own icons (New Song is the cartridge-plus).
 
-### Review Bench (preview + main lyric editor)
-- **Character:** the review preview *is* the editor — words on the display
-  glass are live instruments; the controls live on the console below, never
-  floating on the glass. Big current line with prev/next context lines,
-  couch-readable type.
+### Timeline Editor (the main editor)
+- **Character:** the enthusiast's bench — one recessed track well per lyric
+  line, each word a chip whose position and width are its true original-song
+  timing. Timing truth is never distorted: a 60 ms word stays a narrow chip.
+  Unreviewed songs open straight here (golden path step 4). Each row's time
+  window is the line's extent padded 0.6 s and snapped outward to a
+  whole-second grid (`lineWindow`), so dragging or nudging a line's edge
+  words never re-maps the row under the pointer. Exactly one row shows the
+  cyan playhead — the line being sung (the upcoming line during a gap);
+  neighboring rows' overlapping windows never sweep parallel playheads.
+- **Chips:** raised-panel chips on the well; selected = cyan seam ring +
+  glow; unsung = amber wash; low-confidence = dashed seam; ad-lib = italic
+  label. Drag moves the word, the right-edge handle (≤7px, shrinking with
+  the chip so a draggable body always remains) stretches its end.
+- **Overflow labels (DAW-style):** a chip never truncates its word — the
+  label paints past the chip's right edge over the track, carrying a black
+  legibility halo (`text-shadow` 0 1px 3px rgba(0,0,0,0.9) + 0 0 6px
+  rgba(0,0,0,0.7) — legibility chrome, not elevation; Light-Is-Not-Height
+  holds). Hover/drag lifts a chip (and its label) above its neighbors;
+  selection lifts highest.
+- **Text editing:** click = select + seek; double-click / Enter = inline
+  retype in place (Tab commits and hops to the next word); Del removes
+  (selection advances, so Del chains) and Alt+click erases any word
+  outright; "+ Word" inserts into the gap after the selection. A whole
+  line edits as one sentence via the row's hover EDIT key, Shift+Enter,
+  or double-click on the track background — the sentence input fills the
+  track well (lineEdit.ts LCS retiming).
+- **Drag rewrap:** pulling a chip a row's height up/down turns the drag
+  into a line-break move — up takes the chip and the words before it in
+  its line onto the row above; down takes the chip and the rest of its
+  line below (grabbing the last/first word merges whole rows). Timing is
+  untouched; only line links move, renumbered canonically, one undo entry.
+  While the gesture is vertical the chip ghosts (0.45, dashed) and the
+  target row lights amber (amber-dim seam, amber wash, amber glow — the
+  turn-signal voice: where the action goes live); returning to the home
+  row resumes the time drag.
+- **Timing tools:** arrows nudge ±10 ms (Shift ±100 ms); Ctrl+←/→ hops the
+  selection word by word and Ctrl+↑/↓ line by line (anchored at the
+  playhead when nothing is selected); clicking a track's background seeks
+  to that time (play a line from just before its first word); per-line
+  checkboxes select a contiguous range for "Re-align selection" (CTC
+  re-pass spliced back as one undo entry); "Loop line" loops the selected
+  word's line.
+- **Console (sticky):** the toolbar (transport, source, Preview, undo/redo,
+  Re-align, Save), global seek bar, and the editing key row — word keys
+  (Retype / + Word / Remove), line keys (Edit line / Break here / Join up /
+  Reflow lines), and exports with freshness badges — pin to the top of the
+  scrollport on solid ground with a seam + panel shadow; the line tracks
+  scroll beneath. Error/busy/confirm strips render inside the console so
+  they are always visible.
+- **Flow:** Save is the primary key (saving marks reviewed; Ctrl+S);
+  "Preview" hops to the Review Bench for a karaoke-style check, saving
+  first; dirty exits are guarded by a ConfirmStrip.
+
+### Review Bench (karaoke preview + lyric console)
+- **Character:** the playback check — words on the display glass are live
+  instruments; the controls live on the console below, never floating on
+  the glass. Big current line with prev/next context lines, couch-readable
+  type. Reached from the Timeline Editor's "Preview" key or the detail
+  page; fixes made while listening stay first-class.
 - **Word states:** sung = cyan; active = the amber wipe (same fill-edge
   mechanic as the player); selected = cyan seam ring (information voice);
   low-confidence timing = dashed amber-dim underline ("look here first");
@@ -433,9 +488,12 @@ timebars are rectangles with segment gaps cut by repeating gradients.
   and hops to the next word).
 - **Cue puck:** an 8px amber square (1px radius — never a circle) riding
   above the lyric lines: rests on the word being sung, arcs (sine hop,
-  ≤0.6 s flight) to land exactly on the next onset — the "bouncing ball"
-  that makes mistimed words visible. DOM-positioned per frame via
-  transform/opacity only; hidden when paused.
+  0.18–0.6 s flight) to land exactly on the next onset — the "bouncing
+  ball" that makes mistimed words visible. When the gap to the next onset
+  is tighter than the minimum, the puck departs early through the previous
+  word's tail rather than teleporting; rapid-fire chains cap the flight at
+  the onset-to-onset interval (continuous motion). DOM-positioned per
+  frame via transform/opacity only; hidden when paused.
 - **Console bench row:** the Shift module (scope keys WORD | LINE |
   FROM HERE, chevron nudge keys ±10 ms / shift ±100 ms, DSEG offset
   readout showing the net shift since selection), word keys (Retype /
@@ -451,10 +509,9 @@ timebars are rectangles with segment gaps cut by repeating gradients.
   that never had lines. All line ops renumber canonically (validator-safe)
   and take one undo entry.
 - **Flow:** "Looks good" (the one amber key, chamfered) saves fixes +
-  marks reviewed; "Precision editor" is the linkish escape to the
-  chip-track FixEditor (re-align selection, end-stretch); dirty exits are
-  guarded by a ConfirmStrip. Full keyboard: Space, arrows, Enter, Del,
-  Ctrl+Z/Y.
+  marks reviewed; "Timeline editor" is the linkish hop back to the main
+  editor; dirty exits are guarded by a ConfirmStrip. Full keyboard: Space,
+  arrows, Enter, Del, Ctrl+Z/Y.
 
 ### Full-Screen Player (signature)
 - **Character:** the night-mode cockpit — a fixed overlay on the well, with the song cover blurred to a dim backdrop (blur 48px, brightness 0.22) under a radial scrim.

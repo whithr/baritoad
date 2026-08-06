@@ -6,6 +6,7 @@ import {
   exportFreshness,
   initEditor,
   isDirty,
+  lineWindow,
   mapFromEditor,
   NUDGE_COARSE_S,
   NUDGE_S,
@@ -342,5 +343,26 @@ describe("nudge-range (group shift)", () => {
     // onsets stay monotonic
     expect(s.words[0].start).toBeLessThanOrEqual(s.words[1].start);
     expect(s.words[1].start).toBeLessThanOrEqual(s.words[2].start);
+  });
+});
+
+describe("lineWindow (stable row coordinates)", () => {
+  it("pads and snaps outward to whole seconds", () => {
+    const w = lineWindow(10.4, 12.2, 30);
+    expect(w.start).toBe(9); // floor(10.4 - 0.6)
+    expect(w.end).toBe(13); // ceil(12.2 + 0.6)
+  });
+
+  it("small edits inside the grid do not move the window", () => {
+    const a = lineWindow(10.4, 12.2, 30);
+    const b = lineWindow(10.15, 12.35, 30); // dragged edge words a little
+    expect(b).toEqual(a);
+  });
+
+  it("clamps to the song and never collapses", () => {
+    expect(lineWindow(0.2, 0.3, 30).start).toBe(0);
+    const tail = lineWindow(29.7, 29.9, 30);
+    expect(tail.end).toBeLessThanOrEqual(30);
+    expect(tail.end - tail.start).toBeGreaterThanOrEqual(1);
   });
 });
