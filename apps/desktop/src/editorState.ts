@@ -40,6 +40,10 @@ export type EditorAction =
   | { type: "commit-drag"; index: number; start: number; end: number }
   | { type: "nudge"; index: number; deltaS: number }
   | { type: "apply-realign"; first: number; last: number; timings: RealignedWord[] }
+  | { type: "set-text"; index: number; text: string }
+  | { type: "insert-word"; after: number; word: string }
+  | { type: "delete-word"; index: number }
+  | { type: "nudge-range"; first: number; last: number; deltaS: number }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "mark-saved" };
@@ -158,6 +162,107 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           unsung: false,
         };
         prevOnset = start;
+      }
+      return withEdit(state, words);
+    }
+
+    case "set-text": {
+      const cur = state.words[action.index];
+      const text = action.text.trim();
+      if (!cur || text === "" || text === cur.word) return state;
+      const words = state.words.slice();
+      words[action.index] = { ...cur, word: text };
+      return withEdit(state, words);
+    }
+
+    case "insert-word": {
+      // Insert after index `after` (-1 = before the first word). Timing sits
+      // in the middle half of the neighbor gap; with no audible gap the word
+      // lands at the next onset (zero-ish duration — the user nudges it).
+      const { after } = action;
+      const word = action.word.trim();
+      if (word === "" || after < -1 || after >= state.words.length) return state;
+      const prev = after >= 0 ? state.words[after] : null;
+      const next = after + 1 < state.words.length ? state.words[after + 1] : null;
+      if (!prev && !next) return state;
+      const prevOnset = prev ? prev.start : 0;
+      const nextOnset = next ? next.start : state.duration;
+      const gapStart = prev ? Math.max(prev.end, prev.start) : 0;
+      const gapEnd = Math.max(nextOnset, gapStart);
+      let start: number;
+      let end: number;
+      if (gapEnd - gapStart > 0.06) {
+        const gap = gapEnd - gapStart;
+        start = gapStart + gap * 0.25;
+        end = gapEnd - gap * 0.25;
+      } else {
+        start = Math.min(Math.max(gapEnd, prevOnset), state.duration);
+        end = Math.min(start + 0.12, state.duration);
+      }
+      // Lyric link: join prev's line (or next's when inserting at the front),
+      // then bump word_in_line for the rest of that line so links keep
+      // walking strictly forward (core validate()).
+      const line = prev?.line ?? next?.line;
+      let wordInLine: number | undefined;
+      if (line != null) {
+        wordInLine =
+          prev?.line === line && prev.word_in_line != null
+            ? prev.word_in_line + 1
+            : next?.line === line && next.word_in_line != null
+              ? next.word_in_line
+              : undefined;
+      }
+      const inserted: WordTiming = {
+        word,
+        start,
+        end,
+        confidence: 1,
+        anchored: true,
+        unsung: false,
+        line,
+        word_in_line: wordInLine,
+        ad_lib: false,
+      };
+      const words = state.words.slice();
+      words.splice(after + 1, 0, inserted);
+      if (line != null && wordInLine != null) {
+        for (let i = after + 2; i < words.length; i++) {
+          const w = words[i];
+          if (w.line !== line) break;
+          if (w.word_in_line != null) words[i] = { ...w, word_in_line: w.word_in_line + 1 };
+        }
+      }
+      return { ...withEdit(state, words), selected: after + 1 };
+    }
+
+    case "delete-word": {
+      const cur = state.words[action.index];
+      if (!cur) return state;
+      const words = state.words.slice();
+      words.splice(action.index, 1);
+      // Links stay strictly increasing after a removal — no renumber needed.
+      const selected =
+        words.length === 0 ? null : Math.min(action.index, words.length - 1);
+      return { ...withEdit(state, words), selected };
+    }
+
+    case "nudge-range": {
+      // Shift words [first..last] together, clamped once at the outer
+      // boundaries (a group never pins against its own interior words).
+      const { first, last } = action;
+      if (first < 0 || last >= state.words.length || first > last) return state;
+      const prevOnset = first > 0 ? state.words[first - 1].start : 0;
+      const nextOnset = last < state.words.length - 1 ? state.words[last + 1].start : state.duration;
+      let delta = action.deltaS;
+      delta = Math.max(delta, prevOnset - state.words[first].start, -state.words[first].start);
+      delta = Math.min(delta, nextOnset - state.words[last].start);
+      if (Math.abs(delta) <= DRAG_NOOP_EPS_S) return state;
+      const words = state.words.slice();
+      for (let i = first; i <= last; i++) {
+        const w = words[i];
+        const start = Math.min(Math.max(w.start + delta, 0), state.duration);
+        const end = Math.min(Math.max(w.end + delta, start), state.duration);
+        words[i] = { ...w, start, end };
       }
       return withEdit(state, words);
     }

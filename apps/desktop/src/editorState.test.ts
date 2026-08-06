@@ -233,3 +233,114 @@ describe("exportFreshness (stale-export detection)", () => {
     expect(exportFreshness(status, "lrc", true)).toBe("stale");
   });
 });
+
+describe("set-text", () => {
+  it("changes the word text and records undo", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "set-text", index: 1, text: "  bee " });
+    expect(s.words[1].word).toBe("bee");
+    expect(s.words[1].start).toBeCloseTo(2.0); // timing untouched
+    expect(s.past).toHaveLength(1);
+    expect(isDirty(s)).toBe(true);
+  });
+
+  it("empty or unchanged text is a no-op", () => {
+    const s0 = initEditor(threeWords());
+    expect(editorReducer(s0, { type: "set-text", index: 1, text: "   " })).toBe(s0);
+    expect(editorReducer(s0, { type: "set-text", index: 1, text: "b" })).toBe(s0);
+  });
+});
+
+describe("insert-word", () => {
+  it("lands in the middle half of the neighbor gap", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x" });
+    expect(s.words.map((w) => w.word)).toEqual(["a", "x", "b", "c"]);
+    const x = s.words[1];
+    // gap is [1.4, 2.0] → middle half [1.55, 1.85]
+    expect(x.start).toBeCloseTo(1.55);
+    expect(x.end).toBeCloseTo(1.85);
+    expect(x.start).toBeGreaterThanOrEqual(s.words[0].start);
+    expect(x.start).toBeLessThanOrEqual(s.words[2].start);
+    expect(s.selected).toBe(1); // new word is selected for immediate editing
+  });
+
+  it("with no audible gap it sits at the next onset", () => {
+    let s = initEditor(map([word("a", 1.0, 2.0), word("b", 2.0, 2.4)]));
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x" });
+    expect(s.words[1].start).toBeCloseTo(2.0);
+    expect(s.words[1].end).toBeGreaterThanOrEqual(s.words[1].start);
+  });
+
+  it("inserting at the front (-1) keeps onsets monotonic", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "insert-word", after: -1, word: "x" });
+    expect(s.words[0].word).toBe("x");
+    expect(s.words[0].start).toBeLessThanOrEqual(s.words[1].start);
+    expect(s.words[0].start).toBeGreaterThanOrEqual(0);
+  });
+
+  it("renumbers word_in_line so lyric links stay strictly increasing", () => {
+    const withLines = map([
+      { ...word("a", 1.0, 1.4), line: 0, word_in_line: 0 },
+      { ...word("b", 2.0, 2.4), line: 0, word_in_line: 1 },
+      { ...word("c", 3.0, 3.4), line: 1, word_in_line: 0 },
+    ]);
+    let s = initEditor(withLines);
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x" });
+    expect(s.words.map((w) => [w.line, w.word_in_line])).toEqual([
+      [0, 0],
+      [0, 1], // inserted
+      [0, 2], // bumped
+      [1, 0], // untouched (other line)
+    ]);
+  });
+});
+
+describe("delete-word", () => {
+  it("removes the word and moves selection to the successor", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "select", index: 1 });
+    s = editorReducer(s, { type: "delete-word", index: 1 });
+    expect(s.words.map((w) => w.word)).toEqual(["a", "c"]);
+    expect(s.selected).toBe(1); // "c" now lives at index 1
+    expect(isDirty(s)).toBe(true);
+  });
+
+  it("undo restores the deleted word", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "delete-word", index: 1 });
+    s = editorReducer(s, { type: "undo" });
+    expect(s.words.map((w) => w.word)).toEqual(["a", "b", "c"]);
+    expect(isDirty(s)).toBe(false);
+  });
+});
+
+describe("nudge-range (group shift)", () => {
+  it("shifts a whole range uniformly without interior pinning", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "nudge-range", first: 1, last: 2, deltaS: 0.5 });
+    expect(s.words[1].start).toBeCloseTo(2.5);
+    expect(s.words[2].start).toBeCloseTo(3.5);
+    expect(s.past).toHaveLength(1); // one undo entry for the group
+  });
+
+  it("clamps at the outer boundaries only", () => {
+    let s = initEditor(threeWords());
+    // shifting [1..2] left is limited by a's onset (1.0): max left = -1.0
+    s = editorReducer(s, { type: "nudge-range", first: 1, last: 2, deltaS: -5 });
+    expect(s.words[1].start).toBeCloseTo(1.0);
+    expect(s.words[2].start).toBeCloseTo(2.0); // interior spacing preserved
+  });
+
+  it("tail shift is bounded by duration at the last onset", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "nudge-range", first: 0, last: 2, deltaS: 999 });
+    // last onset may reach duration; ends clamp to duration
+    expect(s.words[2].start).toBeLessThanOrEqual(30);
+    expect(s.words[2].end).toBeLessThanOrEqual(30);
+    // onsets stay monotonic
+    expect(s.words[0].start).toBeLessThanOrEqual(s.words[1].start);
+    expect(s.words[1].start).toBeLessThanOrEqual(s.words[2].start);
+  });
+});
