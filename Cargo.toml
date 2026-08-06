@@ -42,3 +42,18 @@ cpal = "0.15"
 
 [profile.release]
 opt-level = 3
+
+# Dev builds must keep audio DSP usable: unoptimized rubato made the player's
+# 44.1k -> 48k sinc resample take ~98 s for a 3-minute song (measured via
+# karaoke-core examples/loadprobe on the RTX 2080 box, device at 48 kHz),
+# which blocked player_load — the full-screen player sat with a null status
+# and every control inert. Optimizing external deps only keeps workspace
+# crates fast to rebuild and debuggable.
+[profile.dev.package."*"]
+opt-level = 2
+
+# The stretch engine's C++ (Signalsmith via cc) and its Rust glue run inside
+# the real-time audio callback — keep them optimized in dev too (cc compiles
+# with the profile's opt level).
+[profile.dev.package.karaoke-stretch-sys]
+opt-level = 3
