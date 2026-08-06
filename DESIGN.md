@@ -409,9 +409,10 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Play key:** the amber-lit key rests visible on every ready card (bottom-left, amber icon on dark, amber-dim seam); hover/focus lights the seam and glow; direct hover fills solid amber with ink. The card menu key (top-right) appears on hover/focus only.
 - **Processing cards:** a bottom gradient overlay with an amber processing headline and a live segmented meter.
 
-### Annunciator Strips (banners / confirm)
-- **Style:** wash-filled strips with a family lamp dot: red wash + red-dim seam for errors, cyan wash + cyan-dim seam for notices.
+### Annunciator Strips (banners / confirm / advisory)
+- **Style:** wash-filled strips with a family lamp dot: red wash + red-dim seam for errors, cyan wash + cyan-dim seam for notices, amber wash + amber-dim seam for advisories ("look here first").
 - **Confirm strip:** destructive confirms are an in-world red annunciator with its own keys (danger key + cancel), `role="alertdialog"`, Escape to cancel, initial focus on Cancel — replacing system dialogs.
+- **Advisory strip:** the amber variant carries a nudge plus its membrane keys and may unfold an inline panel (e.g. the song detail's auto-transcribed-lyrics strip unfolds a paste-lyrics well + cleanup preview; submitting re-runs cleanup/align/export against the reused stems). The page's single amber primary key stays elsewhere — advisory keys are membrane-gray.
 
 ### Icons
 - **Grammar:** one grammar for the whole dash — 16×16 grid, 1.75 stroke, square caps, miter joins; angular instrument pictograms, not rounded consumer glyphs. Fill is reserved for the solid transport marks (play/pause), small square dot-clusters (dots, grip, queue lamps, jobs meters), and the brand mark; everything else is stroked. `currentColor` throughout.

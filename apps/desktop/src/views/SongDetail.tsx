@@ -27,13 +27,16 @@ import {
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  cleanLyricsPreview,
   exportSong,
   exportStatus as fetchExportStatus,
+  generateSong,
   librarySong,
   playbackSources,
   readTimingMap,
   saveTimingMap,
   songSetReviewed,
+  type CleanPreview,
   type ExportStatus,
   type PlaybackSources,
   type Song,
@@ -69,6 +72,93 @@ type Mode = "loading" | "preview" | "detail" | "edit";
 type PreviewScope = "highlight" | "full";
 
 type SourceKind = "instrumental" | "original" | "vocals";
+
+/** Amber advisory strip on auto-transcribed songs: paste the real lyrics
+ *  and re-align. The manifest fingerprints the lyrics file, so the re-run
+ *  reuses the stems and only cleanup + align + export execute. */
+function PasteLyricsStrip({ song, onQueued }: { song: Song; onQueued: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [preview, setPreview] = useState<CleanPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const debounceRef = useRef<number>(0);
+
+  // Debounced live cleanup preview (same cadence as the New Song wizard).
+  useEffect(() => {
+    window.clearTimeout(debounceRef.current);
+    if (text.trim() === "") {
+      setPreview(null);
+      return;
+    }
+    debounceRef.current = window.setTimeout(async () => {
+      try {
+        setPreview(await cleanLyricsPreview(text));
+      } catch {
+        setPreview(null);
+      }
+    }, 250);
+    return () => window.clearTimeout(debounceRef.current);
+  }, [text]);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await generateSong({
+        audio_path: song.audio_path,
+        out_dir: song.job_dir,
+        lyrics_text: text,
+        title: song.title,
+        artist: song.artist ?? undefined,
+      });
+      onQueued();
+    } catch (e) {
+      setErr(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="advice-banner" data-testid="paste-lyrics-strip">
+      <div className="advice-msg">
+        Lyrics were auto-transcribed, so some words are guesses. Paste the real
+        lyrics and this song re-aligns against them — the separated vocals are
+        reused, so it takes about a minute.
+      </div>
+      {!open ? (
+        <button onClick={() => setOpen(true)}>Paste lyrics…</button>
+      ) : (
+        <div className="advice-panel">
+          <label className="field">
+            <span>Lyrics</span>
+            <textarea
+              rows={8}
+              autoFocus
+              value={text}
+              placeholder={"[Verse 1]\nNever gonna give…"}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </label>
+          {preview && (
+            <div className="cleanup-line" data-testid="paste-cleanup-summary">
+              {preview.summary} · {preview.words_kept} words
+            </div>
+          )}
+          {err && <div className="error-banner">{err}</div>}
+          <div className="actions">
+            <button disabled={busy || text.trim() === ""} onClick={submit}>
+              {busy ? "Queueing…" : "Re-align with these lyrics"}
+            </button>
+            <button disabled={busy} onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SongDetail(props: {
   mapPath: string;
@@ -235,6 +325,9 @@ export default function SongDetail(props: {
               ` · ${map.unsung_spans.length} unsung span${map.unsung_spans.length === 1 ? "" : "s"}`}
             {song?.reviewed_at != null && " · reviewed"}
           </p>
+          {map.lyric_source === "transcribed" && song && (
+            <PasteLyricsStrip song={song} onQueued={() => go({ view: "jobs" })} />
+          )}
           <div className="actions">
             <button
               className="primary"
