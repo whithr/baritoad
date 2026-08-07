@@ -214,7 +214,7 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
 
           {error && <div className="error-banner">{error}</div>}
 
-          <label className="check-row" title="Runs the fine-tuned separation model with more overlap — several times slower, cleaner instrumental">
+          <label className="check-row" title="Separates with more overlap plus shift-averaging — about 3x slower, cleaner instrumental">
             <input
               type="checkbox"
               checked={hq}

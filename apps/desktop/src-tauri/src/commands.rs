@@ -44,8 +44,8 @@ pub struct GenerateSongRequest {
     /// Redo every stage even if the manifest says up-to-date.
     #[serde(default)]
     pub force: bool,
-    /// High-quality separation: htdemucs_ft (when its files are installed)
-    /// plus higher overlap — several times slower, audibly cleaner stems.
+    /// High-quality separation: higher overlap + shift-averaging (~3x
+    /// slower, cleaner stems). See the preset note in [`generate_song`].
     #[serde(default)]
     pub hq_separation: bool,
 }
@@ -121,21 +121,18 @@ pub async fn generate_song(
     // req.ep stays EpChoice::Auto (module docs: DML separation, CPU alignment).
 
     if request.hq_separation {
-        let model_dir = separation::default_model_dir();
-        if separation::ModelKind::HtdemucsFt.available(&model_dir) {
-            // ft bag (4 sweeps/segment) + tighter overlap: ~6x standard cost.
-            req.sep_model = separation::ModelKind::HtdemucsFt;
-            req.sep_options = separation::SeparateOptions {
-                overlap: 0.5,
-                shifts: 0,
-            };
-        } else {
-            // ft files not installed: best available without them (~3x).
-            req.sep_options = separation::SeparateOptions {
-                overlap: 0.5,
-                shifts: 2,
-            };
-        }
+        // Base model, tighter overlap, 2 pinned shifts: ~3x standard cost on
+        // a single DML session. Deliberately NOT the htdemucs_ft bag: four
+        // resident DML sessions exhausted VRAM and hung the GPU driver
+        // (DXGI_ERROR_DEVICE_HUNG -> TDR reset, RTX 2080 Super 8 GB,
+        // 2026-08-06) right after the bag passed golden parity — the parity
+        // gate can't catch it because arenas only peak once all four
+        // sub-models have run. ft stays CLI-only (`--model htdemucs-ft`,
+        // fine on CPU) until multi-session DML memory is solved.
+        req.sep_options = separation::SeparateOptions {
+            overlap: 0.5,
+            shifts: 2,
+        };
     }
 
     Ok(queue.enqueue(&app, req, title, artist, out_dir))

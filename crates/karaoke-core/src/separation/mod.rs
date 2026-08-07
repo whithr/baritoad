@@ -44,6 +44,13 @@ pub enum ModelKind {
     Htdemucs,
     /// htdemucs_ft: four fine-tuned ONNX files (one per source), four sweeps
     /// per segment — the "high quality" model.
+    ///
+    /// DirectML caveat (measured 2026-08-06, RTX 2080 Super 8 GB): four
+    /// resident DML sessions exhaust VRAM once every arena has grown —
+    /// golden parity passes (arenas peak one at a time) and then the first
+    /// real segment hangs the device (DXGI_ERROR_DEVICE_HUNG → TDR driver
+    /// reset). Until sessions share memory or run staged, use this kind on
+    /// CPU only; nothing in the app auto-selects it.
     HtdemucsFt,
 }
 
