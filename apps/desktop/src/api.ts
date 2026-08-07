@@ -272,6 +272,20 @@ export interface ExportStatus {
 export const exportStatus = (mapPath: string) =>
   invoke<ExportStatus>("export_status", { mapPath });
 
+export interface VocalLevels {
+  version: number;
+  bins_per_second: number;
+  source_len: number;
+  source_mtime_unix: number;
+  /** Peak per bin, normalized to the stem's own loudest bin, 0–255. */
+  peaks: number[];
+}
+
+/** Peak envelope of the vocal stem (computed once, cached in a sidecar
+ *  beside it) — the fix editor's level display. */
+export const vocalLevels = (vocalsPath: string) =>
+  invoke<VocalLevels>("vocal_levels", { vocalsPath });
+
 // ---------------------------------------------------------------------------
 // performance player (src-tauri/src/player.rs — the cpal engine's UI surface;
 // the review player above stays webview <audio> and is untouched)

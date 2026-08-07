@@ -86,7 +86,7 @@ function JobCard({ p, go }: { p: JobProgress; go: (r: Route) => void }) {
           <StagePill
             label={DISPLAY_LABELS.aligning}
             state={running && p.stage === "aligning" ? "active" : "pending"}
-            fraction={null}
+            fraction={p.stage === "aligning" ? p.fraction : null}
           />
         </div>
       )}

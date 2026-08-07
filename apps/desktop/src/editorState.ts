@@ -79,6 +79,7 @@ export type EditorAction =
   | { type: "insert-word"; after: number; word: string }
   | { type: "delete-word"; index: number }
   | { type: "nudge-range"; first: number; last: number; deltaS: number }
+  | { type: "replace-words"; words: WordTiming[] }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "mark-saved" };
@@ -115,6 +116,45 @@ export function clampWord(
   if (!isFinite(s)) s = words[i].start;
   if (!isFinite(e)) e = Math.max(words[i].end, s);
   return { start: s, end: e };
+}
+
+/**
+ * Splice re-aligned timings over words [first..last], respecting neighbors:
+ * onsets stay monotonic against the words outside the run and within it
+ * (running clamp). Pure — the reducer's apply-realign wraps it with undo,
+ * and the lyrics-pass commit uses it directly to fold several windows into
+ * one replace-words entry. Returns null for a malformed request.
+ */
+export function spliceRealignedRun(
+  allWords: WordTiming[],
+  duration: number,
+  first: number,
+  last: number,
+  timings: RealignedWord[],
+): WordTiming[] | null {
+  if (first < 0 || last >= allWords.length || last - first + 1 !== timings.length || timings.length === 0) {
+    return null;
+  }
+  const words = allWords.slice();
+  let prevOnset = first > 0 ? words[first - 1].start : 0;
+  const nextOnset = last < words.length - 1 ? words[last + 1].start : duration;
+  for (let k = 0; k < timings.length; k++) {
+    const t = timings[k];
+    const start = Math.min(Math.max(t.start, prevOnset, 0), nextOnset, duration);
+    const end = Math.min(Math.max(t.end, start), duration);
+    words[first + k] = {
+      ...words[first + k],
+      start,
+      end,
+      confidence: t.confidence,
+      // this pass has no whisper evidence; and the user asserted the
+      // run is sung here, so the unsung flag clears
+      anchored: false,
+      unsung: false,
+    };
+    prevOnset = start;
+  }
+  return words;
 }
 
 function withEdit(state: EditorState, words: WordTiming[]): EditorState {
@@ -168,37 +208,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case "apply-realign": {
-      const { first, last, timings } = action;
-      if (
-        first < 0 ||
-        last >= state.words.length ||
-        last - first + 1 !== timings.length ||
-        timings.length === 0
-      ) {
-        return state;
-      }
-      const words = state.words.slice();
-      // Splice respecting neighbors: onsets stay monotonic against the words
-      // outside the selection and within it (running clamp).
-      let prevOnset = first > 0 ? words[first - 1].start : 0;
-      const nextOnset = last < words.length - 1 ? words[last + 1].start : state.duration;
-      for (let k = 0; k < timings.length; k++) {
-        const t = timings[k];
-        const start = Math.min(Math.max(t.start, prevOnset, 0), nextOnset, state.duration);
-        const end = Math.min(Math.max(t.end, start), state.duration);
-        words[first + k] = {
-          ...words[first + k],
-          start,
-          end,
-          confidence: t.confidence,
-          // this pass has no whisper evidence; and the user asserted the
-          // selection is sung here, so the unsung flag clears
-          anchored: false,
-          unsung: false,
-        };
-        prevOnset = start;
-      }
-      return withEdit(state, words);
+      const words = spliceRealignedRun(
+        state.words,
+        state.duration,
+        action.first,
+        action.last,
+        action.timings,
+      );
+      return words ? withEdit(state, words) : state;
     }
 
     case "set-text": {
@@ -363,6 +380,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         words[i] = { ...w, start, end };
       }
       return withEdit(state, words);
+    }
+
+    case "replace-words": {
+      // Whole-document commit (the LYRICS stage's "Sync to music"): the
+      // caller computed the retimed + re-aligned array with the pure
+      // docEdit/spliceRealignedRun helpers; here it lands as ONE undo entry.
+      if (action.words.length === 0 || action.words === state.words) return state;
+      return { ...withEdit(state, action.words), selected: null };
     }
 
     case "undo": {

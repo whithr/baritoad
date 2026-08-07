@@ -143,10 +143,27 @@ impl JobQueue {
                 },
             );
             inner.order.push(id);
-            inner.pending.push_back(id);
+        }
+        // Emit Queued BEFORE the job becomes takeable: the worker emits
+        // Running from its own thread, and on an idle queue it used to win
+        // the race — the webview saw Running then Queued and the UI sat on
+        // "standby" for the whole run. (The frontend reducer is also
+        // monotonic now; this keeps the channel well-ordered at the source.)
+        emit_lifecycle(app, &snapshot);
+        {
+            let mut inner = self.inner.lock().unwrap();
+            // A cancel may have landed in the emit window — a cancelled job
+            // must not become runnable.
+            let still_queued = inner
+                .jobs
+                .get(&id)
+                .map(|e| e.snapshot.status == JobStatus::Queued && e.request.is_some())
+                .unwrap_or(false);
+            if still_queued {
+                inner.pending.push_back(id);
+            }
         }
         self.cv.notify_one();
-        emit_lifecycle(app, &snapshot);
         snapshot
     }
 
@@ -156,13 +173,13 @@ impl JobQueue {
     pub fn cancel(&self, app: &AppHandle, id: u64) -> Option<JobSnapshot> {
         let snapshot = {
             let mut inner = self.inner.lock().unwrap();
-            let was_pending = inner.pending.iter().any(|&p| p == id);
-            if was_pending {
-                inner.pending.retain(|&p| p != id);
-            }
+            inner.pending.retain(|&p| p != id);
             let entry = inner.jobs.get_mut(&id)?;
             match entry.snapshot.status {
-                JobStatus::Queued if was_pending => {
+                // A queued job cancels whether or not it reached `pending`
+                // yet (enqueue publishes Queued before making it takeable —
+                // this closes that window).
+                JobStatus::Queued => {
                     entry.snapshot.status = JobStatus::Cancelled;
                     entry.request = None;
                 }

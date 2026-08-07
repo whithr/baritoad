@@ -107,12 +107,34 @@ function applyPipeline(p: JobProgress, e: PipelineEvent): JobProgress {
   }
 }
 
+/** Lifecycle rank: queued < running < terminal. */
+const STATUS_RANK: Record<JobSnapshot["status"], number> = {
+  queued: 0,
+  running: 1,
+  completed: 2,
+  failed: 2,
+  cancelled: 2,
+};
+
+/**
+ * Merge a lifecycle snapshot over the current one, monotonically: the
+ * queue's "queued" and "running" events are emitted from different threads
+ * and can reach the webview out of order — a stale lower-rank status must
+ * never demote a job the UI already saw further along (the visible symptom
+ * was a running job stuck on STBY until it completed).
+ */
+function mergeLifecycle(cur: JobSnapshot, next: JobSnapshot): JobSnapshot {
+  return STATUS_RANK[next.status] < STATUS_RANK[cur.status]
+    ? { ...next, status: cur.status }
+    : next;
+}
+
 export function reduceJobEvent(state: JobsState, e: JobEvent): JobsState {
   if (e.kind === "lifecycle") {
     const id = e.job.id;
     const existing = state.jobs[id];
     const progress: JobProgress = existing
-      ? { ...existing, job: e.job }
+      ? { ...existing, job: mergeLifecycle(existing.job, e.job) }
       : freshProgress(e.job);
     return {
       order: existing ? state.order : [...state.order, id],

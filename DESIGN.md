@@ -219,7 +219,7 @@ family. (Ratios below are standard WCAG 2.1 relative luminance.)
 ### Secondary
 - **Live Amber** (#f2a33c, 9.3:1 on ground as text): whatever is live *right
   now* — the primary action key, the active nav lamp, the running stage,
-  the active lyric word's wipe, playhead fills, the player clock. As a fill
+  playhead fills, the player clock. As a fill
   it takes dark ink (#131007), never light text. `amber-bright` (#ffc36b) is
   the hover step; `amber-dim`/`amber-wash`/`amber-glow` follow the family
   pattern.
@@ -425,7 +425,22 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Character:** the enthusiast's bench — one recessed track well per lyric
   line, each word a chip whose position and width are its true original-song
   timing. Timing truth is never distorted: a 60 ms word stays a narrow chip.
-  Unreviewed songs open straight here (golden path step 4). Each row's time
+  Unreviewed songs open straight here (golden path step 4).
+- **Two stages (LYRICS | TIMING):** a scope-toggle in the console splits the
+  bench into a text pass and a timing pass. LYRICS is a free-typing well —
+  the whole lyric, one line per row, so Enter *is* "break here" and removing
+  a newline *is* "join up" — with a time gutter (each row's start via live
+  LCS against the words; the row being sung voices amber, click to seek) and
+  "Sync to music" as the stage's one amber key: cleanup → LCS diff (matched
+  words keep their exact timings and flags, so hand fixes survive a typo
+  pass) → changed runs re-align in windowed CTC passes (docEdit.ts, ≤100 s
+  windows that never swallow a matched neighbor) → ONE undo entry → hop to
+  TIMING. A mostly-rewritten document degrades into a near-full re-sync
+  automatically; without the vocal stem, changed words keep span-divided
+  estimates and the console says so. Unreviewed auto-transcribed songs land
+  on LYRICS (their text is the suspect part); pasted songs and every
+  explicit editor hop land on TIMING. The draft survives stage hops; dirty
+  drafts guard exit via ConfirmStrip and disable Preview. Each row's time
   window is the line's extent padded 0.6 s and snapped outward to a
   whole-second grid (`lineWindow`), so dragging or nudging a line's edge
   words never re-maps the row under the pointer. Exactly one row shows the
@@ -435,6 +450,19 @@ timebars are rectangles with segment gaps cut by repeating gradients.
   glow; unsung = amber wash; low-confidence = dashed seam; ad-lib = italic
   label. Drag moves the word, the right-edge handle (≤7px, shrinking with
   the chip so a draggable body always remains) stretches its end.
+- **VU floor (vocal levels):** every 48px track well carries the vocal
+  stem's peak envelope as bottom-anchored segmented level bars (2px bars on
+  a 4px pitch, cut every 3px — the meters' segment grammar) painted behind
+  the chips; chips sit 12px above the well floor so the bars' base band is
+  never occluded, even in packed lines. Word-covered singing is reference
+  chrome — cyan-dim at ghost weight; sustained singing no word covers
+  voices amber-dim, the editor's "look here first" (thresholds live in
+  levels.ts: ≥20% of the stem's peak for ≥150 ms, classified at 10 ms bin
+  resolution so coarse zooms can't inflate a breath into an advisory). The
+  global seek bar carries the same envelope. Canvas, redrawn only on
+  envelope/window/word change — never per frame; served by the
+  `vocal_levels` command from a sidecar cache beside the stem, and the
+  editor renders bare wells (the pre-levels look) when the stem is gone.
 - **Overflow labels (DAW-style):** a chip never truncates its word — the
   label paints past the chip's right edge over the track, carrying a black
   legibility halo (`text-shadow` 0 1px 3px rgba(0,0,0,0.9) + 0 0 6px
@@ -481,12 +509,20 @@ timebars are rectangles with segment gaps cut by repeating gradients.
   the glass. Big current line with prev/next context lines, couch-readable
   type. Reached from the Timeline Editor's "Preview" key or the detail
   page; fixes made while listening stay first-class.
-- **Word states:** sung = cyan; active = the amber wipe (same fill-edge
-  mechanic as the player); selected = cyan seam ring (information voice);
+- **Word states:** sung = cyan; active = the cyan wipe (same fill-edge
+  mechanic as the player — the fill is the word's final sung color, so the
+  sweep lands seamlessly; owner call 2026-08-06); selected = cyan seam ring
+  (information voice);
   low-confidence timing = dashed amber-dim underline ("look here first");
   unsung stays 0.55 italic. Click = select + seek to onset; double-click /
   Enter = inline retype (a well-styled input swapped in place, Tab commits
   and hops to the next word).
+- **Cue selector (BALL | FILL | BOTH):** how the active word is cued is a
+  sticky preference (`karascape.previewCue`) in the console. FILL = the
+  wipe alone, painting the word its final sung cyan across the note's
+  length; BALL = the cue puck alone, with the active word popping solid
+  amber (luminance + puck position still carry state — never hue alone);
+  BOTH (default) = the combined read.
 - **Cue puck:** an 8px amber square (1px radius — never a circle) riding
   above the lyric lines: rests on the word being sung, arcs (sine hop,
   0.18–0.6 s flight) to land exactly on the next onset — the "bouncing
@@ -516,7 +552,7 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 
 ### Full-Screen Player (signature)
 - **Character:** the night-mode cockpit — a fixed overlay on the well, with the song cover blurred to a dim backdrop (blur 48px, brightness 0.22) under a radial scrim.
-- **Lyrics:** centered lines in a masked viewport; current line grows to display size (clamp 34–62px); sung words glow cyan (`0 0 22px cyan-glow`), the active word carries an amber **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat — and unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone.
+- **Lyrics:** centered lines in a masked viewport; current line grows to display size (clamp 34–62px); sung words glow cyan (`0 0 22px cyan-glow`), the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat, painting the word its final sung cyan so the sweep lands seamlessly — and unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone.
 - **Console:** a bottom gradient console with the segmented amber timebar, transport key, amber DSEG-voiced clock (with glow), the vocal-guide fader, and key/tempo stepper readouts (cyan value in a bezel). Chrome auto-hides (opacity fade + `cursor: none`); everything is keyboard-operable.
 - **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe` CSS var on the active word, (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks.
 

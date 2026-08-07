@@ -250,6 +250,108 @@ pub async fn realign_selection(
 }
 
 // ---------------------------------------------------------------------------
+// vocal level envelope (the fix editor's per-line level display)
+// ---------------------------------------------------------------------------
+
+pub const LEVELS_SIDECAR_VERSION: u32 = 1;
+/// 10 ms bins — matches the editor's fine nudge step, and comfortably finer
+/// than any row's rendered bar pitch.
+pub const LEVELS_BINS_PER_SECOND: u32 = 100;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VocalLevels {
+    pub version: u32,
+    pub bins_per_second: u32,
+    /// Identity of the stem file the envelope was computed from — a
+    /// re-separated stem stops matching and forces a recompute.
+    pub source_len: u64,
+    pub source_mtime_unix: u64,
+    /// Peak |sample| per bin, normalized to the stem's own loudest bin,
+    /// quantized to 0–255 (display data — u8 keeps the sidecar small).
+    pub peaks: Vec<u8>,
+}
+
+/// `<dir>/vocals.levels.json` for `<dir>/vocals.wav`.
+fn levels_sidecar_path(vocals: &Path) -> PathBuf {
+    let stem = vocals
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "vocals".into());
+    vocals
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(format!("{stem}.levels.json"))
+}
+
+fn peak_envelope(samples: &[f32], samples_per_bin: usize) -> Vec<u8> {
+    let mut peaks: Vec<f32> = samples
+        .chunks(samples_per_bin.max(1))
+        .map(|c| c.iter().fold(0.0f32, |m, s| m.max(s.abs())))
+        .collect();
+    let max = peaks.iter().fold(0.0f32, |m, p| m.max(*p));
+    if max > 0.0 {
+        for p in &mut peaks {
+            *p /= max;
+        }
+    }
+    peaks.into_iter().map(|p| (p * 255.0).round() as u8).collect()
+}
+
+/// Peak envelope of the vocal stem for the fix editor's level display.
+/// Computed once (decode is on the order of a second) and cached in a sidecar
+/// beside the stem; reopening the editor is a file read. The caller got
+/// `vocals_path` from `playback_sources` / the library row — same trust model
+/// as [`realign_selection`], and this grants nothing to the asset scope.
+#[tauri::command]
+pub async fn vocal_levels(vocals_path: String) -> Result<VocalLevels, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(&vocals_path);
+        let meta = std::fs::metadata(&path).map_err(|e| format!("vocal stem: {e}"))?;
+        let source_len = meta.len();
+        let source_mtime_unix = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let sidecar = levels_sidecar_path(&path);
+        if let Some(cached) = std::fs::read_to_string(&sidecar)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<VocalLevels>(&raw).ok())
+        {
+            if cached.version == LEVELS_SIDECAR_VERSION
+                && cached.bins_per_second == LEVELS_BINS_PER_SECOND
+                && cached.source_len == source_len
+                && cached.source_mtime_unix == source_mtime_unix
+            {
+                return Ok(cached);
+            }
+        }
+
+        let decoded = audio::decode_to_mono_16k(&path)
+            .map_err(|e| format!("decode vocal stem: {e}"))?;
+        let per_bin = (SAMPLE_RATE as usize / LEVELS_BINS_PER_SECOND as usize).max(1);
+        let levels = VocalLevels {
+            version: LEVELS_SIDECAR_VERSION,
+            bins_per_second: LEVELS_BINS_PER_SECOND,
+            source_len,
+            source_mtime_unix,
+            peaks: peak_envelope(&decoded.samples, per_bin),
+        };
+
+        // Best-effort cache: a failed write only costs a recompute next open.
+        if let Ok(json) = serde_json::to_string(&levels) {
+            let _ = manifest::write_atomic(&sidecar, json.as_bytes());
+        }
+        Ok(levels)
+    })
+    .await
+    .map_err(|e| format!("level computation failed: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
 // save (fix editor → disk, atomically, with .bak)
 // ---------------------------------------------------------------------------
 
@@ -387,6 +489,26 @@ pub struct ExportStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn levels_sidecar_sits_beside_the_stem() {
+        let p = levels_sidecar_path(Path::new(r"C:\music\song-karaoke\vocals.wav"));
+        assert_eq!(p, PathBuf::from(r"C:\music\song-karaoke\vocals.levels.json"));
+    }
+
+    #[test]
+    fn peak_envelope_normalizes_to_the_loudest_bin() {
+        // Three 4-sample bins peaking at 0.5 / 0.25 / 0.0.
+        let samples = [0.1, -0.5, 0.2, 0.0, 0.25, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let peaks = peak_envelope(&samples, 4);
+        assert_eq!(peaks, vec![255, 128, 0]);
+    }
+
+    #[test]
+    fn peak_envelope_of_silence_stays_zero() {
+        // No division by zero, no NaN quantization.
+        assert_eq!(peak_envelope(&[0.0; 8], 4), vec![0, 0]);
+    }
 
     #[test]
     fn sidecar_sits_beside_the_map_with_the_song_stem() {

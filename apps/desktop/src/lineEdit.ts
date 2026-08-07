@@ -15,17 +15,27 @@ export function tokenizeLyric(text: string): string[] {
 /** Case/punctuation-insensitive comparison key for diffing sung words. */
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
 
+/** [`retimeTokens`]' result: the retimed words (no line links assigned) plus
+ *  which of them kept an old word's timing (LCS match) — the unmatched rest
+ *  carry estimated timings a caller may re-align against the audio. */
+export interface RetimedTokens {
+  words: WordTiming[];
+  matched: boolean[];
+}
+
 /**
- * Retime a line whose text was replaced: words that survive the edit
+ * Retime a word run whose text was replaced: words that survive the edit
  * (matched by longest-common-subsequence on normalized text) keep their
  * timing and flags; each replaced run of new words divides its old run's
  * time span evenly. "Paper boats drift slow" → "sailing on" spreads two words
  * across the four words' span; a matched tail like "to meet the" keeps
- * its alignment untouched.
+ * its alignment untouched. Works on any contiguous run — one line
+ * ([`retimeLine`]) or the whole document (docEdit.ts); line links are the
+ * caller's job.
  */
-export function retimeLine(oldWords: WordTiming[], tokens: string[]): WordTiming[] {
-  if (tokens.length === 0) return [];
-  if (oldWords.length === 0) return [];
+export function retimeTokens(oldWords: WordTiming[], tokens: string[]): RetimedTokens | null {
+  if (tokens.length === 0) return null;
+  if (oldWords.length === 0) return null;
 
   // LCS over normalized tokens.
   const n = oldWords.length;
@@ -106,22 +116,31 @@ export function retimeLine(oldWords: WordTiming[], tokens: string[]): WordTiming
     }
   }
 
-  // Line identity + monotonic onsets (evenly divided runs are already
-  // ordered; this guards zero-width spans).
-  const lineId = oldWords[0].line;
+  // Monotonic onsets (evenly divided runs are already ordered; this guards
+  // zero-width spans). Line links stay whatever the matched words carried —
+  // the caller renumbers.
   let prevOnset = -Infinity;
   for (let k = 0; k < m; k++) {
     const start = Math.max(out[k].start, prevOnset);
-    out[k] = {
-      ...out[k],
-      start,
-      end: Math.max(out[k].end, start),
-      line: lineId,
-      word_in_line: lineId != null ? k : undefined,
-    };
+    out[k] = { ...out[k], start, end: Math.max(out[k].end, start) };
     prevOnset = start;
   }
-  return out;
+  const matchedFlags = new Array<boolean>(m).fill(false);
+  for (const mt of matches) matchedFlags[mt.t] = true;
+  return { words: out, matched: matchedFlags };
+}
+
+/** [`retimeTokens`] for a single line: the whole result joins the old
+ *  line's id, renumbered 0..n. */
+export function retimeLine(oldWords: WordTiming[], tokens: string[]): WordTiming[] {
+  const r = retimeTokens(oldWords, tokens);
+  if (!r) return [];
+  const lineId = oldWords[0].line;
+  return r.words.map((w, k) => ({
+    ...w,
+    line: lineId,
+    word_in_line: lineId != null ? k : undefined,
+  }));
 }
 
 // ---------------------------------------------------------------------------

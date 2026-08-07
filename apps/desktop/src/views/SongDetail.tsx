@@ -172,6 +172,10 @@ export default function SongDetail(props: {
   const [sources, setSources] = useState<PlaybackSources | null>(null);
   const [status, setStatus] = useState<ExportStatus | null>(null);
   const [mode, setMode] = useState<Mode>("loading");
+  /** Which stage the editor opens on: unreviewed auto-transcribed songs land
+   *  on the lyrics pass (their text is the suspect part); every explicit
+   *  "Timeline editor" hop lands on timing. */
+  const [editStage, setEditStage] = useState<"lyrics" | "timing">("timing");
   const [previewScope, setPreviewScope] = useState<PreviewScope>("highlight");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -203,7 +207,12 @@ export default function SongDetail(props: {
         }
         if (disposed) return;
         setSong(s);
-        // Golden path: unreviewed songs open straight into the editor.
+        // Golden path: unreviewed songs open straight into the editor —
+        // transcribed ones on the lyrics pass, since the words themselves
+        // are what auto-transcription gets wrong.
+        if (s && s.reviewed_at == null && m.lyric_source === "transcribed") {
+          setEditStage("lyrics");
+        }
         setMode(s && s.reviewed_at == null ? "edit" : "detail");
         try {
           const src = await playbackSources(
@@ -274,6 +283,7 @@ export default function SongDetail(props: {
         sources={sources}
         status={status}
         refreshStatus={refreshStatus}
+        initialStage={editStage}
         onSaved={(m) => {
           setMap(m);
           if (song) setSong({ ...song, reviewed_at: Math.floor(Date.now() / 1000) });
@@ -303,7 +313,10 @@ export default function SongDetail(props: {
         initialScope={previewScope}
         onLooksGood={markReviewed}
         onSaved={(m) => setMap(m)}
-        onPrecision={() => setMode("edit")}
+        onPrecision={() => {
+          setEditStage("timing");
+          setMode("edit");
+        }}
         onSkip={() => setMode("detail")}
       />
     );
@@ -344,7 +357,13 @@ export default function SongDetail(props: {
             >
               Preview again
             </button>
-            <button onClick={() => setMode("edit")} title="Timeline editor — timings, words, and lines">
+            <button
+              onClick={() => {
+                setEditStage("timing");
+                setMode("edit");
+              }}
+              title="The editor — timings, words, and lines"
+            >
               Fix words &amp; timings
             </button>
             {EXPORT_FORMATS.map((f) => (
@@ -390,6 +409,10 @@ export default function SongDetail(props: {
 
 type EditFlow = "loop" | "pause" | "roll";
 const EDIT_FLOW_KEY = "karascape.editFlow";
+/** How the bench cues the active word: the arcing puck ("ball"), the amber
+ *  wipe filling the word across its duration ("fill"), or both at once. */
+type CueMode = "ball" | "fill" | "both";
+const CUE_MODE_KEY = "karascape.previewCue";
 type LineGroup = ReturnType<typeof groupByLine>[number];
 
 const fmtOffset = (s: number) => `${s < 0 ? "-" : "+"}${Math.abs(s).toFixed(2)}`;
@@ -434,6 +457,18 @@ function Preview(props: {
     const v = localStorage.getItem(EDIT_FLOW_KEY);
     return v === "loop" || v === "roll" ? v : "pause";
   });
+  const [cueMode, setCueMode] = useState<CueMode>(() => {
+    const v = localStorage.getItem(CUE_MODE_KEY);
+    return v === "ball" || v === "fill" ? v : "both";
+  });
+  const pickCueMode = (m: CueMode) => {
+    setCueMode(m);
+    try {
+      localStorage.setItem(CUE_MODE_KEY, m);
+    } catch {
+      // storage unavailable — the toggle still works for this session
+    }
+  };
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [benchError, setBenchError] = useState<string | null>(null);
   // Baseline onset of the selected word — the shift readout shows the net
@@ -711,6 +746,10 @@ function Preview(props: {
     const puck = puckRef.current;
     const cont = linesRef.current;
     if (!puck || !cont) return;
+    if (cueMode === "fill") {
+      puck.style.opacity = "0";
+      return;
+    }
     const frame = puckFrameAt(words, audio.time);
     const contRect = cont.getBoundingClientRect();
     const centerOf = (i: number) => {
@@ -789,14 +828,17 @@ function Preview(props: {
         : kind === "current" &&
           (active != null ? wi < active : sungThrough != null && wi <= sungThrough);
     const isActive = kind === "current" && active === wi;
+    // "ball" cue mode drops the wipe: the active word pops solid amber and
+    // the puck alone carries the duration read.
+    const wipe = isActive && cueMode !== "ball";
     const weak = !w.unsung && (!w.anchored || w.confidence < 0.5);
     return (
       <span
         key={wi}
         ref={setWordRef(wi)}
-        className={`k-word${isActive ? " active wipe" : ""}${sung ? " sung" : ""}${w.unsung ? " unsung" : ""}${ed.selected === wi ? " selected" : ""}${weak ? " weak" : ""}`}
+        className={`k-word${isActive ? " active" : ""}${wipe ? " wipe" : ""}${sung ? " sung" : ""}${w.unsung ? " unsung" : ""}${ed.selected === wi ? " selected" : ""}${weak ? " weak" : ""}`}
         style={
-          isActive
+          wipe
             ? ({ "--wipe": `${(wipeFraction(w, audio.time) * 100).toFixed(1)}%` } as CSSProperties)
             : undefined
         }
@@ -1048,6 +1090,32 @@ function Preview(props: {
             </button>
           </div>
           <span className="spacer" />
+          <div className="bench-module" role="group" aria-label="How the active word is cued">
+            <span className="label">Cue</span>
+            <div className="scope-toggle">
+              <button
+                className={cueMode === "ball" ? "active" : ""}
+                onClick={() => pickCueMode("ball")}
+                title="The bouncing ball alone — the puck arcs onto each word"
+              >
+                Ball
+              </button>
+              <button
+                className={cueMode === "fill" ? "active" : ""}
+                onClick={() => pickCueMode("fill")}
+                title="The word fills to its sung color across the note's length"
+              >
+                Fill
+              </button>
+              <button
+                className={cueMode === "both" ? "active" : ""}
+                onClick={() => pickCueMode("both")}
+                title="Ball and fill together"
+              >
+                Both
+              </button>
+            </div>
+          </div>
           <div className="bench-module" role="group" aria-label="While editing, playback should">
             <span className="label">On edit</span>
             <div className="scope-toggle">

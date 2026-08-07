@@ -35,14 +35,25 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  cleanLyricsPreview,
   exportSong,
   realignSelection,
   saveTimingMap,
   songSetReviewed,
+  vocalLevels,
   type ExportStatus,
   type PlaybackSources,
   type TimingMap,
+  type VocalLevels,
 } from "../api";
+import { levelBars, type Interval } from "../levels";
+import {
+  docLineTimes,
+  docTextFromWords,
+  parseLyricDoc,
+  planRealignWindows,
+  retimeDocument,
+} from "../docEdit";
 import {
   clampWord,
   editorReducer,
@@ -53,6 +64,7 @@ import {
   mapFromEditor,
   NUDGE_COARSE_S,
   NUDGE_S,
+  spliceRealignedRun,
 } from "../editorState";
 import { groupByLine } from "../highlight";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
@@ -63,12 +75,82 @@ import { ConfirmStrip, DashSelect, SegText } from "../ui";
 /** Pointer travel below this is a click, not a drag. */
 const DRAG_THRESHOLD_PX = 4;
 /** Vertical pointer travel that turns a chip drag into a rewrap onto the
- *  row above/below (row pitch is 46px — 40px track + 6px gap). */
-const REWRAP_THRESHOLD_PX = 28;
+ *  row above/below (row pitch is 54px — 48px track + 6px gap). */
+const REWRAP_THRESHOLD_PX = 32;
 /** Audio padding around a re-align selection window. */
 const REALIGN_PAD_S = 1.0;
 
 type SourceKind = "vocals" | "instrumental" | "original";
+
+/** LYRICS = free-typing text pass (get the words and breaks right);
+ *  TIMING = the chip tracks (get the when right). */
+export type EditorStage = "lyrics" | "timing";
+
+/** The VU floor: the vocal stem's peak envelope drawn as segmented level
+ *  bars rising from the well floor *behind* the chips — reference chrome for
+ *  lining a chip edge up on an energy onset. Covered singing is the unlit
+ *  cyan-dim ghost; sustained singing with no word over it voices amber
+ *  ("look here first" — levels.ts owns the threshold). Canvas, redrawn only
+ *  when the envelope / window / word coverage changes — never per frame, so
+ *  playback costs nothing. */
+function LevelStrip(props: {
+  levels: VocalLevels;
+  winStart: number;
+  winEnd: number;
+  words: Interval[];
+}) {
+  const { levels, winStart, winEnd, words } = props;
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const draw = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.round(rect.width * dpr);
+      const h = Math.round(rect.height * dpr);
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+      const styles = getComputedStyle(document.documentElement);
+      const ghost = styles.getPropertyValue("--cyan-dim").trim() || "#1d5f5c";
+      const amber = styles.getPropertyValue("--amber-dim").trim() || "#7a5220";
+      // Segment grammar: 2px bars on a 4px pitch, cut every 3px vertically —
+      // the same VU-segment read as the app's meters and the brand mark.
+      const pitch = 4 * dpr;
+      const barW = 2 * dpr;
+      const pad = 2 * dpr;
+      const bars = levelBars(
+        levels.peaks,
+        levels.bins_per_second,
+        winStart,
+        winEnd,
+        Math.floor(w / pitch),
+        words,
+      );
+      const maxH = h - pad * 2;
+      for (let i = 0; i < bars.length; i++) {
+        const bh = Math.round(bars[i].v * maxH);
+        if (bh < 1) continue;
+        ctx.globalAlpha = bars[i].amber ? 1 : 0.85;
+        ctx.fillStyle = bars[i].amber ? amber : ghost;
+        ctx.fillRect(i * pitch + dpr, h - pad - bh, barW, bh);
+      }
+      ctx.globalAlpha = 1;
+      for (let y = h - pad - 3 * dpr; y > pad; y -= 3 * dpr) {
+        ctx.clearRect(0, Math.round(y), w, Math.max(1, Math.round(dpr)));
+      }
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [levels, winStart, winEnd, words]);
+  return <canvas ref={ref} className="level-strip" aria-hidden="true" />;
+}
 
 interface DragState {
   index: number;
@@ -99,6 +181,9 @@ export default function FixEditor(props: {
   onSaved?: (m: TimingMap) => void;
   /** Hop to the karaoke-style review bench (the editor saves first). */
   onPreview?: () => void;
+  /** Which stage opens first: "lyrics" for auto-transcribed songs whose
+   *  text is the suspect part; default "timing". */
+  initialStage?: EditorStage;
 }) {
   const { map, mapPath, sources } = props;
   const [state, dispatch] = useReducer(editorReducer, map, initEditor);
@@ -107,6 +192,11 @@ export default function FixEditor(props: {
   const [loopLine, setLoopLine] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // ---- stage (LYRICS text pass / TIMING chip tracks) ----
+  const [stage, setStage] = useState<EditorStage>(props.initialStage ?? "timing");
+  /** The lyrics well's text; null = regenerate from the words on entry. */
+  const [lyricDraft, setLyricDraft] = useState<string | null>(null);
   const [srcKind, setSrcKind] = useState<SourceKind>(() =>
     sources?.vocals ? "vocals" : sources?.instrumental ? "instrumental" : "original",
   );
@@ -131,6 +221,147 @@ export default function FixEditor(props: {
 
   const words = state.words;
   const lines = useMemo(() => groupByLine(words), [words]);
+
+  // ---- vocal level envelope (the VU floor) ----
+  // Always the vocal stem, whatever srcKind plays — words align to singing.
+  const [levels, setLevels] = useState<VocalLevels | null>(null);
+  useEffect(() => {
+    let stale = false;
+    setLevels(null);
+    if (sources?.vocals) {
+      // The editor works fine without the level display — a missing or
+      // undecodable stem just leaves the wells bare, like before it existed.
+      vocalLevels(sources.vocals)
+        .then((lv) => {
+          if (!stale) setLevels(lv);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      stale = true;
+    };
+  }, [sources?.vocals]);
+  // Word coverage for the amber "singing with no word" tint. Keyed on the
+  // words array identity so selection changes don't redraw every strip.
+  const wordSpans: Interval[] = useMemo(
+    () => words.map((w) => ({ start: w.start, end: w.end })),
+    [words],
+  );
+
+  // ---- lyrics pass (the LYRICS stage) ----
+  // Entering the stage reads the current words into the well; the draft then
+  // lives until synced or reverted, surviving stage hops (typing wins — the
+  // commit LCS-merges against whatever the words are by then).
+  useEffect(() => {
+    if (stage === "lyrics" && lyricDraft == null) {
+      setLyricDraft(docTextFromWords(words));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, lyricDraft]);
+  const draftDirty = useMemo(() => {
+    if (lyricDraft == null) return false;
+    const canon = parseLyricDoc(lyricDraft)
+      .map((l) => l.join(" "))
+      .join("\n");
+    return canon !== docTextFromWords(words);
+  }, [lyricDraft, words]);
+  // Gutter: each text row's start time via debounced LCS against the words —
+  // approximate mid-edit, firm on sync (docEdit.docLineTimes).
+  const rawLines = useMemo(() => (lyricDraft ?? "").split(/\r?\n/), [lyricDraft]);
+  const [lineTimes, setLineTimes] = useState<(number | null)[]>([]);
+  useEffect(() => {
+    if (stage !== "lyrics" || lyricDraft == null) return;
+    const id = window.setTimeout(() => setLineTimes(docLineTimes(words, rawLines)), 250);
+    return () => window.clearTimeout(id);
+  }, [stage, lyricDraft, rawLines, words]);
+  // The row being sung right now (last row whose start <= playhead).
+  let playRow = -1;
+  for (let i = 0; i < lineTimes.length; i++) {
+    const t = lineTimes[i];
+    if (t != null && t <= audio.time) playRow = i;
+  }
+  const gutterRef = useRef<HTMLDivElement | null>(null);
+
+  /** "Sync to music": cleanup → LCS diff (matched words keep timings) →
+   *  windowed CTC re-align of the changed runs → ONE undo entry → hop to
+   *  TIMING to inspect. Never fails halfway: a window that can't align
+   *  falls back to its span-divided estimate and says so. */
+  const doSyncLyrics = async () => {
+    if (lyricDraft == null || busy != null) return;
+    setError(null);
+    setNotice(null);
+    setBusy("Reading lyrics…");
+    try {
+      // The wizard's cleanup pass (section tags, karaoke junk) keeps pasted
+      // sheets behaving here exactly as they do in the wizard.
+      let text = lyricDraft;
+      let cleanupNote: string | null = null;
+      try {
+        const preview = await cleanLyricsPreview(lyricDraft);
+        if (preview.cleaned_text.trim() !== "") {
+          if (preview.edits.length > 0) cleanupNote = preview.summary;
+          text = preview.cleaned_text;
+        }
+      } catch {
+        // cleanup unavailable: sync the raw text as typed
+      }
+      const lines = parseLyricDoc(text);
+      if (lines.length === 0) {
+        setError("The lyrics are empty — type the words first.");
+        return;
+      }
+      const commit = retimeDocument(words, lines);
+      if (!commit) return;
+      let newWords = commit.words;
+      const notes: string[] = [];
+      if (cleanupNote) notes.push(`cleanup: ${cleanupNote}`);
+      if (commit.changed.length > 0) {
+        if (sources?.vocals) {
+          const wins = planRealignWindows(newWords, commit.changed, state.duration);
+          let failed = 0;
+          for (let k = 0; k < wins.length; k++) {
+            const win = wins[k];
+            setBusy(`Syncing changed words to the music… (${k + 1}/${wins.length})`);
+            try {
+              const timings = await realignSelection({
+                vocals_path: sources.vocals,
+                window_start: win.start,
+                window_end: win.end,
+                words: newWords.slice(win.first, win.last + 1).map((x) => x.word),
+              });
+              const spliced = spliceRealignedRun(
+                newWords,
+                state.duration,
+                win.first,
+                win.last,
+                timings,
+              );
+              if (spliced) newWords = spliced;
+              else failed++;
+            } catch {
+              failed++;
+            }
+          }
+          if (failed > 0) {
+            notes.push(
+              `${failed} passage${failed > 1 ? "s" : ""} couldn't re-align and got estimated timings`,
+            );
+          }
+        } else {
+          notes.push(
+            "vocal stem not found — changed words got estimated timings, not aligned ones",
+          );
+        }
+      }
+      dispatch({ type: "replace-words", words: newWords });
+      setLyricDraft(null);
+      setLineTimes([]);
+      setStage("timing");
+      if (notes.length > 0) setNotice(`Synced · ${notes.join(" · ")}.`);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // Loop over the selected word's line while "Loop line" is on.
   useEffect(() => {
@@ -231,6 +462,12 @@ export default function FixEditor(props: {
       // a focused key handles Enter/Space itself — don't double-fire
       if (tag === "BUTTON" && (e.key === " " || e.key === "Enter")) return;
       const mod = e.ctrlKey || e.metaKey;
+      // The lyrics stage is a text surface: word-selection hops, nudges, and
+      // words-array undo would act on chips the user can't see. Transport
+      // and save stay live.
+      if (stage === "lyrics" && !(e.key === " " || (mod && e.key.toLowerCase() === "s"))) {
+        return;
+      }
       if (e.key === " ") {
         e.preventDefault();
         audio.toggle();
@@ -475,7 +712,7 @@ export default function FixEditor(props: {
   };
 
   const exit = () => {
-    if (dirty) setConfirmExit(true);
+    if (dirty || draftDirty) setConfirmExit(true);
     else reallyExit();
   };
 
@@ -501,7 +738,23 @@ export default function FixEditor(props: {
         <button onClick={exit} className="with-icon">
           <IconBack size={12} /> Done
         </button>
-        <button className="primary" onClick={() => audio.toggle()} disabled={!srcPath}>
+        <div className="scope-toggle" role="group" aria-label="Editor stage">
+          <button
+            className={stage === "lyrics" ? "active" : ""}
+            onClick={() => setStage("lyrics")}
+            title="Get the words and line breaks right — type freely while listening"
+          >
+            Lyrics
+          </button>
+          <button
+            className={stage === "timing" ? "active" : ""}
+            onClick={() => setStage("timing")}
+            title="Fix word timings on the tracks"
+          >
+            Timing
+          </button>
+        </div>
+        <button className={stage === "timing" ? "primary" : ""} onClick={() => audio.toggle()} disabled={!srcPath}>
           {audio.playing ? "Pause" : "Play"}
         </button>
         <DashSelect
@@ -514,50 +767,80 @@ export default function FixEditor(props: {
             ...(sources?.original ? [{ value: "original" as const, label: "Original" }] : []),
           ]}
         />
-        {props.onPreview && (
+        {stage === "timing" && props.onPreview && (
           <button
             onClick={goPreview}
-            disabled={busy != null}
-            title="Watch it play karaoke-style — saves your fixes first"
+            disabled={busy != null || draftDirty}
+            title={
+              draftDirty
+                ? "Sync or revert the lyric edits first"
+                : "Watch it play karaoke-style — saves your fixes first"
+            }
           >
             Preview
           </button>
         )}
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={loopLine}
-            onChange={(e) => setLoopLine(e.target.checked)}
-          />
-          Loop line
-        </label>
+        {stage === "timing" && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={loopLine}
+              onChange={(e) => setLoopLine(e.target.checked)}
+            />
+            Loop line
+          </label>
+        )}
         <SegText className="editor-time" value={fmtTime(audio.time)} />
         <span className="spacer" />
-        <button onClick={() => dispatch({ type: "undo" })} disabled={state.past.length === 0}>
-          Undo
-        </button>
-        <button onClick={() => dispatch({ type: "redo" })} disabled={state.future.length === 0}>
-          Redo
-        </button>
-        <button
-          onClick={doRealign}
-          disabled={!selRange || !sources?.vocals || busy != null}
-          title={
-            !sources?.vocals
-              ? "Re-align needs the vocal stem, which wasn't found on disk"
-              : "Re-run alignment over the checked lines (CPU, a few seconds)"
-          }
-        >
-          Re-align selection{selRange ? ` (${selRange.lineCount} line${selRange.lineCount > 1 ? "s" : ""})` : ""}
-        </button>
-        <button
-          className="primary"
-          onClick={doSave}
-          disabled={!dirty || busy != null}
-          title="Save the timing map (Ctrl+S)"
-        >
-          {dirty ? "Save" : "Saved"}
-        </button>
+        {stage === "timing" ? (
+          <>
+            <button onClick={() => dispatch({ type: "undo" })} disabled={state.past.length === 0}>
+              Undo
+            </button>
+            <button onClick={() => dispatch({ type: "redo" })} disabled={state.future.length === 0}>
+              Redo
+            </button>
+            <button
+              onClick={doRealign}
+              disabled={!selRange || !sources?.vocals || busy != null}
+              title={
+                !sources?.vocals
+                  ? "Re-align needs the vocal stem, which wasn't found on disk"
+                  : "Re-run alignment over the checked lines (CPU, a few seconds)"
+              }
+            >
+              Re-align{selRange ? ` (${selRange.lineCount} line${selRange.lineCount > 1 ? "s" : ""})` : ""}
+            </button>
+            <button
+              className="primary"
+              onClick={doSave}
+              disabled={!dirty || busy != null}
+              title="Save the timing map (Ctrl+S)"
+            >
+              {dirty ? "Save" : "Saved"}
+            </button>
+          </>
+        ) : (
+          <>
+            {draftDirty && (
+              <button
+                onClick={() => setLyricDraft(null)}
+                disabled={busy != null}
+                title="Throw away the lyric edits and re-read the words from the timeline"
+              >
+                Revert
+              </button>
+            )}
+            <button
+              className="primary"
+              onClick={doSyncLyrics}
+              disabled={!draftDirty || busy != null}
+              title="Words you didn't change keep their timing; changed words re-align to the vocal stem, and line breaks follow your rows"
+            >
+              Sync to music
+            </button>
+          </>
+        )}
       </div>
 
       {/* global seek bar with unsung spans */}
@@ -568,6 +851,9 @@ export default function FixEditor(props: {
           audio.seek(((e.clientX - r.left) / r.width) * duration);
         }}
       >
+        {levels && (
+          <LevelStrip levels={levels} winStart={0} winEnd={duration} words={wordSpans} />
+        )}
         {mapFromEditor(map, words).unsung_spans.map((s, i) => (
           <div
             key={i}
@@ -582,6 +868,7 @@ export default function FixEditor(props: {
         <div className="seek-playhead" style={{ left: `${(audio.time / duration) * 100}%` }} />
       </div>
 
+      {stage === "timing" && (
       <div className="bench-row">
         <div className="bench-module" role="group" aria-label="Edit words">
           <button
@@ -647,9 +934,16 @@ export default function FixEditor(props: {
           ))}
         </div>
       </div>
+      )}
       {confirmExit && (
         <ConfirmStrip
-          message="Discard unsaved timing changes?"
+          message={
+            draftDirty && dirty
+              ? "Discard unsaved timing changes and unsynced lyric edits?"
+              : draftDirty
+                ? "Discard lyric edits that were never synced to the music?"
+                : "Discard unsaved timing changes?"
+          }
           confirmLabel="Discard"
           onConfirm={reallyExit}
           onCancel={() => setConfirmExit(false)}
@@ -657,8 +951,17 @@ export default function FixEditor(props: {
       )}
       {error && <div className="error-banner">{error}</div>}
       {busy && <div className="notice-banner">{busy}</div>}
+      {!busy && notice && <div className="notice-banner">{notice}</div>}
       </div>
 
+      {stage === "lyrics" ? (
+        <p className="muted small">
+          Fix the words while you listen — one lyric line per row: Enter breaks a line,
+          removing a newline joins it · paste a whole lyric sheet if that&apos;s easier ·
+          click a time to play from that line · Sync to music keeps the timing of every
+          word you didn&apos;t change and aligns the rest.
+        </p>
+      ) : (
       <p className="muted small">
         Drag a word to move it, its right edge to stretch it, up/down to re-wrap it onto the
         next row · click a word selects &amp; jumps, click the track plays from there ·
@@ -666,9 +969,50 @@ export default function FixEditor(props: {
         Ctrl+←/→ hop words, Ctrl+↑/↓ lines · Space plays/pauses · arrows nudge ±10 ms
         (Shift: ±100 ms) · Ctrl+S saves ·{" "}
         <span className="legend unsung">amber</span> = unsung ·{" "}
-        <span className="legend weak">dashed</span> = low-confidence, look here first.
+        <span className="legend weak">dashed</span> = low-confidence, look here first
+        {levels && (
+          <>
+            {" "}
+            · <span className="legend unsung">amber bars</span> = singing with no word over it
+          </>
+        )}
+        .
       </p>
+      )}
 
+      {stage === "lyrics" ? (
+        <div className="lyrics-pass">
+          <div className="lyrics-gutter" ref={gutterRef} aria-hidden="true">
+            {rawLines.map((_, i) => {
+              const t = lineTimes[i] ?? null;
+              return (
+                <button
+                  key={i}
+                  className={`lyrics-time${i === playRow ? " playing" : ""}`}
+                  tabIndex={-1}
+                  disabled={t == null}
+                  onClick={() => t != null && audio.seek(t)}
+                  title={t != null ? "Play from this line" : undefined}
+                >
+                  {t != null ? fmtTime(t) : "–"}
+                </button>
+              );
+            })}
+          </div>
+          <textarea
+            className="lyrics-text"
+            value={lyricDraft ?? ""}
+            wrap="off"
+            spellCheck={false}
+            autoFocus
+            onChange={(e) => setLyricDraft(e.target.value)}
+            onScroll={(e) => {
+              if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+            }}
+            aria-label="Lyrics — one line per row"
+          />
+        </div>
+      ) : (
       <div className="editor-lines">
         {lines.map((g, gi) => {
           const lw = g.indices.map((i) => words[i]);
@@ -745,6 +1089,14 @@ export default function FixEditor(props: {
                     }
                   }}
                 >
+                  {levels && (
+                    <LevelStrip
+                      levels={levels}
+                      winStart={winStart}
+                      winEnd={winEnd}
+                      words={wordSpans}
+                    />
+                  )}
                   {playheadIn && (
                     <div
                       className="line-playhead"
@@ -854,6 +1206,7 @@ export default function FixEditor(props: {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

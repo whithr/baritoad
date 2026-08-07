@@ -75,6 +75,7 @@ pub fn run() {
             review::song_set_reviewed,
             review::library_song,
             review::export_status,
+            review::vocal_levels,
             player::player_load,
             player::player_play,
             player::player_pause,

@@ -55,6 +55,22 @@ describe("reduceJobEvent", () => {
     expect(s.jobs[1].stage).toBe("separating");
   });
 
+  it("never demotes a job on an out-of-order lifecycle event", () => {
+    // Queued and Running are emitted from different threads; a stale Queued
+    // arriving after Running used to pin the card on STBY for the whole run.
+    const s = feed([lifecycle({ status: "running" }), lifecycle({ status: "queued" })]);
+    expect(s.jobs[1].job.status).toBe("running");
+    // terminal states never regress either
+    const t = feed([lifecycle({ status: "completed" })], s);
+    const t2 = feed([lifecycle({ status: "running" })], t);
+    expect(t2.jobs[1].job.status).toBe("completed");
+  });
+
+  it("applies lifecycle events in their natural order unchanged", () => {
+    const s = feed([lifecycle({ status: "queued" }), lifecycle({ status: "running" })]);
+    expect(s.jobs[1].job.status).toBe("running");
+  });
+
   it("ignores pipeline events for unknown jobs", () => {
     const s = feed([pipe({ type: "stage_started", stage: "separate" }, 99)]);
     expect(s).toBe(emptyJobsState);
