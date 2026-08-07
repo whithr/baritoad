@@ -46,6 +46,10 @@ apps/desktop/src-tauri/gen/
 # Vendored external skill copy (not repo-authored tooling like .claude/agents/)
 .claude/skills/
 
+# Python tooling noise (spike export scripts)
+__pycache__/
+*.pyc
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
