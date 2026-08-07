@@ -35,6 +35,7 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [hq, setHq] = useState(false);
   const debounceRef = useRef<number | undefined>(undefined);
 
   const pickFile = useCallback((path: string) => {
@@ -115,6 +116,7 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
         lyrics_text: lyrics.trim() === "" ? undefined : lyrics,
         title: title.trim() === "" ? undefined : title.trim(),
         artist: artist.trim() === "" ? undefined : artist.trim(),
+        hq_separation: hq || undefined,
       });
       go({ view: "jobs" });
     } catch (e) {
@@ -211,6 +213,17 @@ export default function NewSong({ go }: { go: (r: Route) => void }) {
           )}
 
           {error && <div className="error-banner">{error}</div>}
+
+          <label className="check-row" title="Runs the fine-tuned separation model with more overlap — several times slower, cleaner instrumental">
+            <input
+              type="checkbox"
+              checked={hq}
+              onChange={(e) => setHq(e.target.checked)}
+            />
+            <span>
+              High-quality separation <em>(several times slower)</em>
+            </span>
+          </label>
 
           <div className="actions">
             <button className="primary" disabled={submitting} onClick={generate}>

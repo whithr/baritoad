@@ -2575,3 +2575,21 @@ label.check {
   text-align: center;
   opacity: 0.75;
 }
+
+/* ---- HQ separation toggle (NewSong) ---- */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--s4);
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.check-row input {
+  accent-color: var(--cyan);
+}
+.check-row span em {
+  font-style: normal;
+  color: var(--text-dim);
+  opacity: 0.7;
+}

@@ -90,6 +90,9 @@ export interface GenerateSongRequest {
   out_dir?: string;
   exports?: string[];
   force?: boolean;
+  /** High-quality separation: htdemucs_ft when installed + higher overlap —
+   *  several times slower, audibly cleaner stems. */
+  hq_separation?: boolean;
 }
 
 export const generateSong = (request: GenerateSongRequest) =>

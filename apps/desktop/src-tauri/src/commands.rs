@@ -19,6 +19,7 @@ use karaoke_core::formats::{self, ExportMeta, Format};
 use karaoke_core::lyrics;
 use karaoke_core::pipeline::manifest::{self, StageId};
 use karaoke_core::pipeline::{self, GenerateRequest};
+use karaoke_core::separation;
 use karaoke_core::timing::WordTimingMap;
 
 use crate::queue::{self, JobQueue, JobSnapshot};
@@ -43,6 +44,10 @@ pub struct GenerateSongRequest {
     /// Redo every stage even if the manifest says up-to-date.
     #[serde(default)]
     pub force: bool,
+    /// High-quality separation: htdemucs_ft (when its files are installed)
+    /// plus higher overlap — several times slower, audibly cleaner stems.
+    #[serde(default)]
+    pub hq_separation: bool,
 }
 
 fn parse_format(s: &str) -> Result<Format, String> {
@@ -114,6 +119,24 @@ pub async fn generate_song(
         req.exports = formats;
     }
     // req.ep stays EpChoice::Auto (module docs: DML separation, CPU alignment).
+
+    if request.hq_separation {
+        let model_dir = separation::default_model_dir();
+        if separation::ModelKind::HtdemucsFt.available(&model_dir) {
+            // ft bag (4 sweeps/segment) + tighter overlap: ~6x standard cost.
+            req.sep_model = separation::ModelKind::HtdemucsFt;
+            req.sep_options = separation::SeparateOptions {
+                overlap: 0.5,
+                shifts: 0,
+            };
+        } else {
+            // ft files not installed: best available without them (~3x).
+            req.sep_options = separation::SeparateOptions {
+                overlap: 0.5,
+                shifts: 2,
+            };
+        }
+    }
 
     Ok(queue.enqueue(&app, req, title, artist, out_dir))
 }
