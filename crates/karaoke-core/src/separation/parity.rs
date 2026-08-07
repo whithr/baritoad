@@ -135,11 +135,24 @@ impl ParityCache {
     /// Load (or start) the cache at `path`, keyed to `model_path`'s identity
     /// (size + mtime + crate version — cheap and invalidates on model swap).
     pub fn load(path: &Path, model_path: &Path) -> Self {
+        Self::load_paths(path, std::slice::from_ref(&model_path.to_path_buf()))
+    }
+
+    /// Multi-file variant for bagged models (htdemucs_ft is four ONNX files):
+    /// identity = sum of sizes + newest mtime, so swapping any sub-model
+    /// invalidates, and a single-file set is identical to [`Self::load`].
+    pub fn load_paths(path: &Path, model_paths: &[std::path::PathBuf]) -> Self {
         let file = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let (model_size, model_mtime_unix) = model_identity(model_path);
+        let mut model_size = 0u64;
+        let mut model_mtime_unix = 0i64;
+        for p in model_paths {
+            let (size, mtime) = model_identity(p);
+            model_size += size;
+            model_mtime_unix = model_mtime_unix.max(mtime);
+        }
         Self {
             path: path.to_path_buf(),
             file,

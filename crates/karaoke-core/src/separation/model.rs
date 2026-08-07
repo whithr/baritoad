@@ -4,12 +4,12 @@
 //! grow: CUDA (Win/Linux NVIDIA) and CoreML (macOS) slot in as new variants +
 //! arms in [`OrtModel::load`] without touching callers (PLAN.md §5 GPU story).
 
-use ndarray::{Array3, Array4, Ix4};
+use ndarray::{s, Array3, Array4, Ix4};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::separation::{NUM_SOURCES, SEGMENT};
+use crate::separation::{NUM_SOURCES, SEGMENT, SOURCES};
 
 /// A concrete execution provider we can build a session on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +76,56 @@ impl OrtModel {
             .commit_from_file(model_path)
             .map_err(|e| Error::Model(format!("load {} ({ep}): {e}", model_path.display())))?;
         Ok(Self { session, ep })
+    }
+}
+
+/// A separation model as prepared for inference: either the single htdemucs
+/// session, or the htdemucs_ft bag — four sessions, each fine-tuned for one
+/// source, combined one-hot (sub-model k contributes stem k, matching the
+/// bag's `[[1,0,0,0], …]` weights, asserted at export time by
+/// spikes/separation/export/export_htdemucs_ft.py).
+pub struct SepModel {
+    subs: Vec<OrtModel>,
+    pub ep: EpKind,
+}
+
+impl SepModel {
+    /// `paths` must have length 1 (htdemucs) or [`NUM_SOURCES`] in [`SOURCES`]
+    /// order (htdemucs_ft).
+    pub fn load(paths: &[PathBuf], ep: EpKind) -> Result<Self> {
+        if paths.len() != 1 && paths.len() != NUM_SOURCES {
+            return Err(Error::Model(format!(
+                "expected 1 or {NUM_SOURCES} model files, got {}",
+                paths.len()
+            )));
+        }
+        let subs = paths
+            .iter()
+            .map(|p| OrtModel::load(p, ep))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { subs, ep })
+    }
+
+    /// Inference sweeps per segment (for cost/progress accounting).
+    pub fn sub_models(&self) -> usize {
+        self.subs.len()
+    }
+}
+
+impl SegmentInfer for SepModel {
+    fn infer(&mut self, input: &Array3<f32>) -> Result<Array4<f32>> {
+        if self.subs.len() == 1 {
+            return self.subs[0].infer(input);
+        }
+        let mut out = Array4::<f32>::zeros((1, NUM_SOURCES, 2, SEGMENT));
+        for k in 0..NUM_SOURCES {
+            let stems = self.subs[k].infer(input).map_err(|e| {
+                Error::Inference(format!("{} sub-model: {e}", SOURCES[k]))
+            })?;
+            out.slice_mut(s![0, k, .., ..])
+                .assign(&stems.slice(s![0, k, .., ..]));
+        }
+        Ok(out)
     }
 }
 

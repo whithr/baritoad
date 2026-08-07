@@ -32,7 +32,7 @@ use karaoke_core::pipeline::manifest::{self, JobManifest, StageId};
 use karaoke_core::pipeline::{self, GenerateRequest, PipelineEvent};
 use karaoke_core::timing::WordTimingMap;
 use karaoke_core::output::{FileSink, OutputFile, OutputFormat, StemSink};
-use karaoke_core::separation::{self, EpChoice, Event, ParityReport, SeparateStats, MODEL_FILE_NAME};
+use karaoke_core::separation::{self, EpChoice, Event, ParityReport, SeparateStats};
 use karaoke_core::timing::LyricSource;
 
 #[derive(Parser)]
@@ -103,6 +103,18 @@ struct GenerateArgs {
     /// see `karaoke align --help` for the TDR rationale)
     #[arg(long, value_enum, default_value_t = EpArg::Auto)]
     ep: EpArg,
+
+    /// Separation model (htdemucs-ft = the four fine-tuned files, 4x slower)
+    #[arg(long = "sep-model", value_enum, default_value_t = ModelArg::Htdemucs)]
+    sep_model: ModelArg,
+
+    /// Separation segment overlap fraction, 0..=0.9 (default 0.25)
+    #[arg(long = "sep-overlap", default_value_t = 0.25)]
+    sep_overlap: f32,
+
+    /// Separation pinned-shift passes to average (default 0)
+    #[arg(long = "sep-shifts", default_value_t = 0)]
+    sep_shifts: usize,
 
     /// Use the dynamic-quantized whisper decoder
     #[arg(long)]
@@ -301,6 +313,11 @@ struct SeparateArgs {
     #[arg(long)]
     all_stems: bool,
 
+    /// Separation model (htdemucs-ft needs the four htdemucs_ft_*.onnx
+    /// files in the model dir; 4x inference time, best quality)
+    #[arg(long, value_enum, default_value_t = ModelArg::Htdemucs)]
+    model: ModelArg,
+
     /// Segment overlap fraction, 0..=0.9 (higher = fewer seam artifacts,
     /// ~1/(1-overlap)x inference time; demucs default 0.25)
     #[arg(long, default_value_t = 0.25)]
@@ -387,6 +404,21 @@ impl From<EpArg> for EpChoice {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum ModelArg {
+    Htdemucs,
+    HtdemucsFt,
+}
+
+impl From<ModelArg> for separation::ModelKind {
+    fn from(v: ModelArg) -> Self {
+        match v {
+            ModelArg::Htdemucs => separation::ModelKind::Htdemucs,
+            ModelArg::HtdemucsFt => separation::ModelKind::HtdemucsFt,
+        }
+    }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum FormatArg {
     Wav,
     Flac,
@@ -468,8 +500,9 @@ fn separate_file(
     format: OutputFormat,
     all_stems: bool,
     opts: separation::SeparateOptions,
+    model: separation::ModelKind,
 ) -> Result<SeparationRun, Box<dyn std::error::Error>> {
-    let model_path = model_dir.join(MODEL_FILE_NAME);
+    let model_paths = model.paths(model_dir);
     let parity_cache = separation::default_parity_cache_path();
 
     eprintln!("decoding {} ...", audio_path.display());
@@ -518,7 +551,7 @@ fn separate_file(
         Event::Note(n) => eprintln!("  note: {n}"),
     };
     let prepared =
-        separation::prepare_model(&model_path, ep, Some(&parity_cache), &mut on_event)?;
+        separation::prepare_model(&model_paths, ep, Some(&parity_cache), &mut on_event)?;
     let ep_used = prepared.model.ep;
 
     let mut sink = FileSink::new(out_dir, format, all_stems)?;
@@ -587,11 +620,13 @@ fn run_separate(args: &SeparateArgs) -> Result<(), Box<dyn std::error::Error>> {
             overlap: args.overlap,
             shifts: args.shifts,
         },
+        args.model.into(),
     )?;
     let total_s = t_total.elapsed().as_secs_f64();
 
     if args.json {
-        let model_path = model_dir.join(MODEL_FILE_NAME);
+        let model: separation::ModelKind = args.model.into();
+        let model_paths = model.paths(&model_dir);
         let summary = serde_json::json!({
             "input": args.audio,
             "duration_s": run.duration_s,
@@ -599,9 +634,14 @@ fn run_separate(args: &SeparateArgs) -> Result<(), Box<dyn std::error::Error>> {
             "source_channels": run.source_channels,
             "decode_notes": run.decode_notes,
             "model": {
-                "path": model_path,
-                "size_bytes": std::fs::metadata(&model_path).map(|m| m.len()).unwrap_or(0),
+                "kind": model.as_str(),
+                "paths": model_paths,
+                "size_bytes": model_paths
+                    .iter()
+                    .map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+                    .sum::<u64>(),
             },
+            "quality": { "overlap": args.overlap, "shifts": args.shifts },
             "ep_requested": EpChoice::from(args.ep).as_str(),
             "ep_used": run.ep_used.as_str(),
             "parity": parity_json(&run.reports),
@@ -687,6 +727,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
                     OutputFormat::Wav,
                     false,
                     separation::SeparateOptions::default(),
+                    separation::ModelKind::Htdemucs,
                 )?;
                 let p = run
                     .vocals_path()
@@ -1051,6 +1092,11 @@ fn generate_request_from(args: &GenerateArgs) -> GenerateRequest {
     req.model_dir = args.model_dir.clone();
     req.jobs_dir = args.jobs_dir.clone();
     req.ep = args.ep.into();
+    req.sep_model = args.sep_model.into();
+    req.sep_options = separation::SeparateOptions {
+        overlap: args.sep_overlap,
+        shifts: args.sep_shifts,
+    };
     if !args.export.is_empty() {
         let mut formats: Vec<Format> = Vec::new();
         for &f in &args.export {

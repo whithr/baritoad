@@ -30,7 +30,7 @@ use crate::error::{Error, Result};
 use crate::formats::{self, ExportMeta, Format};
 use crate::lyrics::{self, CleanLyrics};
 use crate::output::{FileSink, OutputFormat, StemSink};
-use crate::separation::{self, EpChoice, MODEL_FILE_NAME};
+use crate::separation::{self, EpChoice};
 use crate::timing::WordTimingMap;
 
 use manifest::{Artifact, JobManifest, JobPointer, StageId};
@@ -94,6 +94,12 @@ pub struct GenerateRequest {
     /// Jobs registry dir (default [`manifest::default_jobs_dir`]).
     pub jobs_dir: Option<PathBuf>,
     pub ep: EpChoice,
+    /// Separation quality knobs (overlap / pinned shifts); default = the
+    /// standard single pass.
+    pub sep_options: separation::SeparateOptions,
+    /// Separation model; [`separation::ModelKind::HtdemucsFt`] needs the four
+    /// ft ONNX files in the model dir.
+    pub sep_model: separation::ModelKind,
     /// Export formats; empty ⇒ no export stage outputs (stage still records
     /// as complete with zero artifacts — callers usually pass at least one).
     pub exports: Vec<Format>,
@@ -117,6 +123,8 @@ impl GenerateRequest {
             model_dir: None,
             jobs_dir: None,
             ep: EpChoice::Auto,
+            sep_options: separation::SeparateOptions::default(),
+            sep_model: separation::ModelKind::default(),
             exports: vec![Format::Lrc, Format::Ass, Format::UltraStar],
             title: None,
             artist: None,
@@ -260,15 +268,34 @@ pub fn generate(
     // stage 1: separate
     // =====================================================================
     let stems_dir = out_dir.join("stems");
-    let model_path = model_dir.join(MODEL_FILE_NAME);
-    let sep_fp = fingerprint(&serde_json::json!({
+    let model_paths = req.sep_model.paths(&model_dir);
+    // Single-file model keeps the scalar fingerprint shape so existing
+    // manifests stay valid; a bag hashes every file.
+    let model_id = if model_paths.len() == 1 {
+        serde_json::json!(model_file_id(&model_paths[0]))
+    } else {
+        serde_json::json!(model_paths
+            .iter()
+            .map(|p| model_file_id(p))
+            .collect::<Vec<_>>())
+    };
+    let mut sep_fp_input = serde_json::json!({
         "stage": "separate",
         "version": SEPARATE_STAGE_VERSION,
         "audio_sha256": audio_ref.sha256,
         "ep": req.ep.as_str(),
-        "model": model_file_id(&model_path),
+        "model": model_id,
         "format": "wav",
-    }));
+    });
+    // Non-default quality changes the stems; default omits the key so
+    // manifests written before the knobs existed stay valid.
+    if req.sep_options != separation::SeparateOptions::default() {
+        sep_fp_input["quality"] = serde_json::json!({
+            "overlap": req.sep_options.overlap,
+            "shifts": req.sep_options.shifts,
+        });
+    }
+    let sep_fp = fingerprint(&sep_fp_input);
     if !forced(StageId::Separate) && man.stage_up_to_date(StageId::Separate, &sep_fp) {
         on_event(&PipelineEvent::StageSkipped {
             stage: StageId::Separate,
@@ -286,7 +313,14 @@ pub fn generate(
             stage: StageId::Separate,
         });
         let t0 = Instant::now();
-        let result = run_separate_stage(&audio_path, &stems_dir, &model_path, req.ep, on_event);
+        let result = run_separate_stage(
+            &audio_path,
+            &stems_dir,
+            &model_paths,
+            req.ep,
+            req.sep_options,
+            on_event,
+        );
         match result {
             Ok((artifacts, details)) => {
                 let secs = t0.elapsed().as_secs_f64();
@@ -644,8 +678,9 @@ pub fn generate(
 fn run_separate_stage(
     audio_path: &Path,
     stems_dir: &Path,
-    model_path: &Path,
+    model_paths: &[PathBuf],
     ep: EpChoice,
+    sep_options: separation::SeparateOptions,
     on_event: &mut dyn FnMut(&PipelineEvent),
 ) -> Result<(Vec<Artifact>, serde_json::Value)> {
     let progress_msg = |m: String, on_event: &mut dyn FnMut(&PipelineEvent)| {
@@ -700,11 +735,12 @@ fn run_separate_stage(
         });
     };
     let prepared =
-        separation::prepare_model(model_path, ep, Some(&parity_cache), &mut sep_events)?;
+        separation::prepare_model(model_paths, ep, Some(&parity_cache), &mut sep_events)?;
     let init_seconds = prepared.init_seconds;
     let parity_seconds = prepared.parity_seconds;
     let mut model = prepared.model;
     let ep_used = model.ep;
+    let sub_models = model.sub_models();
 
     let mut sink = FileSink::new(stems_dir, OutputFormat::Wav, false)?;
     let stats = separation::separate_streamed(
@@ -712,7 +748,7 @@ fn run_separate_stage(
         decoded.len,
         &mut model,
         &mut sink,
-        separation::SeparateOptions::default(),
+        sep_options,
         &mut |done, total| {
             on_event(&PipelineEvent::StageProgress {
                 stage: StageId::Separate,
@@ -746,6 +782,9 @@ fn run_separate_stage(
         "infer_seconds": stats.infer_seconds,
         "session_init_seconds": init_seconds,
         "parity_seconds": parity_seconds,
+        "sub_models": sub_models,
+        "overlap": sep_options.overlap,
+        "shifts": sep_options.shifts,
     });
     Ok((artifacts, details))
 }

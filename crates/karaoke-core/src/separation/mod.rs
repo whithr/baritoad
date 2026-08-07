@@ -10,7 +10,7 @@ mod model;
 mod ola;
 mod parity;
 
-pub use model::{EpKind, OrtModel, SegmentInfer};
+pub use model::{EpKind, OrtModel, SegmentInfer, SepModel};
 pub use ola::{
     blend_weights, norm_stats, segment_count, separate_streamed, SeparateOptions,
     SeparateStats, MAX_SHIFT, STRIDE,
@@ -28,6 +28,49 @@ pub const NUM_SOURCES: usize = 4;
 pub const SOURCES: [&str; NUM_SOURCES] = ["drums", "bass", "other", "vocals"];
 pub const VOCALS_INDEX: usize = 3;
 pub const MODEL_FILE_NAME: &str = "htdemucs.onnx";
+/// htdemucs_ft bag files, in [`SOURCES`] order (each fine-tuned per source).
+pub const FT_MODEL_FILE_NAMES: [&str; NUM_SOURCES] = [
+    "htdemucs_ft_drums.onnx",
+    "htdemucs_ft_bass.onnx",
+    "htdemucs_ft_other.onnx",
+    "htdemucs_ft_vocals.onnx",
+];
+
+/// Which separation model to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModelKind {
+    /// Base htdemucs: one ONNX file, one inference sweep per segment.
+    #[default]
+    Htdemucs,
+    /// htdemucs_ft: four fine-tuned ONNX files (one per source), four sweeps
+    /// per segment — the "high quality" model.
+    HtdemucsFt,
+}
+
+impl ModelKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelKind::Htdemucs => "htdemucs",
+            ModelKind::HtdemucsFt => "htdemucs_ft",
+        }
+    }
+
+    /// The ONNX files this kind loads from `model_dir`, in load order.
+    pub fn paths(&self, model_dir: &Path) -> Vec<PathBuf> {
+        match self {
+            ModelKind::Htdemucs => vec![model_dir.join(MODEL_FILE_NAME)],
+            ModelKind::HtdemucsFt => FT_MODEL_FILE_NAMES
+                .iter()
+                .map(|n| model_dir.join(n))
+                .collect(),
+        }
+    }
+
+    /// True when every file this kind needs exists in `model_dir`.
+    pub fn available(&self, model_dir: &Path) -> bool {
+        self.paths(model_dir).iter().all(|p| p.is_file())
+    }
+}
 
 /// User-facing EP request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +112,7 @@ pub enum Event {
 }
 
 pub struct PreparedModel {
-    pub model: OrtModel,
+    pub model: SepModel,
     pub reports: Vec<ParityReport>,
     /// Session-build time for the EP actually used.
     pub init_seconds: f64,
@@ -85,28 +128,33 @@ pub struct PreparedModel {
 /// parity) falls through to the next candidate; the list always ends in CPU.
 /// CPU itself gets a cheap RMS sanity check on the golden output.
 pub fn prepare_model(
-    model_path: &Path,
+    model_paths: &[PathBuf],
     choice: EpChoice,
     parity_cache_path: Option<&Path>,
     on_event: &mut dyn FnMut(&Event),
 ) -> Result<PreparedModel> {
-    if !model_path.is_file() {
+    let missing: Vec<String> = model_paths
+        .iter()
+        .filter(|p| !p.is_file())
+        .map(|p| p.display().to_string())
+        .collect();
+    if !missing.is_empty() {
         return Err(Error::Model(format!(
-            "model not found at {} — pass --model-dir or place {MODEL_FILE_NAME} there",
-            model_path.display()
+            "model file(s) not found: {} — pass --model-dir or place them there",
+            missing.join(", ")
         )));
     }
-    let mut cache = parity_cache_path.map(|p| ParityCache::load(p, model_path));
+    let mut cache = parity_cache_path.map(|p| ParityCache::load_paths(p, model_paths));
     let mut reports: Vec<ParityReport> = Vec::new();
     // CPU baseline (session + golden output), built lazily, reused if we fall
-    // back to CPU so the 310 MB model is not loaded twice.
-    let mut cpu_baseline: Option<(OrtModel, Vec<f32>, f64, f64)> = None; // (model, golden_out, init_s, infer_s)
+    // back to CPU so the 310 MB-per-file model set is not loaded twice.
+    let mut cpu_baseline: Option<(SepModel, Vec<f32>, f64, f64)> = None; // (model, golden_out, init_s, infer_s)
     let mut parity_seconds = 0.0f64;
 
     let build_cpu_baseline =
-        |parity_seconds: &mut f64| -> Result<(OrtModel, Vec<f32>, f64, f64)> {
+        |parity_seconds: &mut f64| -> Result<(SepModel, Vec<f32>, f64, f64)> {
             let t0 = std::time::Instant::now();
-            let mut m = OrtModel::load(model_path, EpKind::Cpu)?;
+            let mut m = SepModel::load(model_paths, EpKind::Cpu)?;
             let init_s = t0.elapsed().as_secs_f64();
             let golden = golden_segment();
             let t1 = std::time::Instant::now();
@@ -126,7 +174,7 @@ pub fn prepare_model(
         if let Some(snr) = cache.as_ref().and_then(|c| c.cached_pass(ep.as_str())) {
             on_event(&Event::ModelInit { ep });
             let t0 = std::time::Instant::now();
-            match reuse_or_load(ep, &mut cpu_baseline, model_path) {
+            match reuse_or_load(ep, &mut cpu_baseline, model_paths) {
                 Ok((m, init_s_override)) => {
                     let init_s = init_s_override.unwrap_or_else(|| t0.elapsed().as_secs_f64());
                     on_event(&Event::ModelReady { ep, seconds: init_s });
@@ -195,7 +243,7 @@ pub fn prepare_model(
             }
             _ => {
                 let t0 = std::time::Instant::now();
-                let mut m = match OrtModel::load(model_path, ep) {
+                let mut m = match SepModel::load(model_paths, ep) {
                     Ok(m) => m,
                     Err(e) => {
                         on_event(&Event::Fallback {
@@ -275,15 +323,15 @@ pub fn prepare_model(
 /// override when reusing.
 fn reuse_or_load(
     ep: EpKind,
-    cpu_baseline: &mut Option<(OrtModel, Vec<f32>, f64, f64)>,
-    model_path: &Path,
-) -> Result<(OrtModel, Option<f64>)> {
+    cpu_baseline: &mut Option<(SepModel, Vec<f32>, f64, f64)>,
+    model_paths: &[PathBuf],
+) -> Result<(SepModel, Option<f64>)> {
     if ep == EpKind::Cpu {
         if let Some((m, _, init_s, _)) = cpu_baseline.take() {
             return Ok((m, Some(init_s)));
         }
     }
-    Ok((OrtModel::load(model_path, ep)?, None))
+    Ok((SepModel::load(model_paths, ep)?, None))
 }
 
 /// Default per-user model directory: `%LOCALAPPDATA%/karaoke/models` on
@@ -325,7 +373,7 @@ mod smoke {
             .expect("set KARAOKE_TEST_MODEL to the htdemucs.onnx path");
         let mut events = Vec::new();
         let prepared = prepare_model(
-            Path::new(&model_path),
+            &[PathBuf::from(&model_path)],
             EpChoice::Cpu,
             None,
             &mut |e| events.push(format!("{e:?}")),
