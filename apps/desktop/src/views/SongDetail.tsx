@@ -62,7 +62,7 @@ import { puckFrameAt, shiftRange, type ShiftScope } from "../previewEditor";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
 import { useAudio } from "../useAudio";
 import { IconBack, IconPlay } from "../icons";
-import { ConfirmStrip, DashSelect, SegText } from "../ui";
+import { ConfirmStrip, DashSelect, DashSlider, SegText } from "../ui";
 import FixEditor from "./FixEditor";
 import type { Route } from "../App";
 
@@ -436,6 +436,9 @@ function Preview(props: {
   const [srcKind, setSrcKind] = useState<SourceKind>(() =>
     sources?.instrumental ? "instrumental" : sources?.original ? "original" : "vocals",
   );
+  // Vocal overlay level over the instrumental (0 = pure karaoke; 100%
+  // recreates the original song exactly, since instrumental = mix − vocals).
+  const [vocalPct, setVocalPct] = useState(0);
   // Position to restore after a source switch reloads the media element.
   const resumeRef = useRef<number | null>(null);
   const hl = useMemo(() => pickHighlightWindow(map.words, map.duration), [map]);
@@ -482,6 +485,19 @@ function Preview(props: {
     audio.load(convertFileSrc(src));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
+
+  // Vocal overlay: a synced second track, only over the instrumental. The
+  // stem stays unloaded until the slider first leaves 0.
+  useEffect(() => {
+    const voc = sources?.vocals;
+    if (srcKind === "instrumental" && voc && vocalPct > 0) {
+      audio.setLayer(convertFileSrc(voc));
+    } else {
+      audio.setLayer(null);
+    }
+    audio.setLayerGain(vocalPct / 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srcKind, sources?.vocals, vocalPct]);
 
   // On (re)load or scope switch: aim the loop window and start playing.
   useEffect(() => {
@@ -979,6 +995,23 @@ function Preview(props: {
               ...(sources?.vocals ? [{ value: "vocals" as const, label: "Vocals" }] : []),
             ]}
           />
+          {srcKind === "instrumental" && sources?.vocals && (
+            <div
+              className="bench-module"
+              title="Blend the vocal stem over the instrumental — 100% recreates the original song"
+            >
+              <span className="label">Vocals</span>
+              <DashSlider
+                ariaLabel="Vocal level in the preview"
+                min={0}
+                max={100}
+                step={5}
+                value={vocalPct}
+                onChange={setVocalPct}
+              />
+              <SegText value={`${vocalPct}%`} />
+            </div>
+          )}
         </div>
         <div className="bench-row">
           <div className="bench-module" role="group" aria-label="Shift timing">

@@ -70,7 +70,7 @@ import { groupByLine } from "../highlight";
 import { ExportButton, EXPORT_FORMATS, fmtTime } from "../reviewUi";
 import { useAudio } from "../useAudio";
 import { IconBack } from "../icons";
-import { ConfirmStrip, DashSelect, SegText } from "../ui";
+import { ConfirmStrip, DashSelect, DashSlider, SegText } from "../ui";
 
 /** Pointer travel below this is a click, not a drag. */
 const DRAG_THRESHOLD_PX = 4;
@@ -218,6 +218,20 @@ export default function FixEditor(props: {
     if (srcPath) audio.load(convertFileSrc(srcPath));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [srcPath]);
+
+  // Vocal overlay over the instrumental (see Preview in SongDetail): lets the
+  // editor hear faint word onsets without switching to the bare vocal stem.
+  const [vocalPct, setVocalPct] = useState(0);
+  useEffect(() => {
+    const voc = sources?.vocals;
+    if (srcKind === "instrumental" && voc && vocalPct > 0) {
+      audio.setLayer(convertFileSrc(voc));
+    } else {
+      audio.setLayer(null);
+    }
+    audio.setLayerGain(vocalPct / 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srcKind, sources?.vocals, vocalPct]);
 
   const words = state.words;
   const lines = useMemo(() => groupByLine(words), [words]);
@@ -767,6 +781,23 @@ export default function FixEditor(props: {
             ...(sources?.original ? [{ value: "original" as const, label: "Original" }] : []),
           ]}
         />
+        {srcKind === "instrumental" && sources?.vocals && (
+          <div
+            className="bench-module"
+            title="Blend the vocal stem over the instrumental — 100% recreates the original song"
+          >
+            <span className="label">Vocals</span>
+            <DashSlider
+              ariaLabel="Vocal level while fixing"
+              min={0}
+              max={100}
+              step={5}
+              value={vocalPct}
+              onChange={setVocalPct}
+            />
+            <SegText value={`${vocalPct}%`} />
+          </div>
+        )}
         {stage === "timing" && props.onPreview && (
           <button
             onClick={goPreview}
