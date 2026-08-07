@@ -68,8 +68,10 @@ pub struct SeparateStats {
 }
 
 /// Run the full streamed separation over planar stereo `mix` (`2 * len`
-/// samples), pushing finalized blocks into `sink` and reporting per-segment
-/// progress via `on_segment(done, total)`.
+/// samples), pushing finalized blocks into `sink` — along with the matching
+/// original-mix range, so sinks can build complement outputs like
+/// instrumental = mix − vocals — and reporting per-segment progress via
+/// `on_segment(done, total)`.
 pub fn separate_streamed(
     mix: &[f32],
     len: usize,
@@ -143,7 +145,14 @@ pub fn separate_streamed(
                 f[i] = a[i] / sum_weight[i] * std + mean;
             }
         }
-        sink.write(&flush, flush_n)?;
+        sink.write(
+            &flush,
+            (
+                &mix_l[offset..offset + flush_n],
+                &mix_r[offset..offset + flush_n],
+            ),
+            flush_n,
+        )?;
 
         // Slide the window left by flush_n.
         for a in acc.iter_mut() {
@@ -241,9 +250,18 @@ mod tests {
 
     struct VecSink {
         data: Vec<Vec<f32>>,
+        /// Planar copy of the original mix, for verifying the mix blocks
+        /// passed to `write`.
+        mix_ref: Vec<f32>,
+        len: usize,
     }
     impl StemSink for VecSink {
-        fn write(&mut self, block: &[Vec<f32>], n: usize) -> Result<()> {
+        fn write(&mut self, block: &[Vec<f32>], mix: (&[f32], &[f32]), n: usize) -> Result<()> {
+            // The mix block must track the flush frontier exactly — verified
+            // against the absolute position implied by prior writes.
+            let pos = self.data[0].len();
+            assert_eq!(&self.mix_ref[pos..pos + n], mix.0);
+            assert_eq!(&self.mix_ref[self.len + pos..self.len + pos + n], mix.1);
             for sc in 0..NUM_SOURCES * 2 {
                 self.data[sc].extend_from_slice(&block[sc][..n]);
             }
@@ -274,6 +292,8 @@ mod tests {
         let expected = separate_naive(&mix, len);
         let mut sink = VecSink {
             data: (0..NUM_SOURCES * 2).map(|_| Vec::new()).collect(),
+            mix_ref: mix.clone(),
+            len,
         };
         let mut model = MockModel;
         let mut last = (0, 0);

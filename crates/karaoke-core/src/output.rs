@@ -29,9 +29,12 @@ impl OutputFormat {
 }
 
 /// Receives finalized (denormalized) stem samples in stream order.
-/// `block[stem * 2 + ch][0..n]` — stems in [`SOURCES`] order.
+/// `block[stem * 2 + ch][0..n]` — stems in [`SOURCES`] order. `mix` is the
+/// original (unnormalized) song for the same sample range, planar `(left,
+/// right)` with at least `n` samples each — sinks that build complement
+/// outputs (mix − stem) subtract against it.
 pub trait StemSink {
-    fn write(&mut self, block: &[Vec<f32>], n: usize) -> Result<()>;
+    fn write(&mut self, block: &[Vec<f32>], mix: (&[f32], &[f32]), n: usize) -> Result<()>;
     fn finalize(&mut self) -> Result<Vec<OutputFile>>;
 }
 
@@ -47,11 +50,23 @@ enum Backend {
     Flac(Vec<i32>),
 }
 
+/// How one output file is assembled from the model stems and the original mix.
+enum Plan {
+    /// Sum of raw model stems (vocals, and the per-stem `--all-stems` files).
+    Stems(Vec<usize>),
+    /// Original mix minus one stem. The instrumental is `MixMinus(vocals)`
+    /// rather than drums+bass+other: the model's stems don't sum back to the
+    /// mix, and the residual it can't assign (ambience, reverb tails, HF
+    /// detail) is what keeps the instrumental from sounding hollow/tinny.
+    /// Only the vocals pass through model artifacts, and
+    /// instrumental + vocals reconstructs the original mix exactly.
+    MixMinus(usize),
+}
+
 struct Output {
     name: String,
     path: PathBuf,
-    /// Stem indices summed into this output (e.g. instrumental = drums+bass+other).
-    stems: Vec<usize>,
+    plan: Plan,
     backend: Backend,
 }
 
@@ -64,22 +79,19 @@ pub struct FileSink {
 impl FileSink {
     pub fn new(out_dir: &Path, format: OutputFormat, all_stems: bool) -> Result<Self> {
         std::fs::create_dir_all(out_dir)?;
-        let mut plans: Vec<(String, Vec<usize>)> = vec![
-            ("vocals".into(), vec![VOCALS_INDEX]),
-            (
-                "instrumental".into(),
-                (0..NUM_SOURCES).filter(|&s| s != VOCALS_INDEX).collect(),
-            ),
+        let mut plans: Vec<(String, Plan)> = vec![
+            ("vocals".into(), Plan::Stems(vec![VOCALS_INDEX])),
+            ("instrumental".into(), Plan::MixMinus(VOCALS_INDEX)),
         ];
         if all_stems {
             for (s, name) in SOURCES.iter().enumerate() {
                 if s != VOCALS_INDEX {
-                    plans.push(((*name).into(), vec![s]));
+                    plans.push(((*name).into(), Plan::Stems(vec![s])));
                 }
             }
         }
         let mut outputs = Vec::with_capacity(plans.len());
-        for (name, stems) in plans {
+        for (name, plan) in plans {
             let path = out_dir.join(format!("{name}.{}", format.extension()));
             let backend = match format {
                 OutputFormat::Wav => {
@@ -96,7 +108,7 @@ impl FileSink {
             outputs.push(Output {
                 name,
                 path,
-                stems,
+                plan,
                 backend,
             });
         }
@@ -108,12 +120,21 @@ impl FileSink {
 }
 
 impl StemSink for FileSink {
-    fn write(&mut self, block: &[Vec<f32>], n: usize) -> Result<()> {
+    fn write(&mut self, block: &[Vec<f32>], mix: (&[f32], &[f32]), n: usize) -> Result<()> {
         debug_assert_eq!(block.len(), NUM_SOURCES * 2);
+        debug_assert!(mix.0.len() >= n && mix.1.len() >= n);
         for out in &mut self.outputs {
             for i in 0..n {
                 for ch in 0..2 {
-                    let v: f32 = out.stems.iter().map(|&s| block[s * 2 + ch][i]).sum();
+                    let v: f32 = match &out.plan {
+                        Plan::Stems(stems) => {
+                            stems.iter().map(|&s| block[s * 2 + ch][i]).sum()
+                        }
+                        Plan::MixMinus(s) => {
+                            let m = if ch == 0 { mix.0[i] } else { mix.1[i] };
+                            m - block[s * 2 + ch][i]
+                        }
+                    };
                     match &mut out.backend {
                         Backend::Wav(w) => w.write_sample(v)?,
                         Backend::Flac(buf) => {
@@ -183,14 +204,17 @@ mod tests {
     }
 
     #[test]
-    fn wav_sink_writes_vocals_and_instrumental_sum() {
+    fn wav_sink_writes_vocals_and_mix_minus_vocals_instrumental() {
         let dir = std::env::temp_dir().join("karaoke-core-test-sink1");
         let _ = std::fs::remove_dir_all(&dir);
         let mut sink = FileSink::new(&dir, OutputFormat::Wav, false).unwrap();
         let n = 1000;
         // stem s, channel ch, sample i -> (s+1) * 0.01 (constant per stem)
         let b = block(n, |sc, _i| ((sc / 2) as f32 + 1.0) * 0.01);
-        sink.write(&b, n).unwrap();
+        // Distinct L/R mix so a channel swap in MixMinus would be caught.
+        let mix_l = vec![0.5f32; n];
+        let mix_r = vec![0.25f32; n];
+        sink.write(&b, (&mix_l, &mix_r), n).unwrap();
         let files = sink.finalize().unwrap();
         assert_eq!(files.len(), 2);
 
@@ -201,7 +225,25 @@ mod tests {
 
         let mut r = hound::WavReader::open(dir.join("instrumental.wav")).unwrap();
         let v: Vec<f32> = r.samples::<f32>().map(|s| s.unwrap()).collect();
-        assert!((v[0] - 0.06).abs() < 1e-6); // 0.01+0.02+0.03
+        // instrumental = mix − vocals, per channel
+        assert!((v[0] - (0.5 - 0.04)).abs() < 1e-6, "L {}", v[0]);
+        assert!((v[1] - (0.25 - 0.04)).abs() < 1e-6, "R {}", v[1]);
+    }
+
+    #[test]
+    fn all_stems_outputs_stay_raw_model_stems() {
+        let dir = std::env::temp_dir().join("karaoke-core-test-sink3");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut sink = FileSink::new(&dir, OutputFormat::Wav, true).unwrap();
+        let n = 100;
+        let b = block(n, |sc, _i| ((sc / 2) as f32 + 1.0) * 0.01);
+        let mix = vec![0.9f32; n];
+        sink.write(&b, (&mix, &mix), n).unwrap();
+        sink.finalize().unwrap();
+        // drums.wav must be the raw stem 0 (0.01), untouched by the mix.
+        let mut r = hound::WavReader::open(dir.join("drums.wav")).unwrap();
+        let v: Vec<f32> = r.samples::<f32>().map(|s| s.unwrap()).collect();
+        assert!((v[0] - 0.01).abs() < 1e-6);
     }
 
     #[test]
@@ -213,7 +255,8 @@ mod tests {
         let b = block(n, |sc, i| {
             0.3 * ((sc + 1) as f32 * 0.001 * i as f32).sin()
         });
-        sink.write(&b, n).unwrap();
+        let mix = vec![0.0f32; n];
+        sink.write(&b, (&mix, &mix), n).unwrap();
         sink.finalize().unwrap();
 
         let d = crate::audio::decode_to_stereo_44k(&dir.join("vocals.flac")).unwrap();
