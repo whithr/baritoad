@@ -12,7 +12,8 @@ mod parity;
 
 pub use model::{EpKind, OrtModel, SegmentInfer};
 pub use ola::{
-    blend_weights, norm_stats, segment_count, separate_streamed, SeparateStats, STRIDE,
+    blend_weights, norm_stats, segment_count, separate_streamed, SeparateOptions,
+    SeparateStats, MAX_SHIFT, STRIDE,
 };
 pub use parity::{golden_segment, rms, snr_db, ParityCache, ParityReport, GOLDEN_SNR_THRESHOLD_DB};
 

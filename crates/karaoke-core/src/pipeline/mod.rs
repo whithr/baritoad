@@ -712,6 +712,7 @@ fn run_separate_stage(
         decoded.len,
         &mut model,
         &mut sink,
+        separation::SeparateOptions::default(),
         &mut |done, total| {
             on_event(&PipelineEvent::StageProgress {
                 stage: StageId::Separate,

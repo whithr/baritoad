@@ -301,6 +301,16 @@ struct SeparateArgs {
     #[arg(long)]
     all_stems: bool,
 
+    /// Segment overlap fraction, 0..=0.9 (higher = fewer seam artifacts,
+    /// ~1/(1-overlap)x inference time; demucs default 0.25)
+    #[arg(long, default_value_t = 0.25)]
+    overlap: f32,
+
+    /// Pinned-shift passes to average (demucs shift trick, made
+    /// deterministic; 0 = off, each pass costs one full inference sweep)
+    #[arg(long, default_value_t = 0)]
+    shifts: usize,
+
     /// Print a machine-readable JSON summary to stdout
     #[arg(long)]
     json: bool,
@@ -457,6 +467,7 @@ fn separate_file(
     ep: EpChoice,
     format: OutputFormat,
     all_stems: bool,
+    opts: separation::SeparateOptions,
 ) -> Result<SeparationRun, Box<dyn std::error::Error>> {
     let model_path = model_dir.join(MODEL_FILE_NAME);
     let parity_cache = separation::default_parity_cache_path();
@@ -518,6 +529,7 @@ fn separate_file(
         decoded.len,
         &mut model,
         &mut sink,
+        opts,
         &mut |done, total| {
             eprint!("\rseparating: {done}/{total} segments");
             let _ = std::io::stderr().flush();
@@ -571,6 +583,10 @@ fn run_separate(args: &SeparateArgs) -> Result<(), Box<dyn std::error::Error>> {
         args.ep.into(),
         args.format.into(),
         args.all_stems,
+        separation::SeparateOptions {
+            overlap: args.overlap,
+            shifts: args.shifts,
+        },
     )?;
     let total_s = t_total.elapsed().as_secs_f64();
 
@@ -670,6 +686,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
                     args.ep.into(),
                     OutputFormat::Wav,
                     false,
+                    separation::SeparateOptions::default(),
                 )?;
                 let p = run
                     .vocals_path()
