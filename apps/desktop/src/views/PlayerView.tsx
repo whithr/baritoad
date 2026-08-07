@@ -457,7 +457,11 @@ export default function PlayerView(props: {
   const nudgeGuide = useCallback((delta: number) => {
     const st = statusRef.current;
     if (!st) return;
-    playerSetGuide(Math.max(0, Math.min(1, st.guide + delta))).catch((e) => setError(String(e)));
+    // Below 0 the guide over-subtracts the vocal estimate — a deeper cut
+    // into leftover vocal residue (mixer GUIDE_MIN).
+    playerSetGuide(Math.max(-0.5, Math.min(1, st.guide + delta))).catch((e) =>
+      setError(String(e)),
+    );
   }, []);
 
   const nudgePitch = useCallback((delta: number) => {
@@ -675,11 +679,14 @@ export default function PlayerView(props: {
             {status == null ? "LOAD" : status.state === "playing" ? "PLAY" : "PAUS"}
           </span>
           <span className="pk-clock seg" ref={timeRef} />
-          <div className="pk-guide" title="Vocal guide — blend the original vocal back in (↑/↓)">
+          <div
+            className="pk-guide"
+            title="Vocal guide — blend the original vocal back in; below 0 cuts leftover vocal harder (↑/↓)"
+          >
             <span className="label">Guide</span>
             <DashSlider
               ariaLabel="Vocal guide level"
-              min={0}
+              min={-50}
               max={100}
               step={5}
               value={Math.round((status?.guide ?? 0) * 100)}
@@ -687,7 +694,11 @@ export default function PlayerView(props: {
               onChange={(v) => playerSetGuide(v / 100).catch(() => undefined)}
             />
             <span className="pk-guide-val">
-              {status?.single_source ? "n/a" : `${Math.round((status?.guide ?? 0) * 100)}%`}
+              {status?.single_source
+                ? "n/a"
+                : (status?.guide ?? 0) < 0
+                  ? `cut ${Math.round(-(status?.guide ?? 0) * 100)}%`
+                  : `${Math.round((status?.guide ?? 0) * 100)}%`}
             </span>
           </div>
           <div className="pk-stepper" title="Key change, ±6 semitones (− / +)">

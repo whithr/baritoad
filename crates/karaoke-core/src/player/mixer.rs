@@ -20,6 +20,15 @@ use std::sync::Arc;
 /// long enough that a full 0→1 step never produces an audible click.
 pub const GUIDE_RAMP_SECONDS: f64 = 0.010;
 
+/// Lower bound of the vocal-guide range. [0, 1] blends the vocal stem back
+/// in; negative over-subtracts it: the instrumental is exactly
+/// mix − vocal-estimate, so out = mix − (1 − g)·estimate, and g < 0 cuts
+/// deeper into vocal residue the model under-extracted (the residue shares
+/// the estimate's spectrum, so scaled subtraction partially cancels it).
+/// Bounded at −0.5 — beyond ~1.5× subtraction the phase-inverted vocal ghost
+/// grows faster than the residue shrinks.
+pub const GUIDE_MIN: f32 = -0.5;
+
 /// Master (pause/seek/stop) ramp length in seconds.
 pub const MASTER_RAMP_SECONDS: f64 = 0.005;
 
@@ -134,7 +143,7 @@ impl MixerCore {
         Self {
             sources,
             cursor: 0,
-            guide: SmoothedGain::new(guide_gain.clamp(0.0, 1.0)),
+            guide: SmoothedGain::new(guide_gain.clamp(GUIDE_MIN, 1.0)),
             master: SmoothedGain::new(0.0),
             playing: false,
             pending_seek: None,
@@ -160,9 +169,10 @@ impl MixerCore {
         }
     }
 
-    /// Controller intent: vocal-guide blend in [0, 1], click-free.
+    /// Controller intent: vocal-guide blend in [[`GUIDE_MIN`], 1], click-free
+    /// (negative = deeper vocal cut, see [`GUIDE_MIN`]).
     pub fn set_guide_gain(&mut self, gain: f32) {
-        let gain = gain.clamp(0.0, 1.0);
+        let gain = gain.clamp(GUIDE_MIN, 1.0);
         if gain != self.guide.target() {
             self.guide.set_target(gain, self.guide_ramp_samples());
         }
@@ -446,6 +456,25 @@ mod tests {
         let mut big = vec![0.0f32; 2 * 2000];
         let o5 = m.render(&mut big, 2);
         assert!(o5.completed, "completion did not re-arm after seek");
+    }
+
+    #[test]
+    fn negative_guide_over_subtracts_vocals_click_free() {
+        // inst 0.4 (= mix − estimate), voc 0.2; guide −0.5 must settle at
+        // 0.4 − 0.5·0.2 = 0.3 with no click on the way down.
+        let mut m = MixerCore::new(dc_sources(RATE as usize, 0.4, 0.2), RATE, 0.0);
+        m.set_playing(true);
+        let _ = render_secs(&mut m, 0.05);
+        m.set_guide_gain(-0.5);
+        let (out, _) = render_secs(&mut m, 0.02);
+        let d = max_delta(&out);
+        assert!(d < 0.005, "negative-guide ramp click: max delta {d}");
+        let last = out[out.len() - 2];
+        assert!((last - 0.3).abs() < 1e-4, "over-subtraction level {last}");
+        // Clamp: below GUIDE_MIN is held at GUIDE_MIN.
+        m.set_guide_gain(-5.0);
+        let _ = render_secs(&mut m, 0.05);
+        assert_eq!(m.guide.target(), GUIDE_MIN);
     }
 
     #[test]

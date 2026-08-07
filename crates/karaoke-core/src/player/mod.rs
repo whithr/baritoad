@@ -455,12 +455,14 @@ impl Player {
         self.shared.seek_id.fetch_add(1, Ordering::Release);
     }
 
-    /// Vocal-guide blend in [0, 1]; takes effect mid-playback via a ~10 ms
-    /// ramp (click-free). No-op in single-source fallback mode.
+    /// Vocal-guide blend in [[`mixer::GUIDE_MIN`], 1]; negative =
+    /// over-subtraction, a deeper cut into leftover vocal residue (see
+    /// [`mixer::GUIDE_MIN`]). Takes effect mid-playback via a ~10 ms ramp
+    /// (click-free). No-op in single-source fallback mode.
     pub fn set_vocal_guide(&self, gain: f32) {
         self.shared
             .guide_bits
-            .store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+            .store(gain.clamp(mixer::GUIDE_MIN, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     pub fn vocal_guide(&self) -> f32 {
