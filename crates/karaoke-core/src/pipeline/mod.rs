@@ -268,7 +268,9 @@ pub fn generate(
     // stage 1: separate
     // =====================================================================
     let stems_dir = out_dir.join("stems");
-    let model_paths = req.sep_model.paths(&model_dir);
+    // paths_for(false): the pipeline writes vocals + instrumental only, so
+    // ft loads just its vocals sub-model (single session — DirectML-safe).
+    let model_paths = req.sep_model.paths_for(&model_dir, false);
     // Single-file model keeps the scalar fingerprint shape so existing
     // manifests stay valid; a bag hashes every file.
     let model_id = if model_paths.len() == 1 {

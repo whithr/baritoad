@@ -502,7 +502,6 @@ fn separate_file(
     opts: separation::SeparateOptions,
     model: separation::ModelKind,
 ) -> Result<SeparationRun, Box<dyn std::error::Error>> {
-    let model_paths = model.paths(model_dir);
     let parity_cache = separation::default_parity_cache_path();
 
     eprintln!("decoding {} ...", audio_path.display());
@@ -519,6 +518,41 @@ fn separate_file(
         decoded.source_channels,
         decode_s
     );
+
+    // Pass plan: normally one pass over one resident session set. htdemucs_ft
+    // with --all-stems must never hold four sessions at once on a GPU
+    // (ModelKind docs: VRAM peak hangs the device) — it stages one sub-model
+    // at a time, dropping each session before the next; the vocals pass also
+    // writes the instrumental (mix − vocals).
+    enum PassSink {
+        Main { all_stems: bool },
+        Single { stem: usize, name: &'static str },
+    }
+    type Pass = (Vec<PathBuf>, PassSink, Option<&'static str>);
+    let passes: Vec<Pass> = if model == separation::ModelKind::HtdemucsFt && all_stems {
+        (0..separation::NUM_SOURCES)
+            .map(|k| {
+                (
+                    vec![model_dir.join(separation::FT_MODEL_FILE_NAMES[k])],
+                    if k == separation::VOCALS_INDEX {
+                        PassSink::Main { all_stems: false }
+                    } else {
+                        PassSink::Single {
+                            stem: k,
+                            name: separation::SOURCES[k],
+                        }
+                    },
+                    Some(separation::SOURCES[k]),
+                )
+            })
+            .collect()
+    } else {
+        vec![(
+            model.paths_for(model_dir, all_stems),
+            PassSink::Main { all_stems },
+            None,
+        )]
+    };
 
     let mut on_event = |e: &Event| match e {
         Event::ModelInit { ep } => eprintln!("loading model on {ep} ..."),
@@ -550,49 +584,85 @@ fn separate_file(
         }
         Event::Note(n) => eprintln!("  note: {n}"),
     };
-    let prepared =
-        separation::prepare_model(&model_paths, ep, Some(&parity_cache), &mut on_event)?;
-    let ep_used = prepared.model.ep;
+    let mut files: Vec<OutputFile> = Vec::new();
+    let mut reports: Vec<ParityReport> = Vec::new();
+    let mut ep_used: Option<separation::EpKind> = None;
+    let mut segments = 0usize;
+    let mut infer_seconds = 0.0f64;
+    let mut model_init_s = 0.0f64;
+    let mut parity_s = 0.0f64;
+    let mut separate_s = 0.0f64;
+    let mut write_s = 0.0f64;
 
-    let mut sink = FileSink::new(out_dir, format, all_stems)?;
-    let t1 = Instant::now();
-    let mut model = prepared.model;
-    let stats = separation::separate_streamed(
-        &decoded.samples,
-        decoded.len,
-        &mut model,
-        &mut sink,
-        opts,
-        &mut |done, total| {
-            eprint!("\rseparating: {done}/{total} segments");
-            let _ = std::io::stderr().flush();
-        },
-    )?;
-    eprintln!();
-    let separate_s = t1.elapsed().as_secs_f64();
-    let t2 = Instant::now();
-    let files = sink.finalize()?;
-    let write_s = t2.elapsed().as_secs_f64();
-    eprintln!(
-        "separation done: {} segments in {:.1}s (inference {:.1}s, {ep_used})",
-        stats.segments, separate_s, stats.infer_seconds
-    );
+    for (paths, sink_spec, label) in passes {
+        if let Some(l) = label {
+            eprintln!("[{l} sub-model]");
+        }
+        let prepared =
+            separation::prepare_model(&paths, ep, Some(&parity_cache), &mut on_event)?;
+        let pass_ep = prepared.model.ep;
+        ep_used.get_or_insert(pass_ep);
+        model_init_s += prepared.init_seconds;
+        parity_s += prepared.parity_seconds;
+        reports.extend(prepared.reports);
+
+        let mut sink = match sink_spec {
+            PassSink::Main { all_stems } => FileSink::new(out_dir, format, all_stems)?,
+            PassSink::Single { stem, name } => {
+                FileSink::single_stem(out_dir, format, stem, name)?
+            }
+        };
+        let t1 = Instant::now();
+        let mut pass_model = prepared.model;
+        let stats = separation::separate_streamed(
+            &decoded.samples,
+            decoded.len,
+            &mut pass_model,
+            &mut sink,
+            opts,
+            &mut |done, total| {
+                match label {
+                    Some(l) => eprint!("\rseparating [{l}]: {done}/{total} segments"),
+                    None => eprint!("\rseparating: {done}/{total} segments"),
+                }
+                let _ = std::io::stderr().flush();
+            },
+        )?;
+        eprintln!();
+        // Free the session (and its GPU memory) before the next staged pass
+        // builds one — the whole point of staging.
+        drop(pass_model);
+        let pass_separate_s = t1.elapsed().as_secs_f64();
+        separate_s += pass_separate_s;
+        let t2 = Instant::now();
+        files.extend(sink.finalize()?);
+        write_s += t2.elapsed().as_secs_f64();
+        segments += stats.segments;
+        eprintln!(
+            "separation pass done: {} segments in {:.1}s (inference {:.1}s, {pass_ep})",
+            stats.segments, pass_separate_s, stats.infer_seconds
+        );
+        infer_seconds += stats.infer_seconds;
+    }
     for f in &files {
         eprintln!("  wrote {}", f.path.display());
     }
 
     Ok(SeparationRun {
         files,
-        stats,
-        ep_used,
-        reports: prepared.reports,
+        stats: SeparateStats {
+            segments,
+            infer_seconds,
+        },
+        ep_used: ep_used.expect("at least one separation pass"),
+        reports,
         duration_s: decoded.duration_seconds(),
         source_sample_rate: decoded.source_sample_rate,
         source_channels: decoded.source_channels,
         decode_notes: decoded.notes,
         decode_s,
-        model_init_s: prepared.init_seconds,
-        parity_s: prepared.parity_seconds,
+        model_init_s,
+        parity_s,
         separate_s,
         write_s,
     })
@@ -626,7 +696,7 @@ fn run_separate(args: &SeparateArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     if args.json {
         let model: separation::ModelKind = args.model.into();
-        let model_paths = model.paths(&model_dir);
+        let model_paths = model.paths_for(&model_dir, args.all_stems);
         let summary = serde_json::json!({
             "input": args.audio,
             "duration_s": run.duration_s,

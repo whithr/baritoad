@@ -117,6 +117,41 @@ impl FileSink {
             finalized: false,
         })
     }
+
+    /// A sink writing exactly one raw model stem to `<name>.<ext>` — used by
+    /// staged htdemucs_ft passes, where each sub-model runs alone and only
+    /// its specialty stem is trustworthy (one-hot bag weights).
+    pub fn single_stem(
+        out_dir: &Path,
+        format: OutputFormat,
+        stem: usize,
+        name: &str,
+    ) -> Result<Self> {
+        assert!(stem < NUM_SOURCES);
+        std::fs::create_dir_all(out_dir)?;
+        let path = out_dir.join(format!("{name}.{}", format.extension()));
+        let backend = match format {
+            OutputFormat::Wav => {
+                let spec = hound::WavSpec {
+                    channels: 2,
+                    sample_rate: SAMPLE_RATE,
+                    bits_per_sample: 32,
+                    sample_format: hound::SampleFormat::Float,
+                };
+                Backend::Wav(hound::WavWriter::create(&path, spec)?)
+            }
+            OutputFormat::Flac => Backend::Flac(Vec::new()),
+        };
+        Ok(Self {
+            outputs: vec![Output {
+                name: name.into(),
+                path,
+                plan: Plan::Stems(vec![stem]),
+                backend,
+            }],
+            finalized: false,
+        })
+    }
 }
 
 impl StemSink for FileSink {

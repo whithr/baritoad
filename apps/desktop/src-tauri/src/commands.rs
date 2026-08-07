@@ -121,18 +121,19 @@ pub async fn generate_song(
     // req.ep stays EpChoice::Auto (module docs: DML separation, CPU alignment).
 
     if request.hq_separation {
-        // Base model, tighter overlap, 2 pinned shifts: ~3x standard cost on
-        // a single DML session. Deliberately NOT the htdemucs_ft bag: four
-        // resident DML sessions exhausted VRAM and hung the GPU driver
-        // (DXGI_ERROR_DEVICE_HUNG -> TDR reset, RTX 2080 Super 8 GB,
-        // 2026-08-06) right after the bag passed golden parity — the parity
-        // gate can't catch it because arenas only peak once all four
-        // sub-models have run. ft stays CLI-only (`--model htdemucs-ft`,
-        // fine on CPU) until multi-session DML memory is solved.
+        // ~3x standard cost either way, always ONE resident session (the
+        // DirectML-safe profile — four resident ft sessions once hung the
+        // GPU; see ModelKind::HtdemucsFt docs). The pipeline only needs the
+        // vocals + instrumental outputs, so "the ft model" here is just its
+        // vocals-specialized sub-model.
         req.sep_options = separation::SeparateOptions {
             overlap: 0.5,
             shifts: 2,
         };
+        let model_dir = separation::default_model_dir();
+        if separation::ModelKind::HtdemucsFt.available_for_default(&model_dir) {
+            req.sep_model = separation::ModelKind::HtdemucsFt;
+        }
     }
 
     Ok(queue.enqueue(&app, req, title, artist, out_dir))

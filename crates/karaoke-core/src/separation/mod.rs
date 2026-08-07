@@ -42,15 +42,17 @@ pub enum ModelKind {
     /// Base htdemucs: one ONNX file, one inference sweep per segment.
     #[default]
     Htdemucs,
-    /// htdemucs_ft: four fine-tuned ONNX files (one per source), four sweeps
-    /// per segment — the "high quality" model.
+    /// htdemucs_ft, the fine-tuned "high quality" model. The default outputs
+    /// (vocals + instrumental = mix − vocals) depend only on the
+    /// vocals-specialized sub-model, so [`Self::paths_for`]`(false)` loads
+    /// exactly one session — the same memory profile as the base model.
     ///
-    /// DirectML caveat (measured 2026-08-06, RTX 2080 Super 8 GB): four
-    /// resident DML sessions exhaust VRAM once every arena has grown —
-    /// golden parity passes (arenas peak one at a time) and then the first
-    /// real segment hangs the device (DXGI_ERROR_DEVICE_HUNG → TDR driver
-    /// reset). Until sessions share memory or run staged, use this kind on
-    /// CPU only; nothing in the app auto-selects it.
+    /// Never hold all four sub-model sessions resident on DirectML: that
+    /// exhausted the 8 GB RTX 2080 Super once every arena had grown and hung
+    /// the device (DXGI_ERROR_DEVICE_HUNG → TDR driver reset, 2026-08-06) —
+    /// after golden parity passed, because arenas peak one at a time during
+    /// the check. Raw per-stem output (`--all-stems`) must run the
+    /// sub-models sequentially, dropping each session before the next.
     HtdemucsFt,
 }
 
@@ -62,7 +64,7 @@ impl ModelKind {
         }
     }
 
-    /// The ONNX files this kind loads from `model_dir`, in load order.
+    /// Every ONNX file belonging to this kind, in [`SOURCES`] order.
     pub fn paths(&self, model_dir: &Path) -> Vec<PathBuf> {
         match self {
             ModelKind::Htdemucs => vec![model_dir.join(MODEL_FILE_NAME)],
@@ -73,9 +75,30 @@ impl ModelKind {
         }
     }
 
+    /// The files one *resident session set* needs. Without `all_stems`, ft
+    /// loads only the vocals sub-model — vocals + instrumental (mix − vocals)
+    /// never touch the other three, and one session is the DirectML-safe
+    /// profile (see the [`ModelKind::HtdemucsFt`] docs). With `all_stems`,
+    /// callers must NOT load the returned set at once: stage the sub-models
+    /// one at a time.
+    pub fn paths_for(&self, model_dir: &Path, all_stems: bool) -> Vec<PathBuf> {
+        match self {
+            ModelKind::Htdemucs => self.paths(model_dir),
+            ModelKind::HtdemucsFt if !all_stems => {
+                vec![model_dir.join(FT_MODEL_FILE_NAMES[VOCALS_INDEX])]
+            }
+            ModelKind::HtdemucsFt => self.paths(model_dir),
+        }
+    }
+
     /// True when every file this kind needs exists in `model_dir`.
     pub fn available(&self, model_dir: &Path) -> bool {
         self.paths(model_dir).iter().all(|p| p.is_file())
+    }
+
+    /// True when the files for the default (non-all-stems) outputs exist.
+    pub fn available_for_default(&self, model_dir: &Path) -> bool {
+        self.paths_for(model_dir, false).iter().all(|p| p.is_file())
     }
 }
 
