@@ -59,6 +59,9 @@ pub struct PlayerStatus {
     /// Original-song seconds (PlayerClock — the §5 time base).
     pub position: f64,
     pub duration: f64,
+    /// Original-song seconds already decoded and playable (streaming load
+    /// progress; == duration once the background fill completes).
+    pub loaded_seconds: f64,
     pub guide: f32,
     pub pitch: f32,
     pub tempo: f64,
@@ -149,6 +152,7 @@ impl Host {
                 state: "unloaded",
                 position: 0.0,
                 duration: 0.0,
+                loaded_seconds: 0.0,
                 guide: 0.0,
                 pitch: 0.0,
                 tempo: 1.0,
@@ -173,6 +177,7 @@ impl Host {
                     },
                     position: p.clock().position_seconds(),
                     duration: p.duration_seconds(),
+                    loaded_seconds: p.loaded_seconds(),
                     guide: p.vocal_guide(),
                     pitch: p.pitch_semitones(),
                     tempo: p.tempo_rate(),
@@ -204,6 +209,15 @@ impl Host {
             .map(|p| p.state() == TransportState::Playing)
             .unwrap_or(false)
     }
+
+    /// A streaming load's background fill is still running — keep periodic
+    /// status flowing so the UI sees `loaded_seconds` grow even while paused.
+    fn loading(&self) -> bool {
+        self.player
+            .as_ref()
+            .map(|p| p.loaded_seconds() < p.duration_seconds())
+            .unwrap_or(false)
+    }
 }
 
 fn run_host(app: AppHandle, rx: Receiver<PlayerCmd>) {
@@ -233,7 +247,7 @@ fn run_host(app: AppHandle, rx: Receiver<PlayerCmd>) {
 
         match cmd {
             Err(RecvTimeoutError::Timeout) => {
-                if host.playing() {
+                if host.playing() || host.loading() {
                     emit_status(&app, &host);
                 }
             }

@@ -282,9 +282,11 @@ machine's own voice: italic, tabular, segment-display numerals used strictly
 as instrument chrome.
 
 ### Hierarchy
-- **Display** (700, clamp(34px, 4.6vw, 62px), 1.25): the player's current
-  lyric line — sized for couch distance. Resting lines are clamp(22px,
-  2.6vw, 34px) at 600; review-preview lines are 30px/700.
+- **Display** (700, visually clamp(35px, 4.6vw, 62px), 1.25): the player's
+  current lyric line — sized for couch distance, laid out at the display
+  size (clamp(35.2px, 4.6vw, 62px)) with resting lines at scale(0.625), so
+  layout never re-wraps and the focal line rasterizes at identity transform
+  (player section). Review-preview lines are 30px/700.
 - **Title** (700, 19px, 0.14em, uppercase): module titles (h1) silk-screened
   onto the panel with a seam rule below; the brand wordmark (17px) shares
   this voice.
@@ -326,9 +328,15 @@ vertically masked (transparent → solid 12%–82% → transparent) and lyric ty
 scales with the viewport via clamp.
 
 Motion is quick and mechanical: 120ms (`--t-fast`) for key/lamp state, 240ms
-(`--t-med`) reserved, 200–300ms for player line growth and chrome fades, all
-on `cubic-bezier(0.16, 1, 0.3, 1)`. `prefers-reduced-motion` collapses every
-transition and animation to 0.01ms.
+(`--t-med`) reserved, all on `cubic-bezier(0.16, 1, 0.3, 1)`. The player is
+the deliberate exception (owner call 2026-08-07: slower, smoother): line
+growth is a 460ms transform scale on a zero-launch S-curve
+(`cubic-bezier(0.45, 0, 0.15, 1)` — the world's ease-out starts at max
+velocity, which reads as a pop at display size), chrome fades 420ms, and the
+lyric scroll is a critically damped spring (ω 8 s⁻¹ ≈ the old 260ms pace)
+whose velocity survives retargeting, so line switches bend the glide instead
+of kicking it. `prefers-reduced-motion` collapses every transition and
+animation to 0.01ms.
 
 ## Elevation & Depth
 
@@ -412,7 +420,7 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 ### Annunciator Strips (banners / confirm / advisory)
 - **Style:** wash-filled strips with a family lamp dot: red wash + red-dim seam for errors, cyan wash + cyan-dim seam for notices, amber wash + amber-dim seam for advisories ("look here first").
 - **Confirm strip:** destructive confirms are an in-world red annunciator with its own keys (danger key + cancel), `role="alertdialog"`, Escape to cancel, initial focus on Cancel — replacing system dialogs.
-- **Advisory strip:** the amber variant carries a nudge plus its membrane keys and may unfold an inline panel (e.g. the song detail's auto-transcribed-lyrics strip unfolds a paste-lyrics well + cleanup preview; submitting re-runs cleanup/align/export against the reused stems). The page's single amber primary key stays elsewhere — advisory keys are membrane-gray.
+- **Advisory strip:** the amber variant carries a nudge plus its membrane keys and may unfold an inline panel (e.g. the review bench's auto-transcribed-lyrics strip unfolds a paste-lyrics well + cleanup preview; submitting re-runs cleanup/align/export against the reused stems). The page's single amber primary key stays elsewhere — advisory keys are membrane-gray.
 
 ### Icons
 - **Grammar:** one grammar for the whole dash — 16×16 grid, 1.75 stroke, square caps, miter joins; angular instrument pictograms, not rounded consumer glyphs. Fill is reserved for the solid transport marks (play/pause), small square dot-clusters (dots, grip, queue lamps, jobs meters), and the brand mark; everything else is stroked. `currentColor` throughout.
@@ -495,7 +503,7 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Console (sticky):** the toolbar (transport, source, Preview, undo/redo,
   Re-align, Save), global seek bar, and the editing key row — word keys
   (Retype / + Word / Remove), line keys (Edit line / Break here / Join up /
-  Reflow lines), and exports with freshness badges — pin to the top of the
+  Reflow lines), and the export menu — pin to the top of the
   scrollport on solid ground with a seam + panel shadow; the line tracks
   scroll beneath. Error/busy/confirm strips render inside the console so
   they are always visible.
@@ -507,8 +515,11 @@ timebars are rectangles with segment gaps cut by repeating gradients.
 - **Character:** the playback check — words on the display glass are live
   instruments; the controls live on the console below, never floating on
   the glass. Big current line with prev/next context lines, couch-readable
-  type. Reached from the Timeline Editor's "Preview" key or the detail
-  page; fixes made while listening stay first-class.
+  type. The home surface for reviewed songs (opening one from the library
+  lands here) and the Timeline Editor's "Preview" hop; fixes made while
+  listening stay first-class. There is no separate detail page — the bench
+  carries the song's actions, including the auto-transcribed-lyrics
+  advisory strip when the song needs it.
 - **Word states:** sung = cyan; active = the cyan wipe (same fill-edge
   mechanic as the player — the fill is the word's final sung color, so the
   sweep lands seamlessly; owner call 2026-08-06); selected = cyan seam ring
@@ -545,16 +556,59 @@ timebars are rectangles with segment gaps cut by repeating gradients.
   8-word cap — the poetic karaoke line shape — and gives structure to maps
   that never had lines. All line ops renumber canonically (validator-safe)
   and take one undo entry.
-- **Flow:** "Looks good" (the one amber key, chamfered) saves fixes +
-  marks reviewed; "Timeline editor" is the linkish hop back to the main
-  editor; dirty exits are guarded by a ConfirmStrip. Full keyboard: Space,
-  arrows, Enter, Del, Ctrl+Z/Y.
+- **Flow:** one amber key, picked by review state — an unreviewed song
+  (mid-review) keeps "Looks good" (saves fixes + marks reviewed); a
+  reviewed song's primary is "Sing it" (saves fixes first, then the
+  full-screen player), with a membrane "Save fixes" key for saving in
+  place. "Timeline editor" and the **export menu** (one membrane key
+  opening a dash popup — LRC / ASS / UltraStar rows with current/stale
+  freshness badges, an amber advisory lamp on the trigger while any
+  existing export is stale) are membrane keys; "Back to library" is the
+  linkish exit. Dirty exits are guarded by a ConfirmStrip. Full keyboard:
+  Space, arrows, Enter, Del, Ctrl+Z/Y.
 
 ### Full-Screen Player (signature)
 - **Character:** the night-mode cockpit — a fixed overlay on the well, with the song cover blurred to a dim backdrop (blur 48px, brightness 0.22) under a radial scrim.
-- **Lyrics:** centered lines in a masked viewport; current line grows to display size (clamp 34–62px); sung words glow cyan (`0 0 22px cyan-glow`), the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat, painting the word its final sung cyan so the sweep lands seamlessly — and unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone.
+- **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform** (owner call 2026-08-10: the resting-`scale(0.625)` → identity grow read as a zoom-in and could carry the lead-in pips off-screen mid-transition; removed — the current line voices full text color at opacity 1, resting lines dim to 0.45, over 460ms on the player's S-curve). **One row per lyric line** (owner call 2026-08-10: a wrapped line reads as a line break and wrong-foots the singer): lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame, so wrap points stay state-invariant and the Four-Hook contract is untouched); a rare line past the 0.55 fit floor keeps the floor size and wraps after all (`data-overlong`) — couch legibility outranks the single row. Never animate font-size (it re-wraps words mid-transition). Sung words glow cyan (`0 0 35px cyan-glow` at layout scale — the old 22px visual), the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat, painting the word its final sung cyan so the sweep lands seamlessly — and unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone. The sung glow arrives *with* the letters: a `::before` shadow layer on the active word, masked to the wipe fraction with a 32px feathered edge whose travel ends at 100% of the inflated box, so at full wipe the mask is completely open and the flip to `.sung` is pixel-identical (the old travel stopped short — the clipped right end of the glow popped in at every word end). The player also opts out of the review bench's 80ms `.k-word` color tween (`transition: none`): the wipe already painted the word its final cyan, so the tween repainted finished words white→cyan — the "flashes complete" flash (both owner-reported, fixed 2026-08-07 second pass). During a pause the highlight cursor never parks-and-teleports: the finished word holds through the 0.25s grace, then the upcoming word's glow layer eases in (`--glow-in` opacity on the same `::before`, fill pinned at 0) across the last 0.6s before its onset — the glow travels to the next word while the fill edge stays beat-true. Rows are equally pause-proof: the scroll pre-rolls the next line only once the current line's last word is sung, so a mid-line pause inside the next line's lead window can't bounce the view forward and back (owner-reported, fixed 2026-08-07 third pass).
+- **Wait cues:** long instrumental gaps (≥5 s) get a **wait-meter row** between the lines — a `WAIT` SegWord annunciator, a draining segmented amber meter, and a whole-second DSEG readout — dim at rest (previewing the full wait), voiced amber while counting, and the scroll centers it mid-gap. Lines that start after ≥2.5 s of silence carry **lead-in pips**: three square amber lamps (the 8px lamp grammar — 13px CSS at the line subtree's display-scale layout) on a zero-width anchor left of the first word, counting 3-2-1 through the last three seconds (extinguishing toward the word). Amber in both is the live voice: this is what's happening *right now*. Logic in playerView.ts (`gapCues`/`cueLineFlags`/`pipsLitAt`).
 - **Console:** a bottom gradient console with the segmented amber timebar, transport key, amber DSEG-voiced clock (with glow), the vocal-guide fader, and key/tempo stepper readouts (cyan value in a bezel). Chrome auto-hides (opacity fade + `cursor: none`); everything is keyboard-operable.
-- **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe` CSS var on the active word, (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks.
+- **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe`/`--wipe-n` CSS vars on the active word — or, in a pause when that hook is idle, `--glow-in` on the single word being approached — (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks. *Amended 2026-08-07 for the wait cues:* (5) `width` + whole-second `textContent` on the counting gap row's meter/readout and its `counting` class at gap boundaries, and (6) `data-lit` on the upcoming line's pip anchor, mutated only on count change. The amendment still touches at most one small element per hook per frame; the 60fps claim for the amended set awaits a re-run of the player measurement harness.
+
+### Player Themes (user content zone)
+- **Model:** a theme is data (src/themes.ts) — background spec (cover blur /
+  flat color / imported image with blur+dim), lyric colors (resting / sung /
+  accent), glow strength, font, pips toggle, visualizer mode — applied to
+  the player stage as CSS vars (`--th-*`) plus a static background layer.
+  Resolution: song pin → app default → Digital Dash; the fallbacks in
+  styles.css equal the Digital Dash look exactly. Stored in one
+  localStorage blob; built-in presets are code. Background images are
+  imported into `%LOCALAPPDATA%\karaoke\themes` and served as data URLs
+  (CSP allows `data:` only; src-tauri/theme.rs, read_cover guard pattern).
+- **Content exemption:** like cover art, theme colors are user CONTENT —
+  exempt from the Five-Glow Rule *inside the player stage*. The app's own
+  chrome (console, header, every other surface) stays Digital Dash.
+- **Guardrails (code, not knobs):** unsung words stay italic + dimmed
+  whatever the palette (sung/unsung never hue alone — PRODUCT.md); text
+  sizes are not themable (couch-readable floor); the editor shows a live
+  WCAG AA contrast badge per text color and voices failures in the red
+  family.
+- **Visualizer (OFF | PULSE | BARS):** a canvas layer behind the lyric
+  glass driven by the INSTRUMENTAL's precomputed peak envelope (the
+  vocal_levels sidecar) sampled through the player clock — deterministic,
+  tempo-proof, no live audio tap. Single-band energy with deterministic
+  per-bar phasing (honest: not a spectrum; a spectral tap is the v2
+  upgrade). Off under `prefers-reduced-motion`. *Four-Hook amendment:* one
+  bounded canvas draw per frame joins the hook set; the 60fps claim for
+  the amended set awaits a re-run of the player measurement harness on
+  real hardware.
+- **Editor (THEMES in the selector pod):** the rack (built-ins + user
+  copies; duplicate-to-customize, built-ins immutable), a live preview
+  that IS the player (`.player-stage.theme-preview` un-fixes the real
+  stage CSS into a display well, with a looping demo wipe and synthetic
+  visualizer levels), and knob rows in the instrument grammar. Set-as-
+  default lives here; per-song pinning lives in the player's advanced
+  panel. Deleting a theme falls pinned songs back to the default via a
+  ConfirmStrip.
 
 ### Deferred (open items, not yet built — do not treat absence as a rule)
 - Live stem VU meters await level data from the audio engine (the natural home of the full green→amber→red ladder).

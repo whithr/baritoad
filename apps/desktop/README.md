@@ -1,13 +1,30 @@
-# Karaoke desktop app (Phase 2)
+# Karaoke desktop app
 
-Tauri 2 shell over `karaoke-core` — the wizard, job progress, and library
-views for the generate pipeline. All processing is local; the app never
+Tauri 2 shell over `karaoke-core`. The UI is bench-centric: one surface where
+the lyrics sit on the audio (`views/Bench.tsx`, three zoom levels — Text,
+Lanes, Focus), with the library as a drawer and song import landing on the
+same surface (`views/Home.tsx`). The chrome is the "hardware panel" language
+in `src/hw.css` (light/dark, switched in Settings); the TV player keeps its
+own stage themes and the legacy `styles.css`, loaded on demand. All processing is local; the app never
 downloads music, never uploads audio, and ships no lyrics. The code is public
 but the project is **source-available**, not open source (PLAN.md §1, §8).
 
 ## Layout
 
-- `src/` — React 18 + TypeScript frontend (Vite). Plain CSS, no UI framework.
+- `src/` — React 19 + TypeScript frontend (Vite). Plain CSS, no UI framework
+  in the bench/home chrome (`hw.css` + `hw/ui.tsx`); the player still uses
+  `ui.tsx` (Base UI skins) and `styles.css`.
+- `src/views/` — `Home` (library drawer, drop/landing, up-next tray),
+  `Bench` (Lanes / Text / Focus editor), `Settings`, `PlayerView` (TV),
+  `ThemesView` (player stage themes).
+- Pure, tested modules the views sit on: `editorState` (undo/redo + map
+  invariants), `lineEdit`/`docEdit` (line surgery), `previewEditor`
+  (shift scopes), `benchLayout` (lane windows, doubt, view axis),
+  `highlight`, `levels`, `playerClock`/`playerView`, `jobEvents`,
+  `settings`.
+- `dev/mockTauri.ts` + `vite.mock.config.ts` — browser-only harness
+  (`npx vite --config vite.mock.config.ts`) that runs the real UI over a
+  fake Tauri layer for layout work and screenshots; never part of a build.
 - `src-tauri/` — the Rust shell crate (`karaoke-desktop`, a workspace member).
   It links `karaoke-core` directly — the pipeline runs in-process on a worker
   thread, not via the CLI.

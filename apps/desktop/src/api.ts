@@ -218,6 +218,20 @@ export const queueClear = () => invoke<void>("queue_clear");
 export const readCover = (path: string) => invoke<string>("read_cover", { path });
 
 // ---------------------------------------------------------------------------
+// player themes (src-tauri/src/theme.rs — background images only; themes
+// themselves are webview data, see themes.ts)
+// ---------------------------------------------------------------------------
+
+/** Copy a user-picked image into the app's themes dir; returns the stored
+ *  path a ThemeSpec background records. */
+export const themeImportImage = (srcPath: string) =>
+  invoke<string>("theme_import_image", { srcPath });
+
+/** Read an imported theme background as a data URL (CSP allows data: only). */
+export const readThemeImage = (path: string) =>
+  invoke<string>("read_theme_image", { path });
+
+// ---------------------------------------------------------------------------
 // review screen (src-tauri/src/review.rs — preview, fix editor, exports)
 // ---------------------------------------------------------------------------
 
@@ -305,6 +319,9 @@ export interface PlayerStatus {
   state: PlayerTransportState;
   position: number;
   duration: number;
+  /** Original-song seconds already decoded and playable (streaming load
+   *  progress; == duration once the background fill completes). */
+  loaded_seconds: number;
   guide: number;
   pitch: number;
   tempo: number;

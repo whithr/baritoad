@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use symphonia::core::audio::SampleBuffer;
+use symphonia::core::audio::{AudioBufferRef, SampleBuffer};
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymErr;
 use symphonia::core::formats::FormatOptions;
@@ -101,34 +101,10 @@ pub fn decode_to_stereo_44k(path: &Path) -> Result<DecodedAudio> {
         }
         match decoder.decode(&packet) {
             Ok(decoded) => {
-                let spec = *decoded.spec();
-                let ch = spec.channels.count();
-                src_rate.get_or_insert(spec.rate);
+                let (rate, ch) =
+                    append_decoded_planar(decoded, &mut sample_buf, &mut left, &mut right);
+                src_rate.get_or_insert(rate);
                 src_channels.get_or_insert(ch);
-                let needed = decoded.capacity() * ch;
-                if sample_buf
-                    .as_ref()
-                    .map(|b| b.capacity() < needed)
-                    .unwrap_or(true)
-                {
-                    sample_buf = Some(SampleBuffer::new(decoded.capacity() as u64, spec));
-                }
-                let buf = sample_buf.as_mut().unwrap();
-                buf.copy_interleaved_ref(decoded);
-                let samples = buf.samples();
-                match ch {
-                    0 => {}
-                    1 => {
-                        left.extend_from_slice(samples);
-                        right.extend_from_slice(samples);
-                    }
-                    _ => {
-                        for frame in samples.chunks_exact(ch) {
-                            left.push(frame[0]);
-                            right.push(frame[1]);
-                        }
-                    }
-                }
             }
             // A corrupt packet is recoverable — skip it, keep decoding.
             Err(SymErr::DecodeError(_)) => skipped_packets += 1,
@@ -173,6 +149,158 @@ pub fn decode_to_stereo_44k(path: &Path) -> Result<DecodedAudio> {
         source_channels,
         notes,
     })
+}
+
+/// Copy one decoded packet into planar stereo (`left`/`right`), applying the
+/// same channel normalization as [`decode_to_stereo_44k`]: mono duplicated,
+/// >2 channels keep the first two. Returns `(sample_rate, channels)` of the
+/// packet. Shared by the full decode and the streaming source.
+fn append_decoded_planar(
+    decoded: AudioBufferRef<'_>,
+    sample_buf: &mut Option<SampleBuffer<f32>>,
+    left: &mut Vec<f32>,
+    right: &mut Vec<f32>,
+) -> (u32, usize) {
+    let spec = *decoded.spec();
+    let ch = spec.channels.count();
+    let needed = decoded.capacity() * ch;
+    if sample_buf
+        .as_ref()
+        .map(|b| b.capacity() < needed)
+        .unwrap_or(true)
+    {
+        *sample_buf = Some(SampleBuffer::new(decoded.capacity() as u64, spec));
+    }
+    let buf = sample_buf.as_mut().unwrap();
+    buf.copy_interleaved_ref(decoded);
+    let samples = buf.samples();
+    match ch {
+        0 => {}
+        1 => {
+            left.extend_from_slice(samples);
+            right.extend_from_slice(samples);
+        }
+        _ => {
+            for frame in samples.chunks_exact(ch) {
+                left.push(frame[0]);
+                right.push(frame[1]);
+            }
+        }
+    }
+    (spec.rate, ch)
+}
+
+/// Chunk-decodable source for the player's streaming (progressive) load path.
+///
+/// Only sources whose header promises both the frame count *and* the pipeline
+/// sample rate (44.1 kHz) are eligible — that is every stem our separation
+/// stage writes (WAV). Everything else (VBR MP3 without `n_frames`, foreign
+/// sample rates) takes the full-decode fallback, so no output-length
+/// guessing ever happens: the player preallocates exactly
+/// `expected_device_frames(frames, 44_100, device_rate)` and PLAN.md §5's
+/// `device frame / device rate == original-song time` invariant holds.
+pub struct StreamingSource {
+    format: Box<dyn symphonia::core::formats::FormatReader>,
+    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    track_id: u32,
+    sample_buf: Option<SampleBuffer<f32>>,
+    /// Source frames per channel promised by the header (exact for WAV).
+    pub frames: u64,
+    /// Corrupt packets skipped so far (same recovery as the full decode).
+    pub skipped_packets: usize,
+    done: bool,
+}
+
+/// Open `path` for chunked decoding if it is eligible for the streaming load
+/// path (header-known frame count at 44.1 kHz — see [`StreamingSource`]).
+/// `Ok(None)` means "not eligible, use [`decode_to_stereo_44k`]"; `Err` means
+/// the file cannot be decoded at all.
+pub fn open_streaming_44k(path: &Path) -> Result<Option<StreamingSource>> {
+    let file = std::fs::File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let fmt_opts = FormatOptions {
+        enable_gapless: true,
+        ..Default::default()
+    };
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &MetadataOptions::default())
+        .map_err(|e| Error::Decode(format!("unrecognized audio format: {e}")))?;
+    let format = probed.format;
+
+    let track = format
+        .default_track()
+        .filter(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .or_else(|| {
+            format
+                .tracks()
+                .iter()
+                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        })
+        .ok_or_else(|| Error::Decode("no audio track found".into()))?;
+    let track_id = track.id;
+    let codec_params = track.codec_params.clone();
+
+    let (frames, rate) = match (codec_params.n_frames, codec_params.sample_rate) {
+        (Some(n), Some(r)) => (n, r),
+        _ => return Ok(None), // length or rate unknown up front: full decode
+    };
+    if rate != TARGET_SAMPLE_RATE || frames == 0 {
+        return Ok(None);
+    }
+
+    let decoder = symphonia::default::get_codecs()
+        .make(&codec_params, &DecoderOptions::default())
+        .map_err(|e| Error::Decode(format!("unsupported codec: {e}")))?;
+
+    Ok(Some(StreamingSource {
+        format,
+        decoder,
+        track_id,
+        sample_buf: None,
+        frames,
+        skipped_packets: 0,
+        done: false,
+    }))
+}
+
+impl StreamingSource {
+    /// Decode the next packet and append it as planar stereo to `l`/`r`.
+    /// Returns `false` at end of stream. Corrupt packets are skipped (counted
+    /// in [`Self::skipped_packets`]), matching the full-decode behavior.
+    pub fn next_packet_into(&mut self, l: &mut Vec<f32>, r: &mut Vec<f32>) -> Result<bool> {
+        if self.done {
+            return Ok(false);
+        }
+        loop {
+            let packet = match self.format.next_packet() {
+                Ok(p) => p,
+                Err(SymErr::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    self.done = true;
+                    return Ok(false);
+                }
+                Err(SymErr::ResetRequired) => {
+                    self.done = true;
+                    return Ok(false);
+                }
+                Err(e) => return Err(Error::Decode(e.to_string())),
+            };
+            if packet.track_id() != self.track_id {
+                continue;
+            }
+            match self.decoder.decode(&packet) {
+                Ok(decoded) => {
+                    append_decoded_planar(decoded, &mut self.sample_buf, l, r);
+                    return Ok(true);
+                }
+                Err(SymErr::DecodeError(_)) => self.skipped_packets += 1,
+                Err(e) => return Err(Error::Decode(e.to_string())),
+            }
+        }
+    }
 }
 
 /// Alignment-stage sample rate (whisper + wav2vec2 consume 16 kHz mono).

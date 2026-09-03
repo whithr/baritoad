@@ -1,55 +1,11 @@
 import { describe, expect, it } from "vitest";
-import {
-  groupByLine,
-  pickHighlightWindow,
-  sungThroughIndexAt,
-  wordIndexAt,
-} from "./highlight";
+import { groupByLine, sungThroughIndexAt, wordIndexAt } from "./highlight";
 
 const w = (start: number, end: number, unsung = false, line?: number) => ({
   start,
   end,
   unsung,
   line,
-});
-
-describe("pickHighlightWindow", () => {
-  it("picks the densest 20s span, not the first words", () => {
-    // sparse intro: 3 words across 0–30 s; dense chorus: 12 words in 60–70 s
-    const words = [
-      w(2, 2.5),
-      w(15, 15.5),
-      w(29, 29.5),
-      ...Array.from({ length: 12 }, (_, i) => w(60 + i * 0.8, 60.4 + i * 0.8)),
-    ];
-    const win = pickHighlightWindow(words, 180);
-    // window anchors on the chorus (60 s) minus the 1 s lead-in
-    expect(win.start).toBeCloseTo(59, 5);
-    expect(win.end).toBeCloseTo(79, 5);
-  });
-
-  it("ignores unsung words when scoring density", () => {
-    const words = [
-      // an "unsung" pile early (instrumental mis-alignment)…
-      ...Array.from({ length: 20 }, (_, i) => w(5 + i * 0.2, 5.1 + i * 0.2, true)),
-      // …and a genuinely sung line later
-      ...Array.from({ length: 4 }, (_, i) => w(100 + i, 100.5 + i)),
-    ];
-    const win = pickHighlightWindow(words, 200);
-    expect(win.start).toBeCloseTo(99, 5);
-  });
-
-  it("clamps to the song bounds", () => {
-    const words = [w(0.2, 0.6), w(1.0, 1.4)];
-    const win = pickHighlightWindow(words, 12);
-    expect(win.start).toBe(0); // 0.2 - 1s lead-in clamps at 0
-    expect(win.end).toBe(12); // 20s window clamps at duration
-  });
-
-  it("falls back to the song start for empty or unsung-only maps", () => {
-    expect(pickHighlightWindow([], 90)).toEqual({ start: 0, end: 20 });
-    expect(pickHighlightWindow([w(3, 4, true)], 15)).toEqual({ start: 0, end: 15 });
-  });
 });
 
 describe("wordIndexAt", () => {

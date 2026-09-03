@@ -78,6 +78,7 @@ export type EditorAction =
   | { type: "reflow-lines" }
   | { type: "insert-word"; after: number; word: string }
   | { type: "delete-word"; index: number }
+  | { type: "toggle-unsung"; index: number }
   | { type: "nudge-range"; first: number; last: number; deltaS: number }
   | { type: "replace-words"; words: WordTiming[] }
   | { type: "undo" }
@@ -359,6 +360,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const selected =
         words.length === 0 ? null : Math.min(action.index, words.length - 1);
       return { ...withEdit(state, words), selected };
+    }
+
+    case "toggle-unsung": {
+      const cur = state.words[action.index];
+      if (!cur) return state;
+      const words = state.words.slice();
+      words[action.index] = { ...cur, unsung: !cur.unsung };
+      return withEdit(state, words);
     }
 
     case "nudge-range": {

@@ -208,6 +208,18 @@ export function IconQueue(p: IconProps) {
   );
 }
 
+// Theme swatches: a 2×2 chip grid, one chip solid (the applied look).
+export function IconSwatches(p: IconProps) {
+  return (
+    <Base {...p}>
+      <rect x="2.5" y="2.5" width="4.6" height="4.6" />
+      <rect x="8.9" y="2.5" width="4.6" height="4.6" fill="currentColor" stroke="none" />
+      <rect x="2.5" y="8.9" width="4.6" height="4.6" />
+      <rect x="8.9" y="8.9" width="4.6" height="4.6" />
+    </Base>
+  );
+}
+
 // Cartridge rack: one seated, one half-ejected, both chamfer-notched.
 export function IconLibrary(p: IconProps) {
   return (

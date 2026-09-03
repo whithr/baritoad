@@ -197,6 +197,9 @@ pub struct EngineOutcome {
     pub completed: bool,
     /// Stretcher currently in the signal path (diagnostics).
     pub engaged: bool,
+    /// Source frames the mixer rendered as silence because they sat above a
+    /// streaming load's fill watermark (diagnostics; see `BlockOutcome`).
+    pub starved: u64,
 }
 
 struct EngineStretcher {
@@ -504,6 +507,7 @@ impl StretchEngine {
         }
 
         ev.completed = outcome.completed;
+        ev.starved = outcome.starved as u64;
         ev.engaged = matches!(
             self.mode,
             Mode::EngageSeekWait | Mode::Active { .. } | Mode::DisengageWait
@@ -654,7 +658,6 @@ mod tests {
     use super::super::clock::PlayerClock;
     use super::super::mixer::{MixerCore, Sources};
     use super::*;
-    use std::sync::Arc;
 
     const RATE: u32 = 48_000;
     const BLOCK: usize = 480; // 10 ms
@@ -667,11 +670,7 @@ mod tests {
                 [s, s]
             })
             .collect();
-        Sources {
-            instrumental: Arc::new(buf.clone()),
-            vocals: Some(Arc::new(buf)),
-            frames,
-        }
+        Sources::preloaded(buf.clone(), Some(buf))
     }
 
     fn engine(secs: f64) -> StretchEngine {

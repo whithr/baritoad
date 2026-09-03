@@ -77,6 +77,10 @@ pub struct Diagnostics {
     /// Errors cpal's error callback did report (kept for completeness; a
     /// zero here means nothing — see module docs).
     pub stream_errors: u64,
+    /// Frames rendered as silence because the play cursor sat above a
+    /// streaming load's fill watermark (e.g. seeking past what has decoded
+    /// so far). Distinct from `stalls`: the callback kept its cadence.
+    pub starved_frames: u64,
     pub mmcss: MmcssStatus,
     /// Stretcher currently in the signal path (false = identity bypass).
     pub stretch_engaged: bool,

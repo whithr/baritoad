@@ -1,0 +1,148 @@
+// Pure layout + navigation math for the bench (Lanes / Text / Focus).
+// All times are original-song seconds (PLAN.md §5); the views map them to
+// pixels through the per-lane window from editorState.lineWindow.
+
+import type { WordTiming } from "./api";
+import { lineWindow } from "./editorState";
+import { groupByLine } from "./highlight";
+
+/** Alignment confidence below which a word gets the "doubt" LED. */
+export const DOUBT_CONFIDENCE = 0.5;
+
+export type BenchView = "text" | "lanes" | "focus";
+export const BENCH_VIEWS: BenchView[] = ["text", "lanes", "focus"];
+
+/** Step the view axis: −1 zooms out (towards Text), +1 zooms in (Focus). */
+export function stepView(view: BenchView, dir: -1 | 1): BenchView {
+  const i = BENCH_VIEWS.indexOf(view);
+  const j = Math.min(BENCH_VIEWS.length - 1, Math.max(0, i + dir));
+  return BENCH_VIEWS[j];
+}
+
+export interface LaneGroup {
+  /** Lyric line id (null for a run of unlinked words). */
+  line: number | null;
+  /** Word indices in this lane, map order. */
+  indices: number[];
+  /** Lane window in original-song seconds. */
+  start: number;
+  end: number;
+}
+
+/** One lane per lyric line, each with its own padded, second-snapped window. */
+export function laneGroups(words: WordTiming[], duration: number): LaneGroup[] {
+  return groupByLine(words).map((g) => {
+    const first = words[g.indices[0]];
+    const last = words[g.indices[g.indices.length - 1]];
+    const w = lineWindow(first.start, Math.max(last.end, last.start), duration);
+    return { line: g.line, indices: g.indices, start: w.start, end: w.end };
+  });
+}
+
+/** Seconds → px inside a lane of `width` px. */
+export function secToPx(t: number, lane: { start: number; end: number }, width: number): number {
+  const span = lane.end - lane.start;
+  return span > 0 ? ((t - lane.start) / span) * width : 0;
+}
+
+/** px delta → seconds delta inside a lane. */
+export function pxToSec(dx: number, lane: { start: number; end: number }, width: number): number {
+  const span = lane.end - lane.start;
+  return width > 0 ? (dx / width) * span : 0;
+}
+
+/** Index of the lane containing word `i`, or -1. */
+export function laneOfWord(lanes: LaneGroup[], i: number): number {
+  return lanes.findIndex((l) => l.indices.includes(i));
+}
+
+/** The lane whose window contains `t`, preferring the one whose words
+ *  are being sung (windows overlap at their padded edges). */
+export function laneAtTime(lanes: LaneGroup[], words: WordTiming[], t: number): number {
+  let inWindow = -1;
+  for (let k = 0; k < lanes.length; k++) {
+    const l = lanes[k];
+    const first = words[l.indices[0]].start;
+    const last = Math.max(words[l.indices[l.indices.length - 1]].end, first);
+    if (t >= first && t <= last) return k;
+    if (inWindow < 0 && t >= l.start && t < l.end) inWindow = k;
+  }
+  return inWindow;
+}
+
+export function isDoubtful(w: WordTiming): boolean {
+  return !w.unsung && w.confidence < DOUBT_CONFIDENCE;
+}
+
+/** Next doubtful word strictly after `from` (wrapping), or null. */
+export function nextDoubtful(words: WordTiming[], from: number | null): number | null {
+  const n = words.length;
+  if (n === 0) return null;
+  const start = from == null ? -1 : from;
+  for (let k = 1; k <= n; k++) {
+    const i = (start + k) % n;
+    if (isDoubtful(words[i])) return i;
+  }
+  return null;
+}
+
+/** Ordered list of doubtful word indices (overview markers). */
+export function doubtfulIndices(words: WordTiming[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < words.length; i++) if (isDoubtful(words[i])) out.push(i);
+  return out;
+}
+
+/**
+ * For the Text view: which word index a caret position inside a line's
+ * text refers to — the word containing (or immediately following) the
+ * caret. Enter at that caret breaks the line before that word.
+ * Returns null when the caret sits at the very start (nothing to break).
+ */
+export function wordAtCaret(lineText: string, caret: number): number | null {
+  if (caret <= 0 || caret > lineText.length) return null;
+  const before = lineText.slice(0, caret);
+  const tokensBefore = before.split(/\s+/).filter((t) => t !== "").length;
+  const total = lineText.split(/\s+/).filter((t) => t !== "").length;
+  const atWordEnd = !/\s$/.test(before) && (caret === lineText.length || /\s/.test(lineText[caret]));
+  // In a word's middle → that word; after a word (or in whitespace) → the next one.
+  const idx = /\s$/.test(before) || atWordEnd ? tokensBefore : tokensBefore - 1;
+  if (idx <= 0 || idx >= total) return null;
+  return idx;
+}
+
+/**
+ * Resample a peak envelope (0–255 per bin) into `n` samples across a
+ * window — the lane waveform silhouette. Bins outside the envelope are 0.
+ * Each sample is the max of the bins it covers, in 0–1.
+ */
+export function envelopeSamples(
+  peaks: ArrayLike<number>,
+  binsPerSecond: number,
+  winStart: number,
+  winEnd: number,
+  n: number,
+): Float32Array {
+  const out = new Float32Array(Math.max(0, n));
+  const span = winEnd - winStart;
+  if (n <= 0 || span <= 0 || binsPerSecond <= 0) return out;
+  const step = span / n;
+  for (let i = 0; i < n; i++) {
+    const b0 = Math.floor((winStart + i * step) * binsPerSecond);
+    const b1 = Math.max(b0 + 1, Math.ceil((winStart + (i + 1) * step) * binsPerSecond));
+    let m = 0;
+    for (let b = Math.max(0, b0); b < Math.min(peaks.length, b1); b++) {
+      if (peaks[b] > m) m = peaks[b];
+    }
+    out[i] = m / 255;
+  }
+  return out;
+}
+
+/** Lane windows for the Focus view: the focused lane plus `around`
+ *  neighbours each side, clamped to the list. */
+export function focusRange(count: number, focused: number, around: number): { from: number; to: number } {
+  if (count === 0) return { from: 0, to: -1 };
+  const f = Math.min(Math.max(focused, 0), count - 1);
+  return { from: Math.max(0, f - around), to: Math.min(count - 1, f + around) };
+}

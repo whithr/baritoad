@@ -277,7 +277,7 @@ pub async fn read_cover(
 // base64 data URL (hand-rolled: ~20 lines beats a new §6 dependency row)
 // ---------------------------------------------------------------------------
 
-fn data_url(bytes: &[u8], mime: Option<&str>) -> String {
+pub(crate) fn data_url(bytes: &[u8], mime: Option<&str>) -> String {
     format!(
         "data:{};base64,{}",
         mime.unwrap_or("application/octet-stream"),

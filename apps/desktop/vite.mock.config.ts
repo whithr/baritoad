@@ -1,0 +1,17 @@
+// Browser-only harness: the real UI over dev/mockTauri.ts. Never used by
+// `npm run build` / `tauri dev` (those use vite.config.ts).
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "node:path";
+
+const mock = path.resolve(__dirname, "dev/mockTauri.ts");
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: [
+      { find: /^@tauri-apps\/api\/(core|event|webview|window)$/, replacement: mock },
+      { find: "@tauri-apps/plugin-dialog", replacement: mock },
+    ],
+  },
+  server: { port: 1421, strictPort: true },
+});

@@ -25,6 +25,11 @@
 //! - The **UI** polls [`PlayerClock::position_seconds`] (cheap, lock-light)
 //!   at rAF rate and drains [`PlayerEvent`]s from the channel returned by
 //!   [`Player::take_events`].
+//! - **Stem-fill threads** (streaming loads, [`progressive`]): one writer per
+//!   stem decodes + resamples into a preallocated buffer behind a
+//!   Release/Acquire watermark the callback reads once per block; frames
+//!   above the watermark render as silence (never a lock or a stall).
+//!   Cancelled + joined on unload/reload.
 //!
 //! `Player` holds a `cpal::Stream`, which is not `Send` on all platforms —
 //! host it on a dedicated audio-control thread when wiring into Tauri.
@@ -33,13 +38,14 @@ pub mod clock;
 pub mod diag;
 pub mod mixer;
 pub mod mmcss;
+pub mod progressive;
 pub mod stretch;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -49,6 +55,16 @@ use crate::error::{Error, Result};
 pub use clock::PlayerClock;
 pub use diag::{Diagnostics, MmcssStatus};
 pub use stretch::{StretchConfig, MAX_PITCH_SEMITONES, TEMPO_RATE_MAX, TEMPO_RATE_MIN};
+
+/// Primed window a streaming load waits for before returning: enough decoded
+/// audio that playback starting immediately never runs into the fill
+/// watermark (the fill outruns realtime by well over an order of magnitude,
+/// so once this window exists it only ever grows ahead of the cursor).
+const PRIME_SECONDS: f64 = 2.0;
+
+/// Hard cap on the prime wait — a pathologically slow fill degrades to
+/// starting with silence rather than hanging the load forever.
+const PRIME_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Transport state as observed by the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +129,7 @@ struct ControlShared {
     stalls: AtomicU64,
     max_gap_ns: AtomicU64,
     stream_errors: AtomicU64,
+    starved: AtomicU64, // frames rendered as silence above the fill watermark
     mmcss: AtomicU8,
     stretch_engaged: AtomicU8,      // stretcher currently in the signal path
     stretch_applied: AtomicU64,     // count of setting pickups by the callback
@@ -136,6 +153,7 @@ impl ControlShared {
             stalls: AtomicU64::new(0),
             max_gap_ns: AtomicU64::new(0),
             stream_errors: AtomicU64::new(0),
+            starved: AtomicU64::new(0),
             mmcss: AtomicU8::new(M_NOT_ATTEMPTED),
             stretch_engaged: AtomicU8::new(0),
             stretch_applied: AtomicU64::new(0),
@@ -158,6 +176,13 @@ pub struct Player {
     /// Loaded song duration in original-song seconds (0.0 when unloaded).
     duration_seconds: f64,
     duration_frames: u64,
+    /// Background fill threads of a streaming load (None when fully loaded
+    /// up front). Dropped (cancel + join) on unload/reload — see
+    /// [`progressive::FillWorkers`].
+    fill: Option<progressive::FillWorkers>,
+    /// The loaded stems' buffers (same `Arc`s the mixer reads) for progress
+    /// queries; empty when nothing is loaded.
+    stem_buffers: Vec<Arc<progressive::StemBuffer>>,
     /// Shared time base for control-thread requests vs callback pickups
     /// (stretch apply-latency diagnostics).
     epoch: Instant,
@@ -193,6 +218,8 @@ impl Player {
             events_rx: Some(events_rx),
             duration_seconds: 0.0,
             duration_frames: 0,
+            fill: None,
+            stem_buffers: Vec::new(),
             epoch: Instant::now(),
         })
     }
@@ -202,7 +229,19 @@ impl Player {
     }
 
     /// Load instrumental + vocal stems (the normal karaoke mode).
+    ///
+    /// When both files are eligible for streaming (header-known frame count
+    /// at 44.1 kHz — always true for our pipeline's WAV stems), this returns
+    /// as soon as a small primed window is decoded (~well under a second)
+    /// and the rest fills on background threads; otherwise it falls back to
+    /// the full decode+resample load.
     pub fn load_stems(&mut self, instrumental: &Path, vocals: &Path) -> Result<()> {
+        if let (Some(i), Some(v)) = (
+            audio::open_streaming_44k(instrumental)?,
+            audio::open_streaming_44k(vocals)?,
+        ) {
+            return self.load_streaming(vec![i, v]);
+        }
         let inst = audio::decode_to_stereo_44k(instrumental)?;
         let voc = audio::decode_to_stereo_44k(vocals)?;
         self.load_decoded(inst, Some(voc))
@@ -210,8 +249,13 @@ impl Player {
 
     /// Fallback mode: play the original file as-is (stems absent — e.g. a
     /// library entry whose separation hasn't run). The vocal-guide gain has
-    /// no effect in this mode.
+    /// no effect in this mode. Streams when the file is eligible (see
+    /// [`Self::load_stems`]); a VBR MP3 without a header frame count takes
+    /// the full-load path.
     pub fn load_single(&mut self, path: &Path) -> Result<()> {
+        if let Some(src) = audio::open_streaming_44k(path)? {
+            return self.load_streaming(vec![src]);
+        }
         let audio = audio::decode_to_stereo_44k(path)?;
         self.load_decoded(audio, None)
     }
@@ -225,11 +269,9 @@ impl Player {
         instrumental: DecodedAudio,
         vocals: Option<DecodedAudio>,
     ) -> Result<()> {
-        // Tear down any current stream before touching shared state.
-        self.stream = None;
+        self.teardown_current();
 
         let dev_rate = self.stream_config.sample_rate.0;
-        let channels = self.stream_config.channels as usize;
 
         let inst = interleave_at_device_rate(&instrumental, dev_rate)?;
         let voc = match &vocals {
@@ -249,8 +291,108 @@ impl Player {
             v
         });
 
+        self.install_sources(mixer::Sources::preloaded(inst, voc))
+    }
+
+    /// Streaming load: preallocate the full device-rate buffers (exact
+    /// lengths from the headers — same duration-preserving math as the
+    /// offline path, PLAN.md §5), start background fill threads, build the
+    /// stream immediately, then block only until a small primed window is
+    /// decoded on every stem.
+    fn load_streaming(&mut self, srcs: Vec<audio::StreamingSource>) -> Result<()> {
+        self.teardown_current();
+
+        let dev_rate = self.stream_config.sample_rate.0;
+        let expected: Vec<usize> = srcs
+            .iter()
+            .map(|s| {
+                progressive::expected_device_frames(s.frames, audio::TARGET_SAMPLE_RATE, dev_rate)
+            })
+            .collect();
+        // Shared timeline: silence-pad the shorter stem to the longer, never
+        // truncate (same policy as the offline path).
+        let total = expected.iter().copied().max().unwrap_or(0);
+        if total == 0 {
+            return Err(Error::Decode("no audio frames in stream".into()));
+        }
+        let bufs: Vec<Arc<progressive::StemBuffer>> = expected
+            .iter()
+            .map(|_| Arc::new(progressive::StemBuffer::new_silent(total)))
+            .collect();
+
+        let sources = mixer::Sources {
+            instrumental: bufs[0].clone(),
+            vocals: bufs.get(1).cloned(),
+            frames: total,
+        };
+
+        let jobs: Vec<_> = srcs
+            .into_iter()
+            .zip(bufs.iter().cloned())
+            .zip(expected.iter().copied())
+            .map(|((src, buf), exp)| (src, buf, exp))
+            .collect();
+        self.fill = Some(progressive::FillWorkers::spawn(jobs, dev_rate));
+
+        self.install_sources(sources)?;
+
+        // Prime: enough audio that playback starting now never catches the
+        // watermark (fill runs far faster than realtime). ~tens of ms of
+        // decode+resample work, so the load still returns almost instantly.
+        let prime = ((PRIME_SECONDS * dev_rate as f64) as usize).min(total);
+        let t0 = Instant::now();
+        loop {
+            let min_ready = self
+                .stem_buffers
+                .iter()
+                .map(|b| b.ready_frames())
+                .min()
+                .unwrap_or(0);
+            if min_ready >= prime {
+                break;
+            }
+            if let Some(e) = self.fill_error() {
+                // Early failure (before anything meaningful decoded): fail
+                // the load like the offline path would have.
+                self.teardown_current();
+                self.duration_frames = 0;
+                self.duration_seconds = 0.0;
+                return Err(Error::Decode(format!("streaming load failed: {e}")));
+            }
+            if t0.elapsed() > PRIME_TIMEOUT {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(())
+    }
+
+    /// Stop the current stream and any background fill (cancel + join) —
+    /// after this, no thread can touch the previous load's buffers.
+    fn teardown_current(&mut self) {
+        self.stream = None;
+        if let Some(mut f) = self.fill.take() {
+            f.stop();
+        }
+        self.stem_buffers.clear();
+    }
+
+    /// Common tail of every load: reset control/clock state, build the
+    /// engine over `sources`, and start the output stream.
+    fn install_sources(&mut self, sources: mixer::Sources) -> Result<()> {
+        let dev_rate = self.stream_config.sample_rate.0;
+        let channels = self.stream_config.channels as usize;
+        let frames = sources.frames;
+
         self.duration_frames = frames as u64;
         self.duration_seconds = frames as f64 / dev_rate as f64;
+        self.stem_buffers = {
+            let mut v = vec![sources.instrumental.clone()];
+            if let Some(voc) = &sources.vocals {
+                v.push(voc.clone());
+            }
+            v
+        };
 
         // Fresh control state; keep the existing clock handle (UI may hold
         // clones) but re-origin it for the new song. Stretch settings persist
@@ -266,11 +408,6 @@ impl Player {
         self.clock.shared.reset_for_load();
         self.clock.shared.reset_origin(0.0);
 
-        let sources = mixer::Sources {
-            instrumental: Arc::new(inst),
-            vocals: voc.map(Arc::new),
-            frames,
-        };
         let core = mixer::MixerCore::new(sources, dev_rate, self.vocal_guide());
         // Engine construction pre-builds both stretcher configs here on the
         // control thread; the audio callback never allocates one.
@@ -404,6 +541,9 @@ impl Player {
                     shared
                         .stretch_engaged
                         .store(outcome.engaged as u8, Ordering::Relaxed);
+                    if outcome.starved > 0 {
+                        shared.starved.fetch_add(outcome.starved, Ordering::Relaxed);
+                    }
 
                     if outcome.completed {
                         shared.finished.store(1, Ordering::Release);
@@ -542,6 +682,30 @@ impl Player {
         self.duration_seconds
     }
 
+    /// Original-song seconds already decoded and playable on *every* stem
+    /// (device frames below the fill watermark ÷ device rate — original-song
+    /// time exactly, PLAN.md §5). Equals [`Self::duration_seconds`] once a
+    /// load is complete (immediately for non-streaming loads); 0.0 when
+    /// nothing is loaded.
+    pub fn loaded_seconds(&self) -> f64 {
+        if self.stem_buffers.is_empty() {
+            return 0.0;
+        }
+        let min_ready = self
+            .stem_buffers
+            .iter()
+            .map(|b| b.ready_frames())
+            .min()
+            .unwrap_or(0);
+        (min_ready as f64 / self.stream_config.sample_rate.0 as f64).min(self.duration_seconds)
+    }
+
+    /// Error from a streaming load's background fill, if one failed after
+    /// the load returned (the region above the watermark stays silent).
+    pub fn fill_error(&self) -> Option<String> {
+        self.stem_buffers.iter().find_map(|b| b.error())
+    }
+
     /// Cloneable clock handle for the UI to poll at rAF rate.
     pub fn clock(&self) -> PlayerClock {
         self.clock.clone()
@@ -558,6 +722,7 @@ impl Player {
             stalls: self.shared.stalls.load(Ordering::Relaxed),
             max_gap_ms: self.shared.max_gap_ns.load(Ordering::Relaxed) as f64 / 1e6,
             stream_errors: self.shared.stream_errors.load(Ordering::Relaxed),
+            starved_frames: self.shared.starved.load(Ordering::Relaxed),
             mmcss: match self.shared.mmcss.load(Ordering::Acquire) {
                 M_REGISTERED => MmcssStatus::Registered,
                 M_FAILED => MmcssStatus::Failed,

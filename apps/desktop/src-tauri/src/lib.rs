@@ -8,6 +8,7 @@ mod library;
 mod player;
 mod queue;
 mod review;
+mod theme;
 
 use std::sync::Arc;
 
@@ -69,6 +70,8 @@ pub fn run() {
             library::queue_move,
             library::queue_clear,
             library::read_cover,
+            theme::theme_import_image,
+            theme::read_theme_image,
             review::playback_sources,
             review::realign_selection,
             review::save_timing_map,

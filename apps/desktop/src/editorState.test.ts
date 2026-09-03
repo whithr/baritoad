@@ -191,6 +191,25 @@ describe("apply-realign", () => {
   });
 });
 
+describe("toggle-unsung", () => {
+  it("flips the flag both ways as undoable steps", () => {
+    let s = initEditor(map([word("a", 1, 2), word("b", 3, 4, true)]));
+    s = editorReducer(s, { type: "toggle-unsung", index: 1 });
+    expect(s.words[1].unsung).toBe(false);
+    expect(isDirty(s)).toBe(true);
+    s = editorReducer(s, { type: "toggle-unsung", index: 0 });
+    expect(s.words[0].unsung).toBe(true);
+    expect(s.past).toHaveLength(2);
+    s = editorReducer(s, { type: "undo" });
+    expect(s.words[0].unsung).toBe(false);
+  });
+
+  it("out-of-range index is a no-op", () => {
+    const s0 = initEditor(threeWords());
+    expect(editorReducer(s0, { type: "toggle-unsung", index: 9 })).toBe(s0);
+  });
+});
+
 describe("mapFromEditor", () => {
   it("recomputes unsung spans from word flags with truthful times", () => {
     const words = [

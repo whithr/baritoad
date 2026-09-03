@@ -16,6 +16,8 @@
 
 use std::sync::Arc;
 
+use super::progressive::StemBuffer;
+
 /// Vocal-guide gain ramp length (seconds). Short enough to feel immediate,
 /// long enough that a full 0→1 step never produces an audible click.
 pub const GUIDE_RAMP_SECONDS: f64 = 0.010;
@@ -92,13 +94,43 @@ impl SmoothedGain {
     }
 }
 
-/// Loaded audio, interleaved stereo f32 at the device rate. `vocals` is
-/// `None` in fallback mode (single original file, no stems).
+/// Loaded audio, interleaved stereo f32 at the device rate, held in
+/// progressive [`StemBuffer`]s. Fully-loaded sources publish their whole
+/// length up front ([`Sources::preloaded`]); streaming loads start at
+/// watermark 0 and fill in the background. `vocals` is `None` in fallback
+/// mode (single original file, no stems).
 pub struct Sources {
-    pub instrumental: Arc<Vec<f32>>,
-    pub vocals: Option<Arc<Vec<f32>>>,
+    pub instrumental: Arc<StemBuffer>,
+    pub vocals: Option<Arc<StemBuffer>>,
     /// Frames (samples per channel); both buffers are exactly `2 * frames`.
     pub frames: usize,
+}
+
+impl Sources {
+    /// Fully-loaded sources from interleaved vectors (offline load path and
+    /// tests). Both vectors must be the same length.
+    pub fn preloaded(instrumental: Vec<f32>, vocals: Option<Vec<f32>>) -> Self {
+        let frames = instrumental.len() / 2;
+        debug_assert!(vocals
+            .as_ref()
+            .map(|v| v.len() == frames * 2)
+            .unwrap_or(true));
+        Self {
+            instrumental: Arc::new(StemBuffer::preloaded(instrumental)),
+            vocals: vocals.map(|v| Arc::new(StemBuffer::preloaded(v))),
+            frames,
+        }
+    }
+
+    /// Frames currently readable on *every* stem (Acquire on each watermark
+    /// — the stems share one timeline, so the mix is gated on the slowest).
+    pub fn ready_frames(&self) -> usize {
+        let r = self.instrumental.ready_frames();
+        match &self.vocals {
+            Some(v) => r.min(v.ready_frames()),
+            None => r,
+        }
+    }
 }
 
 /// What happened during one rendered block — the callback uses this to drive
@@ -116,6 +148,10 @@ pub struct BlockOutcome {
     /// The cursor reached the end of the sources during this block
     /// (fires exactly once until the next seek).
     pub completed: bool,
+    /// Frames rendered as silence because the cursor sat at/above the fill
+    /// watermark (e.g. a seek past what a streaming load has decoded so far).
+    /// Time still advances — this is a diagnostic, not a stall.
+    pub starved: usize,
 }
 
 impl BlockOutcome {
@@ -209,17 +245,19 @@ impl MixerCore {
     /// the current guide value is close enough even mid-ramp.
     pub fn mix_range(&self, start: usize, frames: usize, gain: f32, out: &mut Vec<f32>) {
         let g = self.guide.value();
-        let total = self.sources.frames;
+        // Readable range: song length AND the fill watermark (frames beyond
+        // what a streaming load has published are silence, same as render).
+        let readable = self.sources.frames.min(self.sources.ready_frames());
         let inst = &self.sources.instrumental;
         let voc = self.sources.vocals.as_deref();
         out.reserve(frames * 2);
         for f in start..start + frames {
-            if f < total {
+            if f < readable {
                 let i = f * 2;
-                let (mut l, mut r) = (inst[i], inst[i + 1]);
+                let (mut l, mut r) = (inst.sample(i), inst.sample(i + 1));
                 if let Some(v) = voc {
-                    l += g * v[i];
-                    r += g * v[i + 1];
+                    l += g * v.sample(i);
+                    r += g * v.sample(i + 1);
                 }
                 out.push(l * gain);
                 out.push(r * gain);
@@ -238,6 +276,9 @@ impl MixerCore {
         let frames = out.len() / channels;
         let mut outcome = BlockOutcome::default();
         let total = self.sources.frames;
+        // One Acquire per block: everything below `ready` is fully written
+        // (progressive.rs ordering rules); at/above it we render silence.
+        let ready = self.sources.ready_frames();
         let inst = self.sources.instrumental.clone();
         let voc = self.sources.vocals.clone();
 
@@ -271,15 +312,22 @@ impl MixerCore {
             let (mut l, mut r) = (0.0f32, 0.0f32);
             if m > 0.0 {
                 if self.cursor < total {
-                    let i = self.cursor * 2;
-                    l = inst[i];
-                    r = inst[i + 1];
-                    if let Some(v) = &voc {
-                        l += g * v[i];
-                        r += g * v[i + 1];
+                    if self.cursor < ready {
+                        let i = self.cursor * 2;
+                        l = inst.sample(i);
+                        r = inst.sample(i + 1);
+                        if let Some(v) = &voc {
+                            l += g * v.sample(i);
+                            r += g * v.sample(i + 1);
+                        }
+                        l *= m;
+                        r *= m;
+                    } else {
+                        // Not decoded yet (seek past the fill watermark):
+                        // silence, but time keeps advancing — no lock, no
+                        // stall, just a distinct diagnostic count.
+                        outcome.starved += 1;
                     }
-                    l *= m;
-                    r *= m;
                     self.cursor += 1;
                     if outcome.seek_applied.is_some() {
                         outcome.frames_after_seek += 1;
@@ -317,11 +365,10 @@ mod tests {
     use super::*;
 
     fn dc_sources(frames: usize, inst_level: f32, voc_level: f32) -> Sources {
-        Sources {
-            instrumental: Arc::new(vec![inst_level; frames * 2]),
-            vocals: Some(Arc::new(vec![voc_level; frames * 2])),
-            frames,
-        }
+        Sources::preloaded(
+            vec![inst_level; frames * 2],
+            Some(vec![voc_level; frames * 2]),
+        )
     }
 
     /// Max |x[n] - x[n-1]| over an interleaved-stereo left channel.
@@ -356,6 +403,7 @@ mod tests {
                 total.frames_before_seek += o.frames_consumed();
             }
             total.completed |= o.completed;
+            total.starved += o.starved;
             off += n;
         }
         (out, total)
@@ -480,11 +528,7 @@ mod tests {
     #[test]
     fn fallback_single_source_ignores_guide_gain() {
         let n = 480usize;
-        let src = Sources {
-            instrumental: Arc::new(vec![0.25f32; n * 2]),
-            vocals: None,
-            frames: n,
-        };
+        let src = Sources::preloaded(vec![0.25f32; n * 2], None);
         let mut m = MixerCore::new(src, RATE, 1.0);
         m.set_playing(true);
         let (out, _) = render_secs(&mut m, 0.005);
@@ -496,13 +540,10 @@ mod tests {
     #[test]
     fn mono_device_gets_downmix_and_extra_channels_get_zeros() {
         let n = 480usize;
-        let src = Sources {
-            instrumental: Arc::new(
-                (0..n).flat_map(|_| [0.5f32, 0.1f32]).collect::<Vec<_>>(),
-            ),
-            vocals: None,
-            frames: n,
-        };
+        let src = Sources::preloaded(
+            (0..n).flat_map(|_| [0.5f32, 0.1f32]).collect::<Vec<_>>(),
+            None,
+        );
         let mut m = MixerCore::new(src, RATE, 0.0);
         m.set_playing(true);
         // settle master
@@ -522,6 +563,49 @@ mod tests {
         assert!((quad[quad.len() - 4] - 0.5).abs() < 1e-5);
         assert_eq!(quad[quad.len() - 2], 0.0);
         assert_eq!(quad[quad.len() - 1], 0.0);
+    }
+
+    #[test]
+    fn unfilled_region_renders_silence_counts_starved_and_resumes_on_publish() {
+        // A mid-fill streaming load: only the first half of a 1 s buffer is
+        // published; the mixer must render audio up to the watermark, silence
+        // (with the starved diagnostic, time still advancing) beyond it, and
+        // resume audio once the writer publishes more.
+        let frames = RATE as usize;
+        let half = frames / 2;
+        let inst = Arc::new(StemBuffer::new_silent(frames));
+        inst.write_planar(0, &vec![0.5f32; half], &vec![0.5f32; half]);
+        let src = Sources {
+            instrumental: inst.clone(),
+            vocals: None,
+            frames,
+        };
+        let mut m = MixerCore::new(src, RATE, 0.0);
+        m.set_playing(true);
+
+        // 0.6 s: audio until 0.5 s, silence + starved for the last ~0.1 s.
+        let (out, o) = render_secs(&mut m, 0.6);
+        let want_starved = frames * 6 / 10 - half;
+        assert!(
+            o.starved > 0 && o.starved <= want_starved,
+            "starved {} not in (0, {want_starved}]",
+            o.starved
+        );
+        // Time advanced through the starved region (cursor = frames rendered).
+        assert_eq!(o.frames_consumed(), frames * 6 / 10);
+        assert_eq!(m.cursor(), frames * 6 / 10);
+        // The tail of the rendered block is silence, not garbage.
+        assert_eq!(out[out.len() - 2], 0.0);
+        assert_eq!(out[out.len() - 1], 0.0);
+        assert!(!o.completed, "starved region must not complete the song");
+
+        // Writer publishes the rest: audio resumes at the cursor.
+        inst.write_planar(half, &vec![0.25f32; frames - half], &vec![0.25f32; frames - half]);
+        let (out2, o2) = render_secs(&mut m, 0.2);
+        assert_eq!(o2.starved, 0, "still starved after publish");
+        // Master gain has been settled at 1.0 since the initial ramp-in.
+        let last = out2[out2.len() - 2];
+        assert!((last - 0.25).abs() < 1e-5, "audio did not resume: {last}");
     }
 
     #[test]

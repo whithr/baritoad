@@ -30,6 +30,7 @@
 // party-mode milestone.
 
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -37,6 +38,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -55,15 +57,39 @@ import {
   playerStatus,
   playerUnload,
   readCover,
+  readThemeImage,
   readTimingMap,
+  vocalLevels,
   type PlayerStatus,
   type Song,
   type StretchConfigName,
   type TimingMap,
 } from "../api";
+import { drawVisualizerFrame } from "../visualizer";
+import {
+  loadThemeStore,
+  resolveTheme,
+  saveThemeStore,
+  themeById,
+  themeCssVars,
+  allThemes,
+  DIGITAL_DASH,
+  type ThemeSpec,
+} from "../themes";
 import { groupByLine } from "../highlight";
 import { applyReport, estimate, initClock, type InterpClock } from "../playerClock";
-import { lyricFrameAt, scrollStep, type LyricFrame } from "../playerView";
+import {
+  activeGapAt,
+  cueLineFlags,
+  gapCues,
+  lineFit,
+  lyricFrameAt,
+  pipsLitAt,
+  scrollStep,
+  UPCOMING_LEAD_S,
+  type GapCue,
+  type LyricFrame,
+} from "../playerView";
 import { fmtTime } from "../reviewUi";
 import {
   IconBack,
@@ -90,7 +116,86 @@ export default function PlayerView(props: {
 }) {
   const { songId, mapPath, go } = props;
   const [map, setMap] = useState<TimingMap | null>(null);
+
+  // ---- theme: song pin → app default → Digital Dash (themes.ts) ----------
+  // Themes restyle the lyric stage (background, colors, glow, font, pips) as
+  // CSS vars + a static background layer; the console stays app chrome. The
+  // advanced panel can re-pin the song's theme live.
+  const [theme, setTheme] = useState<ThemeSpec>(() => resolveTheme(loadThemeStore(), songId));
+  const [themeBg, setThemeBg] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    if (theme.background.kind === "image") {
+      readThemeImage(theme.background.path)
+        .then((u) => !disposed && setThemeBg(u))
+        .catch(() => !disposed && setThemeBg(null)); // image gone → cover/ground
+    } else {
+      setThemeBg(null);
+    }
+    return () => {
+      disposed = true;
+    };
+  }, [theme]);
+  // ---- visualizer: instrumental peak envelope → canvas layer -------------
+  // Envelope from the cached-levels sidecar (deterministic through the
+  // clock, no live audio tap — visualizer.ts docs). Mode/color ride refs so
+  // the frame loop never re-registers on a theme change.
+  const visCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const visCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const visEnvRef = useRef<{ peaks: number[]; bps: number } | null>(null);
+  const visModeRef = useRef<"off" | "pulse" | "bars">("off");
+  const visColorRef = useRef("#f2a33c");
+  const reducedMotion = useMemo(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+    [],
+  );
+  const visActive = theme.visualizer !== "off" && !reducedMotion;
+  useEffect(() => {
+    visModeRef.current = visActive ? theme.visualizer : "off";
+    visColorRef.current = theme.accent;
+    visCtxRef.current = null; // canvas may have (un)mounted with the mode
+    const canvas = visCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [theme, visActive]);
+  const pinTheme = (id: string) => {
+    const store = loadThemeStore();
+    if (songId != null) {
+      const overrides = { ...store.songOverrides };
+      if (id === "") delete overrides[String(songId)];
+      else overrides[String(songId)] = id;
+      const next = { ...store, songOverrides: overrides };
+      saveThemeStore(next);
+      setTheme(resolveTheme(next, songId));
+    } else {
+      setTheme(themeById(store, id) ?? DIGITAL_DASH);
+    }
+  };
   const [song, setSong] = useState<Song | null>(null);
+
+  // Visualizer envelope: the instrumental's cached peak levels, loaded when
+  // the mode is on (visualizer.ts docs). Failure = quiet layer, never an
+  // error state.
+  useEffect(() => {
+    let disposed = false;
+    const inst = song?.instrumental_path;
+    if (!visActive || !inst) {
+      visEnvRef.current = null;
+      return;
+    }
+    vocalLevels(inst)
+      .then((l) => {
+        if (!disposed) visEnvRef.current = { peaks: l.peaks, bps: l.bins_per_second };
+      })
+      .catch(() => {
+        if (!disposed) visEnvRef.current = null; // no sidecar → quiet layer
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [visActive, song?.instrumental_path]);
   const [cover, setCover] = useState<string | null>(null);
   const [status, setStatus] = useState<PlayerStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,11 +210,21 @@ export default function PlayerView(props: {
   const wordEls = useRef<(HTMLSpanElement | null)[]>([]);
   const lineEls = useRef<(HTMLDivElement | null)[]>([]);
   const lineTops = useRef<number[]>([]);
+  // Wait-cue instruments (gap meters + pips), rAF-mutated like the words.
+  const gapRowEls = useRef<(HTMLDivElement | null)[]>([]);
+  const gapFillEls = useRef<(HTMLDivElement | null)[]>([]);
+  const gapSecsEls = useRef<(HTMLSpanElement | null)[]>([]);
+  const gapTops = useRef<number[]>([]);
+  const cueEls = useRef<(HTMLSpanElement | null)[]>([]);
+  const prevGap = useRef<number | null>(null);
+  const prevGapSecs = useRef<number | null>(null);
+  const prevPips = useRef<{ line: number | null; lit: number }>({ line: null, lit: 0 });
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
   const timeRef = useRef<HTMLSpanElement | null>(null);
   const scrollY = useRef(0);
+  const scrollVel = useRef(0);
   const prevFrame = useRef<LyricFrame | null>(null);
   const hideTimer = useRef<number | null>(null);
   // Measurement harness (inert without a launcher-provided plan).
@@ -125,6 +240,11 @@ export default function PlayerView(props: {
 
   const words = map?.words ?? [];
   const lines = useMemo(() => (map ? groupByLine(map.words) : []), [map]);
+  const gaps = useMemo(() => (map ? gapCues(lines, map.words) : []), [map, lines]);
+  const cues = useMemo(
+    () => (map && theme.pips ? cueLineFlags(lines, map.words) : []),
+    [map, lines, theme.pips],
+  );
   const title = song?.title ?? "Karaoke";
 
   // ---- load: map + metadata, then hand the song to the engine -------------
@@ -199,23 +319,62 @@ export default function PlayerView(props: {
   }, []);
 
   // ---- line geometry (measured after layout; re-measured on resize) -------
-  const measureLines = useCallback(() => {
-    lineTops.current = lineEls.current.map((el) => {
-      if (!el) return 0;
-      // Center of the line relative to the scroller, offset so the current
-      // line sits at ~40% of the viewport height (singer looks slightly up).
-      const vh = viewportRef.current?.clientHeight ?? window.innerHeight;
-      return el.offsetTop + el.offsetHeight / 2 - vh * 0.4;
+  // One row per lyric line: each line's --fit shrinks its layout size until
+  // the row fits the viewport (playerView.ts lineFit). Static per line — set
+  // here and on resize, never in the rAF path, so wrap points stay
+  // state-invariant and the Four-Hook contract is untouched.
+  const fitLines = useCallback(() => {
+    const els = lineEls.current.filter((el): el is HTMLDivElement => el != null);
+    // Measure left-justified at --fit 1: with centered flex, start-side
+    // overflow is not reliably part of scrollWidth.
+    for (const el of els) {
+      el.style.justifyContent = "flex-start";
+      el.style.setProperty("--fit", "1");
+      el.removeAttribute("data-overlong");
+    }
+    const fits = els.map((el) => lineFit(el.scrollWidth, el.clientWidth));
+    els.forEach((el, i) => {
+      el.style.justifyContent = "";
+      const f = fits[i];
+      if (f.scale < 1) el.style.setProperty("--fit", String(f.scale));
+      if (f.wrap) el.setAttribute("data-overlong", "");
     });
   }, []);
 
+  const measureLines = useCallback(() => {
+    // Center of the element relative to the scroller, offset so the current
+    // one sits at ~40% of the viewport height (singer looks slightly up).
+    const vh = viewportRef.current?.clientHeight ?? window.innerHeight;
+    const centerOf = (el: HTMLElement | null) =>
+      el ? el.offsetTop + el.offsetHeight / 2 - vh * 0.4 : 0;
+    lineTops.current = lineEls.current.map(centerOf);
+    gapTops.current = gapRowEls.current.map(centerOf);
+  }, []);
+
+  // Visualizer canvas tracks the viewport size (CSS pixels — soft background
+  // decoration doesn't earn DPR-scaled raster cost).
+  const sizeVisualizer = useCallback(() => {
+    const c = visCanvasRef.current;
+    if (c && (c.width !== c.clientWidth || c.height !== c.clientHeight)) {
+      c.width = c.clientWidth;
+      c.height = c.clientHeight;
+    }
+  }, []);
+
   useLayoutEffect(() => {
+    // Fit first — a line's --fit changes its height, which the offsets read.
+    fitLines();
     measureLines();
-    const ro = new ResizeObserver(() => measureLines());
+    sizeVisualizer();
+    const ro = new ResizeObserver(() => {
+      fitLines();
+      measureLines();
+      sizeVisualizer();
+    });
     if (viewportRef.current) ro.observe(viewportRef.current);
     if (scrollerRef.current) ro.observe(scrollerRef.current);
     return () => ro.disconnect();
-  }, [map, measureLines]);
+  }, [map, visActive, fitLines, measureLines, sizeVisualizer]);
 
   // ---- the render loop ----------------------------------------------------
   useEffect(() => {
@@ -226,7 +385,9 @@ export default function PlayerView(props: {
       const w = map.words[i];
       let cls = "k-word";
       if (w.unsung) cls += " unsung";
-      if (i === frame.activeWord) cls += " active wipe";
+      // The approaching word carries the same classes as the active one —
+      // its ::before glow layer is what --glow-in eases in; fill stays 0.
+      if (i === frame.activeWord || i === frame.approachWord) cls += " active wipe";
       else if (frame.sungThrough != null && i <= frame.sungThrough) cls += " sung";
       return cls;
     };
@@ -265,7 +426,26 @@ export default function PlayerView(props: {
           }
           if (frame.activeWord != null) {
             const el = wordEls.current[frame.activeWord];
-            if (el) el.className = wordClass(frame.activeWord, frame);
+            if (el) {
+              el.className = wordClass(frame.activeWord, frame);
+              // If this word was approached, its glow was mid-ease — the
+              // active state owns the full glow (mask carries the sweep).
+              el.style.setProperty("--glow-in", "1");
+            }
+          }
+        }
+        if (prev.approachWord !== frame.approachWord) {
+          if (prev.approachWord != null && prev.approachWord !== frame.activeWord) {
+            const el = wordEls.current[prev.approachWord];
+            if (el) el.className = wordClass(prev.approachWord, frame);
+          }
+          if (frame.approachWord != null) {
+            const el = wordEls.current[frame.approachWord];
+            if (el) {
+              el.className = wordClass(frame.approachWord, frame);
+              el.style.setProperty("--wipe", "0%");
+              el.style.setProperty("--wipe-n", "0");
+            }
           }
         }
         if (prev.sungThrough !== frame.sungThrough) {
@@ -287,16 +467,89 @@ export default function PlayerView(props: {
           if (pn && pn !== c && pn !== n) pn.className = "pk-line";
         }
       }
-      // Active-word wipe (one CSS var on one element).
+      // Active-word wipe: two CSS vars on one element (--wipe drives the
+      // fill gradient; --wipe-n is the same value unitless for the glow
+      // mask's length calc — styles.css ::before docs).
       if (frame.activeWord != null) {
         const el = wordEls.current[frame.activeWord];
-        if (el) el.style.setProperty("--wipe", `${(frame.wipe * 100).toFixed(1)}%`);
+        if (el) {
+          const pct = (frame.wipe * 100).toFixed(1);
+          el.style.setProperty("--wipe", `${pct}%`);
+          el.style.setProperty("--wipe-n", pct);
+        }
+      }
+      // Approach glow: one var on the single word a pause is leading into
+      // (the active-word hook is idle whenever this one runs).
+      if (frame.approachWord != null) {
+        const el = wordEls.current[frame.approachWord];
+        if (el) el.style.setProperty("--glow-in", frame.approach.toFixed(3));
       }
       prevFrame.current = frame;
 
-      // Smooth scroll toward the current line.
-      const target = lineTops.current[frame.lineIndex] ?? 0;
-      scrollY.current = scrollStep(scrollY.current, target, dt);
+      // Wait cues (amended render contract — DESIGN.md Four-Hook Rule):
+      // the counting gap's meter width + whole-second readout, and the
+      // upcoming line's pip count. Each mutates one small element, only on
+      // change.
+      const gi = activeGapAt(gaps, t);
+      if (gi !== prevGap.current) {
+        if (prevGap.current != null) {
+          gapRowEls.current[prevGap.current]?.classList.remove("counting");
+        }
+        if (gi != null) gapRowEls.current[gi]?.classList.add("counting");
+        prevGap.current = gi;
+        prevGapSecs.current = null;
+      }
+      if (gi != null) {
+        const g = gaps[gi];
+        const remain = Math.max(0, g.end - t);
+        const fill = gapFillEls.current[gi];
+        if (fill && g.end > g.start) {
+          fill.style.width = `${((remain / (g.end - g.start)) * 100).toFixed(2)}%`;
+        }
+        const secs = Math.ceil(remain);
+        if (secs !== prevGapSecs.current) {
+          prevGapSecs.current = secs;
+          const el = gapSecsEls.current[gi];
+          if (el) el.textContent = String(secs);
+        }
+      }
+      // Pips live on the current or next line only (lineIndexAt pre-rolls
+      // the upcoming line, so the countdown target is always one of these).
+      let pipLine: number | null = null;
+      let pipsLit = 0;
+      for (const li of [frame.lineIndex, frame.lineIndex + 1]) {
+        if (!cues[li] || !lines[li]) continue;
+        const lit = pipsLitAt(map.words[lines[li].indices[0]].start, t);
+        if (lit > 0) {
+          pipLine = li;
+          pipsLit = lit;
+          break;
+        }
+      }
+      if (prevPips.current.line !== pipLine || prevPips.current.lit !== pipsLit) {
+        if (prevPips.current.line != null && prevPips.current.line !== pipLine) {
+          const el = cueEls.current[prevPips.current.line];
+          if (el) el.dataset.lit = "0";
+        }
+        if (pipLine != null) {
+          const el = cueEls.current[pipLine];
+          if (el) el.dataset.lit = String(pipsLit);
+        }
+        prevPips.current = { line: pipLine, lit: pipsLit };
+      }
+
+      // Smooth scroll toward the current line — or the counting wait-meter,
+      // until the upcoming line takes over (same lead as lineIndexAt).
+      const target =
+        gi != null && gaps[gi].end - t > UPCOMING_LEAD_S
+          ? (gapTops.current[gi] ?? lineTops.current[frame.lineIndex] ?? 0)
+          : (lineTops.current[frame.lineIndex] ?? 0);
+      // Critically damped glide — velocity survives retargeting, so a line
+      // switch bends the scroll's trajectory instead of kicking it (owner
+      // asked for smoother motion; pace ≈ the old 260 ms glide).
+      const glide = scrollStep(scrollY.current, scrollVel.current, target, dt);
+      scrollY.current = glide.pos;
+      scrollVel.current = glide.vel;
       if (scrollerRef.current) {
         scrollerRef.current.style.transform = `translate3d(0, ${-scrollY.current}px, 0)`;
       }
@@ -308,6 +561,29 @@ export default function PlayerView(props: {
       }
       if (timeRef.current) {
         timeRef.current.textContent = `${fmtTime(t)} / ${fmtTime(dur)}`;
+      }
+
+      // Visualizer layer: one bounded canvas draw per frame (envelope math
+      // in visualizer.ts is pure and allocation-light). Off-mode and no-
+      // envelope both skip entirely.
+      const visMode = visModeRef.current;
+      const visCanvas = visCanvasRef.current;
+      const visEnv = visEnvRef.current;
+      if (visMode !== "off" && visCanvas && visEnv) {
+        const ctx =
+          visCtxRef.current ?? (visCtxRef.current = visCanvas.getContext("2d"));
+        if (ctx) {
+          drawVisualizerFrame(
+            ctx,
+            visCanvas.width,
+            visCanvas.height,
+            visMode,
+            visEnv.peaks,
+            visEnv.bps,
+            t,
+            visColorRef.current,
+          );
+        }
       }
 
       // Measurement harness.
@@ -323,7 +599,7 @@ export default function PlayerView(props: {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, lines]);
+  }, [map, lines, gaps, cues]);
 
   // ---- measurement harness (dev-only launcher contract, player.rs) --------
   const finishMeasurement = useCallback(async () => {
@@ -586,19 +862,50 @@ export default function PlayerView(props: {
   const setLineEl = useCallback((i: number, el: HTMLDivElement | null) => {
     lineEls.current[i] = el;
   }, []);
+  const setGapRowEl = useCallback((i: number, el: HTMLDivElement | null) => {
+    gapRowEls.current[i] = el;
+  }, []);
+  const setGapFillEl = useCallback((i: number, el: HTMLDivElement | null) => {
+    gapFillEls.current[i] = el;
+  }, []);
+  const setGapSecsEl = useCallback((i: number, el: HTMLSpanElement | null) => {
+    gapSecsEls.current[i] = el;
+  }, []);
+  const setCueEl = useCallback((i: number, el: HTMLSpanElement | null) => {
+    cueEls.current[i] = el;
+  }, []);
 
   const finished = status?.state === "finished";
+
+  // Themed background layer: color = flat paint; image = imported picture
+  // with the theme's blur/dim; cover = the song's art (Digital Dash default).
+  const bg = theme.background;
+  const bgFilter =
+    bg.kind === "color"
+      ? undefined
+      : `blur(${bg.blurPx}px) brightness(${Math.max(0, 1 - bg.dim).toFixed(2)})`;
+  const bgImage = bg.kind === "image" ? themeBg : bg.kind === "cover" ? cover : null;
 
   return (
     <div
       className={`player-stage${controlsVisible ? "" : " controls-hidden"}`}
+      style={themeCssVars(theme) as CSSProperties}
       onPointerMove={pokeControls}
       onClick={pokeControls}
     >
-      {cover && (
-        <div className="pk-backdrop" style={{ backgroundImage: `url(${cover})` }} aria-hidden />
+      {bg.kind === "color" ? (
+        <div className="pk-backdrop flat" style={{ backgroundColor: bg.color }} aria-hidden />
+      ) : (
+        bgImage && (
+          <div
+            className="pk-backdrop"
+            style={{ backgroundImage: `url(${bgImage})`, filter: bgFilter }}
+            aria-hidden
+          />
+        )
       )}
       <div className="pk-scrim" aria-hidden />
+      {visActive && <canvas className="pk-vis" ref={visCanvasRef} aria-hidden />}
 
       <header className="pk-header">
         <button className="pk-back" onClick={exit} title="Back (Esc)">
@@ -623,8 +930,14 @@ export default function PlayerView(props: {
             <LyricStage
               words={words}
               lines={lines}
+              gaps={gaps}
+              cues={cues}
               setWordEl={setWordEl}
               setLineEl={setLineEl}
+              setGapRowEl={setGapRowEl}
+              setGapFillEl={setGapFillEl}
+              setGapSecsEl={setGapSecsEl}
+              setCueEl={setCueEl}
             />
           </div>
         ) : (
@@ -659,6 +972,19 @@ export default function PlayerView(props: {
           aria-valuenow={Math.round(status?.position ?? 0)}
           tabIndex={0}
         >
+          {/* Streaming-load progress: the loaded region as a lighter track
+              under the fill. Driven by the throttled status re-render (~10 Hz
+              while filling), never the rAF path; gone once fully loaded. */}
+          {status != null &&
+            status.duration > 0 &&
+            status.loaded_seconds < status.duration && (
+              <div
+                className="pk-timebar-loaded"
+                style={{
+                  width: `${Math.min(100, (status.loaded_seconds / status.duration) * 100).toFixed(1)}%`,
+                }}
+              />
+            )}
           <div className="pk-timebar-fill" ref={fillRef} />
         </div>
         <div className="pk-controls-row">
@@ -732,6 +1058,18 @@ export default function PlayerView(props: {
             {advancedOpen && status && (
               <div className="pk-advanced">
                 <div className="pk-advanced-row">
+                  <span>Theme</span>
+                  <DashSelect
+                    ariaLabel="Theme for this song"
+                    value={theme.id}
+                    onChange={pinTheme}
+                    options={allThemes(loadThemeStore()).map((t) => ({
+                      value: t.id,
+                      label: t.name,
+                    }))}
+                  />
+                </div>
+                <div className="pk-advanced-row">
                   <span>Stretch quality</span>
                   <DashSelect
                     ariaLabel="Stretch quality"
@@ -782,31 +1120,75 @@ export default function PlayerView(props: {
 const LyricStage = memo(function LyricStage(props: {
   words: { word: string; unsung: boolean }[];
   lines: { indices: number[] }[];
+  gaps: GapCue[];
+  cues: boolean[];
   setWordEl: (i: number, el: HTMLSpanElement | null) => void;
   setLineEl: (i: number, el: HTMLDivElement | null) => void;
+  setGapRowEl: (i: number, el: HTMLDivElement | null) => void;
+  setGapFillEl: (i: number, el: HTMLDivElement | null) => void;
+  setGapSecsEl: (i: number, el: HTMLSpanElement | null) => void;
+  setCueEl: (i: number, el: HTMLSpanElement | null) => void;
 }) {
+  const gapBefore = new Map(props.gaps.map((g, gi) => [g.afterLine + 1, gi]));
   return (
     <>
-      {props.lines.map((ln, li) => (
-        <div
-          key={li}
-          className={li === 0 ? "pk-line current" : li === 1 ? "pk-line next" : "pk-line"}
-          ref={(el) => props.setLineEl(li, el)}
-        >
-          {ln.indices.map((wi) => {
-            const w = props.words[wi];
-            return (
-              <span
-                key={wi}
-                className={`k-word${w.unsung ? " unsung" : ""}`}
-                ref={(el) => props.setWordEl(wi, el)}
-              >
-                {w.word}
-              </span>
-            );
-          })}
-        </div>
-      ))}
+      {props.lines.map((ln, li) => {
+        const gi = gapBefore.get(li);
+        return (
+          <Fragment key={li}>
+            {gi != null && (
+              // The wait-meter: a draining segmented amber bar + whole-second
+              // readout for long instrumental gaps. Resting rows preview the
+              // full wait dimly; the rAF loop drives the counting one.
+              <div className="pk-gap" aria-hidden ref={(el) => props.setGapRowEl(gi, el)}>
+                <span className="pk-gap-word seg14">WAIT</span>
+                <div className="pk-gap-meter">
+                  <div className="pk-gap-meter-fill" ref={(el) => props.setGapFillEl(gi, el)} />
+                </div>
+                <span className="pk-gap-secs seg" ref={(el) => props.setGapSecsEl(gi, el)}>
+                  {Math.ceil(props.gaps[gi].end - props.gaps[gi].start)}
+                </span>
+              </div>
+            )}
+            <div
+              className={li === 0 ? "pk-line current" : li === 1 ? "pk-line next" : "pk-line"}
+              ref={(el) => props.setLineEl(li, el)}
+            >
+              {props.cues[li] && (
+                // 3-2-1 countdown pips into the first word (zero-width anchor
+                // — showing them never re-flows the line).
+                <span
+                  className="pk-cue"
+                  data-lit="0"
+                  aria-hidden
+                  ref={(el) => props.setCueEl(li, el)}
+                >
+                  <span className="pk-cue-pips">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </span>
+              )}
+              {ln.indices.map((wi) => {
+                const w = props.words[wi];
+                return (
+                  <span
+                    key={wi}
+                    className={`k-word${w.unsung ? " unsung" : ""}`}
+                    /* the active-wipe glow layer (styles.css ::before) re-draws
+                       the word as a clipped text-shadow */
+                    data-w={w.word}
+                    ref={(el) => props.setWordEl(wi, el)}
+                  >
+                    {w.word}
+                  </span>
+                );
+              })}
+            </div>
+          </Fragment>
+        );
+      })}
     </>
   );
 });

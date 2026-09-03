@@ -69,9 +69,10 @@ pub struct AlignConfig {
     pub w2v_try_dml: bool,
     /// Intra-op threads for the CPU sessions.
     pub threads: usize,
-    /// A word stretched past this duration is treated as the aligner absorbing
-    /// audio the word doesn't own (spike: stretched words > 2 s marked its
-    /// under-transcription failure mode).
+    /// An **unanchored** word stretched past this duration is treated as the
+    /// aligner absorbing audio the word doesn't own (spike: stretched words
+    /// > 2 s marked its under-transcription failure mode). Anchored words are
+    /// exempt — whisper heard them, and sung held notes routinely exceed this.
     pub max_word_stretch_s: f64,
     /// Below this CTC path confidence an unanchored word counts as suspect.
     pub min_word_confidence: f32,
@@ -427,9 +428,11 @@ impl Aligner {
                 n_unalignable += 1;
             }
             let stretched = r.end - r.start > self.cfg.max_word_stretch_s;
+            // An anchored word was heard by whisper — direct evidence it IS
+            // sung, so a long duration alone can't mark it suspect (held
+            // notes routinely run past max_word_stretch_s).
             let sus = !r.aligned
-                || stretched
-                || (!anchored && r.confidence < self.cfg.min_word_confidence);
+                || (!anchored && (stretched || r.confidence < self.cfg.min_word_confidence));
             suspect.push(sus);
             let (line, word_in_line) = match &auto_lines {
                 Some(l) => (Some(l[i].0), Some(l[i].1)),
