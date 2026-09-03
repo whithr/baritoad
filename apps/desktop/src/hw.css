@@ -999,6 +999,13 @@ body.hw-body {
   border-color: var(--hw-ink);
   font-weight: 600;
 }
+.wordkey.now {
+  background: var(--hw-ink);
+  color: var(--hw-bg);
+  border-color: var(--hw-yellow);
+  box-shadow: 0 0 0 1.5px var(--hw-yellow);
+  font-weight: 600;
+}
 .wordkey.sel {
   background: var(--hw-orange);
   color: var(--hw-orange-ink);
@@ -1016,6 +1023,32 @@ body.hw-body {
   cursor: grabbing;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
   z-index: 2;
+}
+.wordkey.dragging.stretch {
+  cursor: ew-resize;
+}
+/* right-edge handle: stretches the word's end (Bench onWordDown) */
+.wordkey-end {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  cursor: ew-resize;
+}
+.wordkey:hover .wordkey-end::before,
+.wordkey.stretch .wordkey-end::before {
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: 25%;
+  bottom: 25%;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--hw-line-strong);
+}
+.wordkey.sel:hover .wordkey-end::before,
+.wordkey.sel.stretch .wordkey-end::before {
+  background: var(--hw-orange-ink);
 }
 .wordkey .doubt-led {
   position: absolute;

@@ -58,16 +58,26 @@ export function laneOfWord(lanes: LaneGroup[], i: number): number {
 
 /** The lane whose window contains `t`, preferring the one whose words
  *  are being sung (windows overlap at their padded edges). */
+/**
+ * The lane the head is "in" at `t`: the line being sung, else - in the gap
+ * between two lines - the line just sung until the next line's lead-in
+ * window opens, then that next line. Sticky on purpose: a gap longer than
+ * the windows' padding used to fall through to -1, and the focus view
+ * showed that as a flash of the first line (or, lanes view, no line at
+ * all) between two consecutive rows. -1 only before the first window and
+ * after the last.
+ */
 export function laneAtTime(lanes: LaneGroup[], words: WordTiming[], t: number): number {
-  let inWindow = -1;
+  let prev = -1;
   for (let k = 0; k < lanes.length; k++) {
     const l = lanes[k];
     const first = words[l.indices[0]].start;
     const last = Math.max(words[l.indices[l.indices.length - 1]].end, first);
-    if (t >= first && t <= last) return k;
-    if (inWindow < 0 && t >= l.start && t < l.end) inWindow = k;
+    if (t < first) return t >= l.start ? k : prev;
+    if (t <= last) return k;
+    prev = k;
   }
-  return inWindow;
+  return prev >= 0 && t < lanes[prev].end ? prev : -1;
 }
 
 export function isDoubtful(w: WordTiming): boolean {

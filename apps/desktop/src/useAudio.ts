@@ -60,6 +60,9 @@ export interface AudioController {
 export function useAudio(): AudioController {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const layerRef = useRef<HTMLAudioElement | null>(null);
+  /** URL last handed to the layer, as given (the element's `.src` reflects
+   *  it back normalized, so it can't be the idempotence check). */
+  const layerSrcRef = useRef<string | null>(null);
   const layerGainRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const loopRef = useRef<LoopWindow | null>(null);
@@ -129,6 +132,7 @@ export function useAudio(): AudioController {
         l.pause();
         l.src = "";
         layerRef.current = null;
+        layerSrcRef.current = null;
       }
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
@@ -198,6 +202,7 @@ export function useAudio(): AudioController {
     (layerSrc: string | null) => {
       let l = layerRef.current;
       if (layerSrc == null) {
+        layerSrcRef.current = null;
         if (l) {
           l.pause();
           l.src = "";
@@ -209,12 +214,16 @@ export function useAudio(): AudioController {
         l.preload = "auto";
         layerRef.current = l;
       }
-      if (l.src !== layerSrc) {
+      // Only a *new* source needs positioning; a repeat call for the URL
+      // already loaded must not touch the element's timeline (a snap is a
+      // seek, and a seek per call would keep the stem re-buffering).
+      if (layerSrcRef.current !== layerSrc) {
+        layerSrcRef.current = layerSrc;
         l.src = layerSrc;
         l.volume = Math.min(1, Math.max(0, layerGainRef.current));
         l.load();
+        syncLayer(0);
       }
-      syncLayer(0);
     },
     [syncLayer],
   );
@@ -222,11 +231,15 @@ export function useAudio(): AudioController {
   const setLayerGain = useCallback(
     (gain: number) => {
       const g = Math.min(1, Math.max(0, gain));
+      const wasSilent = layerGainRef.current <= 0;
       layerGainRef.current = g;
       setLayerGainState(g);
       const l = layerRef.current;
       if (l) l.volume = g;
-      syncLayer(0);
+      // Volume is the only thing a gain change touches. The transport needs
+      // a sync only at the 0 boundary (the layer pauses at 0 and must come
+      // back in position); an unconditional snap here was a seek per call.
+      if (wasSilent !== g <= 0) syncLayer(0);
     },
     [syncLayer],
   );

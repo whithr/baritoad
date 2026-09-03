@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bench-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "apps/desktop/node_modules/vite/bin/vite.js",
+        "apps/desktop",
+        "--config", "apps/desktop/vite.mock.config.ts"
+      ],
+      "port": 1421
+    }
+  ]
+}

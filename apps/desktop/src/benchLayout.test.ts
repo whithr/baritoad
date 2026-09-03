@@ -57,6 +57,14 @@ describe("laneGroups", () => {
     expect(laneAtTime(lanes, words, 11.9)).toBe(0); // padded window
     expect(laneAtTime(lanes, words, 30)).toBe(-1);
   });
+  it("never falls through in the gap between two lines", () => {
+    const lanes = laneGroups(words, 60);
+    expect(laneAtTime(lanes, words, 8)).toBe(-1); // before the first window
+    expect(laneAtTime(lanes, words, 12.5)).toBe(0); // gap: stays on the line just sung
+    expect(laneAtTime(lanes, words, 13.0)).toBe(1); // next line's lead-in window
+    expect(laneAtTime(lanes, words, 14.7)).toBe(1); // between two words of a line
+    expect(laneAtTime(lanes, words, 16.5)).toBe(1); // trailing window of the last line
+  });
 });
 
 describe("doubt", () => {

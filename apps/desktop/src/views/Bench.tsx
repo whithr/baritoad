@@ -67,7 +67,11 @@ import { useAudio, type AudioController } from "../useAudio";
 import { Chip, Divider, Icon, Kb, Key, Knob, Label, Lcd, Led, Legend, Seg, fmtClock } from "../hw/ui";
 
 const LOOP_PRE_S = 0.5;
-const LOOP_POST_S = 0.15;
+const LOOP_POST_S = 0.3;
+/** Floor on the listen-loop length: a sub-second loop on a short word comes
+ *  around faster than a listener can place its onset. Extra length goes
+ *  before the word — the run-up is what places it. */
+const LOOP_MIN_S = 1.6;
 const HEAR_PRE_S = 0.3;
 const LINE_LOOP_PAD_S = 0.3;
 const REALIGN_PAD_S = 1.0;
@@ -83,10 +87,33 @@ interface Props {
   go: (r: Route) => void;
 }
 
+/** The listen-loop around one word (held drag, key nudges): run-up before,
+ *  tail after, never shorter than LOOP_MIN_S, clamped to the song. */
+function loopWindow(w: { start: number; end: number }, duration: number): { start: number; end: number } {
+  const end = Math.max(w.end, w.start) + LOOP_POST_S;
+  const start = Math.min(w.start - LOOP_PRE_S, end - LOOP_MIN_S);
+  return { start: Math.max(0, start), end: Math.min(duration, end) };
+}
+
+/** Shortest a stretched word may get (a chip must keep a draggable body). */
+const MIN_WORD_S = 0.05;
+
+/** A word's end after a stretch of `deltaS`: never before its start plus
+ *  MIN_WORD_S, never past the next word's onset (sung words do not overlap). */
+function stretchedEnd(words: { start: number; end: number }[], i: number, duration: number, deltaS: number): number {
+  const w = words[i];
+  const floor = w.start + MIN_WORD_S;
+  const cap = Math.max(i < words.length - 1 ? words[i + 1].start : duration, floor);
+  return Math.min(Math.max(w.end + deltaS, floor), cap);
+}
+
 interface DragState {
   index: number;
   first: number;
   last: number;
+  /** "move" shifts the word; "stretch" (grabbed by the right-edge handle)
+   *  moves only the word's end. */
+  mode: "move" | "stretch";
   deltaS: number;
   lane: number;
   startX: number;
@@ -181,38 +208,52 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const dirty = isDirty(state);
 
   // ---- audio: instrumental (or original) under the vocal stem at guide level
+  // Depend on the hook's stable callbacks, never on the `audio` object: it is
+  // rebuilt every render, and while playing the bench renders every frame —
+  // keyed on it, these effects re-ran per frame, and each run re-snapped the
+  // vocal layer's currentTime onto the instrumental (a seek ~80×/s that left
+  // the stem perpetually re-buffering — audible as static on the vocal).
+  const {
+    load: audioLoad,
+    setLayer: audioSetLayer,
+    setLayerGain: audioSetLayerGain,
+    seek: audioSeek,
+    play: audioPlay,
+    pause: audioPause,
+    setLoop: audioSetLoop,
+  } = audio;
   useEffect(() => {
     const main = sources.instrumental ?? sources.original ?? sources.vocals;
-    if (main && audio.src !== convertFileSrc(main)) audio.load(convertFileSrc(main));
-    if (sources.vocals && sources.instrumental) audio.setLayer(convertFileSrc(sources.vocals));
-  }, [sources, audio]);
+    if (main && audio.src !== convertFileSrc(main)) audioLoad(convertFileSrc(main));
+    if (sources.vocals && sources.instrumental) audioSetLayer(convertFileSrc(sources.vocals));
+  }, [sources, audio.src, audioLoad, audioSetLayer]);
   useEffect(() => {
-    audio.setLayerGain(guide);
+    audioSetLayerGain(guide);
     localStorage.setItem(VOCAL_GUIDE_KEY, String(guide));
-  }, [guide, audio]);
+  }, [guide, audioSetLayerGain]);
   useEffect(() => {
     if (audio.ready && !loadedOnce.current) {
       loadedOnce.current = true;
-      if (props.startAt != null) audio.seek(props.startAt);
+      if (props.startAt != null) audioSeek(props.startAt);
     }
-  }, [audio, audio.ready, props.startAt]);
+  }, [audio.ready, audioSeek, props.startAt]);
   // "hear once" stop point
   useEffect(() => {
     if (stopAt.current != null && audio.time >= stopAt.current) {
       stopAt.current = null;
-      audio.pause();
+      audioPause();
     }
-  }, [audio, audio.time]);
+  }, [audio.time, audioPause]);
 
   const playOnce = useCallback(
     (start: number, end: number) => {
       stopAt.current = Math.min(end, duration || end);
-      audio.setLoop(null);
+      audioSetLoop(null);
       setLineLoop(false);
-      audio.seek(Math.max(0, start));
-      audio.play();
+      audioSeek(Math.max(0, start));
+      audioPlay();
     },
-    [audio, duration],
+    [audioSetLoop, audioSeek, audioPlay, duration],
   );
 
   // ---- derived
@@ -228,17 +269,19 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const sungThrough = sungThroughIndexAt(words, audio.time);
   const nowWord = wordIndexAt(words, audio.time);
 
-  // Line loop follows the selected lane.
+  // Line loop follows the selected lane. (Keyed on the stable setLoop, not
+  // `audio`: with the per-render object as a dep, setLoop's fresh window
+  // object re-rendered the bench, which re-ran this effect — a spin.)
   useEffect(() => {
     if (!lineLoop || selLane < 0) {
-      if (!drag) audio.setLoop(null);
+      if (!drag) audioSetLoop(null);
       return;
     }
     const l = lanes[selLane];
     const a = words[l.indices[0]].start - LINE_LOOP_PAD_S;
     const b = Math.max(words[l.indices[l.indices.length - 1]].end, a) + LINE_LOOP_PAD_S;
-    audio.setLoop({ start: Math.max(0, a), end: Math.min(duration, b) });
-  }, [lineLoop, selLane, lanes, words, duration, audio, drag]);
+    audioSetLoop({ start: Math.max(0, a), end: Math.min(duration, b) });
+  }, [lineLoop, selLane, lanes, words, duration, audioSetLoop, drag]);
 
   // ---- persist view / scope choices
   useEffect(() => {
@@ -269,7 +312,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       // Nudging is also listening: keep the word looping while keys repeat.
       const w = words[range.first];
       if (w) {
-        audio.setLoop({ start: Math.max(0, w.start - LOOP_PRE_S), end: Math.min(duration, w.end + LOOP_POST_S) });
+        audio.setLoop(loopWindow(w, duration));
         if (!audio.playing) audio.play();
         window.clearTimeout(nudgeTimer.current);
         nudgeTimer.current = window.setTimeout(() => {
@@ -281,6 +324,17 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     [range, words, audio, duration],
   );
   const nudgeTimer = useRef(0);
+
+  // Click on a lane's background: play from there (DESIGN.md timing tools).
+  // Leaves any loop in place; clears a pending "hear once" stop.
+  const seekPlay = useCallback(
+    (t: number) => {
+      stopAt.current = null;
+      audioSeek(Math.max(0, Math.min(duration, t)));
+      audioPlay();
+    },
+    [audioSeek, audioPlay, duration],
+  );
 
   const hearWord = useCallback(
     (i: number) => {
@@ -374,15 +428,21 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     (e: ReactPointerEvent<HTMLElement>, index: number, laneIdx: number) => {
       if (e.button !== 0 || editing != null) return;
       e.currentTarget.setPointerCapture(e.pointerId);
-      const r = shiftRange(words, index, scope) ?? { first: index, last: index };
+      // Drag moves the word you grabbed (DESIGN.md bench chips). The Shift
+      // scope (word / line / from here) governs the keyboard nudges only —
+      // a line-scoped drag read as "I can't move a single word".
       dispatch({ type: "select", index });
-      setDrag({ index, first: r.first, last: r.last, deltaS: 0, lane: laneIdx, startX: e.clientX, moved: false });
-      const w = words[index];
-      audio.setLoop({ start: Math.max(0, w.start - LOOP_PRE_S), end: Math.min(duration, w.end + LOOP_POST_S) });
-      audio.seek(Math.max(0, w.start - LOOP_PRE_S));
+      // The right-edge handle (<=7px, a third of a narrow chip) stretches the
+      // end; the rest of the chip moves the word (DESIGN.md bench chips).
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mode = e.clientX >= rect.right - Math.min(7, rect.width / 3) ? "stretch" : "move";
+      setDrag({ index, first: index, last: index, mode, deltaS: 0, lane: laneIdx, startX: e.clientX, moved: false });
+      const loop = loopWindow(words[index], duration);
+      audio.setLoop(loop);
+      audio.seek(loop.start);
       audio.play();
     },
-    [words, scope, audio, duration, editing],
+    [words, audio, duration, editing],
   );
   const onWordMove = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
@@ -401,7 +461,12 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       audio.setLoop(null);
       const d = drag;
       setDrag(null);
-      if (d.moved) {
+      if (d.moved && d.mode === "stretch") {
+        const w = words[d.index];
+        const end = stretchedEnd(words, d.index, duration, d.deltaS);
+        dispatch({ type: "commit-drag", index: d.index, start: w.start, end });
+        playOnce(w.start - LOOP_PRE_S, end + LOOP_POST_S);
+      } else if (d.moved) {
         dispatch({ type: "nudge-range", first: d.first, last: d.last, deltaS: d.deltaS });
         const w = words[d.index];
         const start = w.start + d.deltaS;
@@ -411,7 +476,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         audio.seek(Math.max(0, words[d.index].start - 0.05));
       }
     },
-    [drag, audio, words, playOnce],
+    [drag, audio, words, duration, playOnce],
   );
 
   // ---- keyboard
@@ -571,11 +636,13 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     nowWord,
     time: audio.time,
     playLane,
+    duration,
     loop: audio.loop,
     onWordDown,
     onWordMove,
     onWordUp,
     onHearLine: hearLine,
+    onSeekPlay: seekPlay,
     onRealign: realignLane,
     laneWidth,
     select,
@@ -856,6 +923,8 @@ const LANE_DIMS: Record<LaneSize, { wave: number; key: number; gap: number; font
 
 interface LaneCommon {
   words: WordTiming[];
+  /** Song length (the stretch cap for the last word). */
+  duration: number;
   levels: VocalLevels | null;
   selected: number | null;
   range: { first: number; last: number } | null;
@@ -872,6 +941,8 @@ interface LaneCommon {
   onWordMove: (e: ReactPointerEvent<HTMLElement>) => void;
   onWordUp: (e: ReactPointerEvent<HTMLElement>) => void;
   onHearLine: (k: number) => void;
+  /** Background click at original-song time `t`: seek there and play. */
+  onSeekPlay: (t: number) => void;
   onRealign: (k: number) => void;
   laneWidth: React.MutableRefObject<Record<number, number>>;
   select: (i: number | null, seek?: boolean) => void;
@@ -905,14 +976,32 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
   const px = (t: number) => secToPx(t, lane, width);
   const inLane = playLane === index;
   const dragging = drag && lane.indices.includes(drag.index) ? drag : null;
-  const shiftFor = (i: number) => (drag && drag.moved && i >= drag.first && i <= drag.last ? drag.deltaS : 0);
+  const shiftFor = (i: number) => (drag && drag.mode === "move" && drag.moved && i >= drag.first && i <= drag.last ? drag.deltaS : 0);
+  const endFor = (i: number) => {
+    const w = words[i];
+    return drag && drag.mode === "stretch" && drag.moved && i === drag.index
+      ? stretchedEnd(words, i, props.duration, drag.deltaS)
+      : Math.max(w.end, w.start);
+  };
   const showLoop = loop && loop.end > lane.start && loop.start < lane.end && (inLane || dragging || (selected != null && lane.indices.includes(selected)));
   const isInstrumental = false;
 
   return (
     <div className={`lane${focused ? " focus" : ""}${size === "big" ? " big" : ""}`}>
       <div className="lane-num">{String(index + 1).padStart(2, "0")}</div>
-      <div ref={stripRef} className="lane-strip" style={{ height }}>
+      <div
+        ref={stripRef}
+        className="lane-strip"
+        style={{ height }}
+        onClick={(e) => {
+          // Keycaps own their clicks (select / drag / edit); the rest of the
+          // strip is the track - click to play from that time.
+          if ((e.target as HTMLElement).closest(".wordkey")) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          if (r.width <= 0) return;
+          props.onSeekPlay(lane.start + pxToSec(e.clientX - r.left, lane, r.width));
+        }}
+      >
         <div className="lane-wave" style={{ height: dims.wave }}>
           <canvas ref={canvasRef} />
         </div>
@@ -929,14 +1018,33 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
           </>
         )}
         {!isInstrumental &&
-          lane.indices.map((i) => {
+          lane.indices.map((i, k) => {
             const w = words[i];
             const shift = shiftFor(i);
             const x0 = px(w.start + shift);
-            const x1 = Math.max(x0 + 6, px(Math.max(w.end, w.start) + shift));
+            const x1 = Math.max(x0 + 6, px(endFor(i) + shift));
+            // A keycap is a label first: a short sung span ("in", "my") gets a
+            // box too narrow to read, so widen it up to the next word's onset,
+            // and past that shrink the type (to a floor) before clipping.
+            const next = lane.indices[k + 1];
+            const room = (next != null ? px(words[next].start + shiftFor(next)) : width) - x0 - 2;
+            // (0.66 em per glyph + 10px of padding/border, measured against
+            // Space Grotesk at 11–14px; erring wide only widens a keycap.)
+            const need = Math.ceil(w.word.length * dims.font * 0.66 + 12);
+            const boxW = Math.max(x1 - x0, Math.min(need, room));
+            const fontPx = boxW < need ? Math.max(dims.font * 0.75, (boxW - 11) / (w.word.length * 0.66)) : dims.font;
+            const handleW = Math.min(7, boxW / 3);
             const isSel = selected === i;
             const inScope = range != null && i >= range.first && i <= range.last;
-            const state = isSel ? "sel" : sungThrough != null && i <= sungThrough && inLane && i < (props.nowWord ?? Infinity) ? "sung" : "";
+            // The word under the head lights the moment the head enters it
+            // ("now"); "sung" is the trail behind it.
+            const state = isSel
+              ? "sel"
+              : inLane && props.nowWord === i
+                ? "now"
+                : sungThrough != null && i <= sungThrough && inLane && i < (props.nowWord ?? Infinity)
+                  ? "sung"
+                  : "";
             const tickCls = isSel ? "sel" : isDoubtful(w) ? "doubt" : "";
             return (
               <span key={i}>
@@ -957,8 +1065,8 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
                   </span>
                 ) : (
                   <span
-                    className={`wordkey ${state}${inScope ? " in-scope" : ""}${w.unsung ? " unsung" : ""}${dragging && i === dragging.index ? " dragging" : ""}${size === "big" ? " big" : ""}`}
-                    style={{ left: x0, width: x1 - x0, top: keysTop, height: dims.key, fontSize: dims.font }}
+                    className={`wordkey ${state}${inScope ? " in-scope" : ""}${w.unsung ? " unsung" : ""}${dragging && i === dragging.index ? ` dragging ${dragging.mode}` : ""}${size === "big" ? " big" : ""}`}
+                    style={{ left: x0, width: boxW, top: keysTop, height: dims.key, fontSize: fontPx }}
                     onPointerDown={(e) => props.onWordDown(e, i, index)}
                     onPointerMove={props.onWordMove}
                     onPointerUp={props.onWordUp}
@@ -974,13 +1082,14 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
                   >
                     {w.word}
                     {isDoubtful(w) && !isSel && <span className="doubt-led" />}
+                    <span className="wordkey-end" style={{ width: handleW }} aria-hidden />
                   </span>
                 )}
               </span>
             );
           })}
         {focused && dragging && dragging.moved && (
-          <span className="puck" style={{ left: px(words[dragging.index].start + dragging.deltaS), top: dims.wave - 8 }} />
+          <span className="puck" style={{ left: px(dragging.mode === "stretch" ? endFor(dragging.index) : words[dragging.index].start + dragging.deltaS), top: dims.wave - 8 }} />
         )}
         {focused && (
           <div className="lane-readout">
