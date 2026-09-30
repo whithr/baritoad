@@ -152,19 +152,16 @@ function SubPopup(props: { items: MenuEntry[] }) {
 
 export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
   const { menus } = props;
-  // 98 "menu mode", owned here: a click on a title opens its menu; while a
-  // menu is open, pointing at another title switches to it; a menu stays
-  // open until a click elsewhere, a second click on its own title, a command
-  // or Esc. Each menu is a standalone Base UI Menu (items, typeahead,
-  // submenus, focus); Base UI's Menubar isn't used because its hover-opened
-  // menus are transient and leave stale mouse-up listeners that close the
-  // whole bar on the next click ("cancel-open").
+  // Menu mode, owned here: only a click (or the keyboard) opens a menu —
+  // pointing at other titles never switches menus; a menu stays open until a
+  // click elsewhere, a second click on its own title, a command or Esc. Each
+  // menu is a standalone Base UI Menu (items, typeahead, submenus, focus);
+  // Base UI's Menubar isn't used because it opens menus on hover and its
+  // hover-opened menus leave stale mouse-up listeners that close the whole
+  // bar on the next click ("cancel-open").
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const openRef = useRef<number | null>(null);
   openRef.current = openIdx;
-  /** The menu the user clicked open (a click on its title closes it); a
-   *  menu reached by pointing isn't, so a click on its title claims it. */
-  const clickOpened = useRef<number | null>(null);
   const triggers = useRef<(HTMLButtonElement | null)[]>([]);
   const menusRef = useRef(menus);
   menusRef.current = menus;
@@ -188,14 +185,6 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
     return el && el.isConnected ? el : false;
   };
 
-  const openMenu = (i: number, how: "click" | "point" | "key") => {
-    clickOpened.current = how === "click" ? i : null;
-    setOpenIdx(i);
-  };
-  const closeMenus = () => {
-    clickOpened.current = null;
-    setOpenIdx(null);
-  };
   /** Left/Right along the bar: with a menu open, open the neighbour; with
    *  only a title focused, move focus. */
   const step = (from: number, dir: -1 | 1) => {
@@ -273,20 +262,9 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
           modal={false}
           open={openIdx === i}
           disabled={props.disabled}
-          onOpenChange={(o, details) => {
-            const reason = (details as { reason?: string } | undefined)?.reason;
-            if (o) {
-              openMenu(i, reason === "trigger-press" && (details as { event?: Event })?.event?.type !== "keydown" ? "click" : "key");
-              return;
-            }
-            if (openRef.current !== i) return;
-            // a click on the title of a menu that was reached by pointing
-            // claims it instead of closing it
-            if (reason === "trigger-press" && clickOpened.current !== i) {
-              clickOpened.current = i;
-              return;
-            }
-            closeMenus();
+          onOpenChange={(o) => {
+            if (o) setOpenIdx(i);
+            else if (openRef.current === i) setOpenIdx(null);
           }}
         >
           <Menu.Trigger
@@ -299,9 +277,6 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
             // a click on a title doesn't take focus from the window: the menu
             // takes it while open and hands it back when it closes
             onMouseDown={(e: React.MouseEvent<HTMLButtonElement>) => e.preventDefault()}
-            onPointerEnter={(e: React.PointerEvent<HTMLButtonElement>) => {
-              if (e.pointerType !== "touch" && openRef.current !== null && openRef.current !== i) openMenu(i, "point");
-            }}
             onKeyDown={(e: React.KeyboardEvent<HTMLButtonElement>) => {
               if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
                 e.preventDefault();
