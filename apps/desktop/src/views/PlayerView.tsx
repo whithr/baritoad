@@ -1018,7 +1018,7 @@ export default function PlayerView(props: {
   return (
     <div className="w98" style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "#000010" }}>
       {ROLE === "player" && !fullscreen && (
-        <StageTitleBar title={`${title} - Karascape Stage`} active={windowActive} onClose={exit} />
+        <StageTitleBar title={song ? `${song.title} - Karascape Stage` : "Karascape Stage"} active={windowActive} onClose={exit} />
       )}
       <div style={{ position: "relative", flexGrow: 1, minHeight: 0 }}>
         <div
@@ -1041,14 +1041,14 @@ export default function PlayerView(props: {
           <div className="pk-scrim" aria-hidden />
           {visActive && <canvas className="pk-vis" ref={visCanvasRef} aria-hidden />}
 
-          <div className="pk-caption left w-window" style={{ width: 320 }}>
+          <div className="pk-caption left w98 w-window" style={{ width: 320 }}>
             <TitleBar title="Now singing" active />
             <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 8px 6px" }}>
               <div className="w-sunken" style={{ width: 44, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#008080" }}>
                 {cover ? <img src={cover} alt="" style={{ width: 40, height: 40, objectFit: "cover" }} /> : <Icon name="disc" size={32} />}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-                <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</b>
+                <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{song?.title ?? (map ? title : error ? "Couldn't load the song" : "Loading…")}</b>
                 {song?.artist && <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{song.artist}</span>}
                 {measureNote && <span className="w-muted">{measureNote}</span>}
               </div>
@@ -1056,7 +1056,7 @@ export default function PlayerView(props: {
           </div>
 
           {upNext && (
-            <div className="pk-caption right w-window" style={{ width: 260 }}>
+            <div className="pk-caption right w98 w-window" style={{ width: 260 }}>
               <TitleBar title="Up next" active={false} />
               <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 3 }}>
                 <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{upNext.song.title}</b>
@@ -1066,7 +1066,7 @@ export default function PlayerView(props: {
           )}
 
           {error && (
-            <div className="pk-caption left w-window" style={{ top: 110, maxWidth: 520 }} role="alert">
+            <div className="pk-caption left w98 w-window" style={{ top: 110, maxWidth: 520 }} role="alert">
               <TitleBar title="Karascape Player" active />
               <div style={{ display: "flex", gap: 10, alignItems: "center", padding: 10, userSelect: "text" }}>
                 <Icon name="error" size={32} />
@@ -1096,7 +1096,7 @@ export default function PlayerView(props: {
             )}
           </div>
 
-          <div className="pk-dock w-window" onPointerMove={pokeControls}>
+          <div className="pk-dock w98 w-window" onPointerMove={pokeControls}>
             <TitleBar title="Karascape Player" icon={<Icon name="app" />} active>
               <CaptionButton glyph="close" label={ROLE === "player" ? "Close the stage (Esc)" : "Back (Esc)"} onClick={exit} />
             </TitleBar>
