@@ -115,9 +115,9 @@ describe("settings", () => {
   it("falls back per field", () => {
     expect(parseSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings("nope")).toEqual(DEFAULT_SETTINGS);
-    expect(parseSettings(JSON.stringify({ theme: "light", benchView: "bogus" }))).toEqual({
+    expect(parseSettings(JSON.stringify({ theme: "dark", benchView: "bogus" }))).toEqual({
       ...DEFAULT_SETTINGS,
-      theme: "light",
+      scheme: "night",
     });
   });
 });
