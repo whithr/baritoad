@@ -38,17 +38,32 @@ export interface MenuDef {
 
 // ------------------------------------------------------------ item render
 
-function runAccess(items: MenuEntry[], key: string, close: () => void): boolean {
+/** An access key typed in an open menu: act on the item whose underlined
+ *  letter matches, the way a click would — so Base UI runs it and closes
+ *  the menu itself (a submenu trigger opens its submenu instead). */
+function runAccess(popup: Element | null | undefined, key: string): boolean {
+  if (!popup) return false;
   const k = key.toLowerCase();
-  const hit = items.find(
-    (it): it is Command => it !== "-" && !it.disabled && !it.items && accessKeyOf(it.label) === k,
-  );
-  if (!hit) return false;
-  close();
-  // let the menu finish closing (focus returns) before the command runs
-  setTimeout(() => hit.run?.(), 0);
-  return true;
+  const items = popup.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]');
+  for (const el of items) {
+    if (el.hasAttribute("data-disabled") || el.getAttribute("aria-disabled") === "true") continue;
+    if (el.querySelector(".w-ak")?.textContent?.toLowerCase() !== k) continue;
+    if (el.getAttribute("aria-haspopup")) {
+      el.focus();
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    } else {
+      el.click();
+    }
+    return true;
+  }
+  return false;
 }
+
+/** The open menu popup, topmost last. */
+const openPopup = () => {
+  const pops = document.querySelectorAll(".w-popup.w-menu");
+  return pops[pops.length - 1] ?? null;
+};
 
 function MenuItems(props: { items: MenuEntry[] }) {
   return (
@@ -144,6 +159,22 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
   menusRef.current = menus;
   const openRef = useRef(open);
   openRef.current = open;
+  // Where focus was before the menu bar took it: a closed menu hands focus
+  // back there (the list, the Bench), not to the bar, so the window's own
+  // keys work again straight away.
+  const lastFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const onFocus = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && t.closest && !t.closest(".w-menubar, .w-menu")) lastFocus.current = t;
+    };
+    window.addEventListener("focusin", onFocus);
+    return () => window.removeEventListener("focusin", onFocus);
+  }, []);
+  const restoreFocus = () => {
+    const el = lastFocus.current;
+    return el && el.isConnected ? el : false;
+  };
 
   // Alt+letter opens that menu; F10 (or a lone Alt tap) focuses the bar.
   // Capture phase so the views' bare-letter shortcuts never see Alt chords.
@@ -163,7 +194,7 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
         e.key.length === 1 &&
         !(document.activeElement as HTMLElement | null)?.closest(".w-menu")
       ) {
-        if (runAccess(menusRef.current[cur]?.items ?? [], e.key, () => setOpen(null))) {
+        if (runAccess(openPopup(), e.key)) {
           e.preventDefault();
           e.stopPropagation();
         }
@@ -223,9 +254,10 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
             <Menu.Positioner side="bottom" align="start" sideOffset={1} style={{ zIndex: 1000 }}>
               <Menu.Popup
                 className="w-popup w-menu"
+                finalFocus={restoreFocus}
                 onKeyDownCapture={(e) => {
                   if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
-                  if (runAccess(m.items, e.key, () => setOpen(null))) {
+                  if (runAccess(e.currentTarget, e.key)) {
                     e.preventDefault();
                     e.stopPropagation();
                   }
@@ -271,7 +303,7 @@ export function ContextMenu(props: {
             className="w-popup w-menu"
             onKeyDownCapture={(e) => {
               if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
-              if (runAccess(props.items, e.key, () => setOpen(false))) {
+              if (runAccess(e.currentTarget, e.key)) {
                 e.preventDefault();
                 e.stopPropagation();
               }
@@ -308,7 +340,7 @@ export function DropdownButton(props: {
             className="w-popup w-menu"
             onKeyDownCapture={(e) => {
               if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
-              if (runAccess(props.items, e.key, () => setOpen(false))) {
+              if (runAccess(e.currentTarget, e.key)) {
                 e.preventDefault();
                 e.stopPropagation();
               }
@@ -371,7 +403,11 @@ export function useAccelerators(entries: (MenuEntry | MenuDef)[], opts?: { enabl
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       const typing = isTyping(document.activeElement);
-      if (isInOverlay()) return;
+      // A focused menu-bar title (no menu open) still lets chords and F-keys
+      // through; open menus and dialogs own every key.
+      const chord = e.ctrlKey || /^F\d+$/.test(e.key);
+      const barOnly = !!document.activeElement?.closest('[role="menubar"]') && !document.querySelector('[role="menu"]');
+      if (isInOverlay() && !(barOnly && chord)) return;
       for (const c of ref.current) {
         if (!c.keys || c.disabled) continue;
         const specs = c.keys.split(",").map((s) => s.trim());

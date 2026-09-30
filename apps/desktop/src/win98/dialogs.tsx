@@ -211,11 +211,11 @@ function PromptHost(props: { children: ReactNode }) {
 const KIND_ICON = { info: "info", question: "question", warning: "warn", error: "error" } as const;
 
 export function MessageBoxProvider(props: { children: ReactNode; appName?: string }) {
-  const [queue, setQueue] = useState<{ o: MessageOptions; resolve: (id: string) => void }[]>([]);
+  const [queue, setQueue] = useState<{ o: MessageOptions; resolve: (id: string) => void; from: Element | null }[]>([]);
   const defaultRef = useRef<HTMLButtonElement | null>(null);
 
   const ask = useCallback<Ask>(
-    (o) => new Promise<string>((resolve) => setQueue((q) => [...q, { o, resolve }])),
+    (o) => new Promise<string>((resolve) => setQueue((q) => [...q, { o, resolve, from: document.activeElement }])),
     [],
   );
 
@@ -240,7 +240,13 @@ export function MessageBoxProvider(props: { children: ReactNode; appName?: strin
       >
         <AlertDialog.Portal>
           <AlertDialog.Backdrop className="w-backdrop" />
-          <AlertDialog.Popup className="w98 w-popup w-window w-dialog" style={{ zIndex: 950, minWidth: 320 }} initialFocus={defaultRef}>
+          <AlertDialog.Popup className="w98 w-popup w-window w-dialog" style={{ zIndex: 950, minWidth: 320 }} initialFocus={defaultRef}
+            finalFocus={() => {
+              // back to where the user was — never the menu bar (its keys
+              // would swallow the window's shortcuts)
+              const el = current?.from as HTMLElement | null | undefined;
+              return el && el.isConnected && !el.closest(".w-menubar") && el !== document.body ? el : false;
+            }}>
             {current && (
               <>
                 <TitleBar
