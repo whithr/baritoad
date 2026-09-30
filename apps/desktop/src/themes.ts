@@ -248,7 +248,7 @@ const slug = (s: string) =>
 
 // ---------------------------------------------------------------------------
 // CSS application — the theme as a var bag on .player-stage. Fallbacks in
-// styles.css equal today's look, so "no theme" renders pixel-identical.
+// win98/stage.css equal the Karascape 98 theme, so "no theme" renders the same.
 // ---------------------------------------------------------------------------
 
 /** rgba() step of a hex color — the theme's glow halo (mirrors the token

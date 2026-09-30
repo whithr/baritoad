@@ -83,6 +83,4 @@ export function applyAppearance(s: Pick<Settings, "scheme" | "pixelFont" | "uiSc
   d.scheme = s.scheme;
   d.pixelFont = s.pixelFont ? "on" : "off";
   d.uiScale = s.uiScale;
-  // hw.css (views not yet on the 98 kit) keys off data-theme
-  d.theme = s.scheme === "night" ? "dark" : "light";
 }

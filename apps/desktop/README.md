@@ -1,22 +1,29 @@
 # Karaoke desktop app
 
-Tauri 2 shell over `karaoke-core`. The UI is bench-centric: one surface where
-the lyrics sit on the audio (`views/Bench.tsx`, three zoom levels — Text,
-Lanes, Focus), with the library as a drawer and song import landing on the
-same surface (`views/Home.tsx`). The chrome is the "hardware panel" language
-in `src/hw.css` (light/dark, switched in Settings); the TV player keeps its
-own stage themes and the legacy `styles.css`, loaded on demand. All processing is local; the app never
-downloads music, never uploads audio, and ships no lyrics. The code is public
-but the project is **source-available**, not open source (PLAN.md §1, §8).
+Tauri 2 shell over `karaoke-core`, styled as a late-90s desktop program
+("Karascape 98", DESIGN.md): a main window that moves between the Library
+(`views/Home.tsx` — places tree, sortable song list, Up next, Add Song
+wizard) and the Bench (`views/Bench.tsx` — the timing editor, Text / Lanes /
+Focus), and a separate Stage window for the TV player
+(`views/PlayerView.tsx`, created by `src-tauri/src/stage.rs`) that can be
+dragged or sent full screen to another display. All processing is local; the app never downloads music,
+never uploads audio, and ships no lyrics. The code is public but the project
+is **source-available**, not open source (PLAN.md §1, §8).
 
 ## Layout
 
-- `src/` — React 19 + TypeScript frontend (Vite). Plain CSS, no UI framework
-  in the bench/home chrome (`hw.css` + `hw/ui.tsx`); the player still uses
-  `ui.tsx` (Base UI skins) and `styles.css`.
-- `src/views/` — `Home` (library drawer, drop/landing, up-next tray),
-  `Bench` (Lanes / Text / Focus editor), `Settings`, `PlayerView` (TV),
-  `ThemesView` (player stage themes).
+- `src/` — React 19 + TypeScript frontend (Vite). Plain CSS; behaviour
+  (menus, dialogs, tabs, sliders…) from `@base-ui/react` primitives.
+- `src/win98/` — the Karascape 98 kit: tokens (Classic + Night schemes),
+  class-scoped base CSS, pixel icons, controls, menu bar / context menus
+  from one command model, list + tree views, dialogs, wizard, message boxes,
+  the frameless window frame; `stage.css` holds the TV stage's lyric CSS
+  (the player's per-frame hooks) and `bench.css` the Bench lanes.
+- `src/views/` — `Home` (Library), `AddSongWizard`, `ProcessingDialog`,
+  `Bench`, `PlayerView` (stage), `Properties` (+ About), `PlayerThemes`,
+  `AppDialogs`; `KitView` is a dev-only parts bin at `#/kit`.
+- `src/stage.ts` / `src/prefsSync.ts` — opening the Stage window and keeping
+  settings/themes in step between the two windows.
 - Pure, tested modules the views sit on: `editorState` (undo/redo + map
   invariants), `lineEdit`/`docEdit` (line surgery), `previewEditor`
   (shift scopes), `benchLayout` (lane windows, doubt, view axis),

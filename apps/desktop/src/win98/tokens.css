@@ -54,7 +54,7 @@
   --w-font-smooth: Tahoma, "Microsoft Sans Serif", "Segoe UI", Barlow, sans-serif;
   --w-font-ui: var(--w-font-pixel);
   --w-font-lyric: Barlow, "Segoe UI", system-ui, sans-serif;
-  --w-font-lcd: "DSEG7 Classic", ui-monospace, monospace;
+  --w-font-lcd: DSEG7, "DSEG7 Classic", ui-monospace, monospace;
   --w-fs: 16px; /* Pixel Operator's native grid: 100 units = 1 px at 16 px */
 
   /* ---- bevels ---- */

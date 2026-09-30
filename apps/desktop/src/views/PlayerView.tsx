@@ -499,7 +499,7 @@ export default function PlayerView(props: {
       }
       // Active-word wipe: two CSS vars on one element (--wipe drives the
       // fill gradient; --wipe-n is the same value unitless for the glow
-      // mask's length calc — styles.css ::before docs).
+      // mask's length calc — win98/stage.css ::before docs).
       if (frame.activeWord != null) {
         const el = wordEls.current[frame.activeWord];
         if (el) {
@@ -1405,7 +1405,7 @@ const LyricStage = memo(function LyricStage(props: {
                   <span
                     key={wi}
                     className={`k-word${w.unsung ? " unsung" : ""}`}
-                    /* the active-wipe glow layer (styles.css ::before) re-draws
+                    /* the active-wipe glow layer (stage.css ::before) re-draws
                        the word as a clipped text-shadow */
                     data-w={w.word}
                     ref={(el) => props.setWordEl(wi, el)}

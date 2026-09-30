@@ -224,7 +224,7 @@
 }
 
 .pk-gap-secs {
-  font-family: "DSEG7 Classic", ui-monospace, monospace;
+  font-family: DSEG7, "DSEG7 Classic", ui-monospace, monospace;
   font-size: 15px;
   min-width: 2ch;
   text-align: right;

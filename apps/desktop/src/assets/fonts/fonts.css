@@ -1,7 +1,7 @@
 /* Self-hosted faces (offline-first — no CDN, PLAN.md §2 local-first).
-   Barlow: SIL OFL 1.1 (BARLOW-LICENSE-OFL.txt). UI + lyric voice.
-   DSEG 7/14 Classic: SIL OFL 1.1 (DSEG-LICENSE-OFL.txt). Segment-display
-   numerals — instrument chrome only, never lyric or body type. */
+   Barlow: SIL OFL 1.1 (BARLOW-LICENSE-OFL.txt). The lyric voice.
+   DSEG7 Classic: SIL OFL 1.1 (DSEG-LICENSE-OFL.txt). Segment-display
+   numerals (LCD readouts) — never lyric or body type. */
 
 /* ---- Barlow, latin ---- */
 @font-face {
@@ -108,11 +108,4 @@
   font-weight: 700;
   font-display: block;
   src: url("./dseg7-classic-bolditalic.woff2") format("woff2");
-}
-@font-face {
-  font-family: "DSEG14";
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url("./dseg14-classic-regular.woff2") format("woff2");
 }
