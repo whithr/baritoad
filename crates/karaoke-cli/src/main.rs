@@ -940,6 +940,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
             "lyric_source": match out.map.lyric_source {
                 Some(LyricSource::Pasted) => "pasted",
                 Some(LyricSource::Transcribed) => "transcribed",
+                Some(LyricSource::Imported) => "imported",
                 None => "unknown",
             },
             "cleanup": cleaned.as_ref().map(|c| serde_json::json!({
