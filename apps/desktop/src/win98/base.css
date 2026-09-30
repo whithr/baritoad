@@ -31,9 +31,11 @@ html.w98-root body {
   cursor: default;
 }
 
+.w98,
 .w98 *,
 .w98 *::before,
 .w98 *::after,
+.w-popup,
 .w-popup *,
 .w-popup *::before,
 .w-popup *::after {
