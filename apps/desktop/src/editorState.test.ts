@@ -5,6 +5,7 @@ import {
   editorReducer,
   exportFreshness,
   initEditor,
+  INSERT_WORD_S,
   isDirty,
   lineWindow,
   mapFromEditor,
@@ -295,6 +296,70 @@ describe("insert-word", () => {
       [0, 2], // bumped
       [1, 0], // untouched (other line)
     ]);
+  });
+
+  it("at a chosen time: onset there, INSERT_WORD_S long, capped at the next onset", () => {
+    let s = initEditor(threeWords());
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x", at: 1.6 });
+    expect(s.words[1].start).toBeCloseTo(1.6);
+    expect(s.words[1].end).toBeCloseTo(1.6 + INSERT_WORD_S);
+    s = editorReducer(initEditor(threeWords()), { type: "insert-word", after: 0, word: "x", at: 1.9 });
+    expect(s.words[1].end).toBeCloseTo(2.0); // b's onset
+    // a time outside the neighbors clamps between their onsets
+    s = editorReducer(initEditor(threeWords()), { type: "insert-word", after: 0, word: "x", at: 5 });
+    expect(s.words[1].start).toBeCloseTo(2.0);
+  });
+
+  it("a time inside the previous word's span trims that word to the new onset", () => {
+    let s = initEditor(map([word("a", 1.0, 1.9), word("b", 2.0, 2.4)]));
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x", at: 1.5 });
+    expect(s.words.map((w) => w.word)).toEqual(["a", "x", "b"]);
+    expect(s.words[0].end).toBeCloseTo(1.5);
+    expect(s.words[1].start).toBeCloseTo(1.5);
+    expect(s.past).toHaveLength(1); // trim + insert are one undo step
+  });
+
+  it("several words split the slot evenly and renumber the line by that many", () => {
+    const withLines = map([
+      { ...word("a", 1.0, 1.4), line: 0, word_in_line: 0 },
+      { ...word("b", 3.0, 3.4), line: 0, word_in_line: 1 },
+    ]);
+    let s = initEditor(withLines);
+    s = editorReducer(s, { type: "insert-word", after: 0, word: " oh  yeah ", at: 2.0 });
+    expect(s.words.map((w) => w.word)).toEqual(["a", "oh", "yeah", "b"]);
+    expect(s.words[1].start).toBeCloseTo(2.0);
+    expect(s.words[2].start).toBeCloseTo(2.0 + INSERT_WORD_S);
+    expect(s.words[2].end).toBeCloseTo(2.0 + 2 * INSERT_WORD_S);
+    expect(s.words.map((w) => w.word_in_line)).toEqual([0, 1, 2, 3]);
+    expect(s.selected).toBe(1);
+  });
+
+  it("join next: a word before a line's first word joins that line, not the one before", () => {
+    const withLines = map([
+      { ...word("a", 1.0, 1.4), line: 0, word_in_line: 0 },
+      { ...word("c", 5.0, 5.4), line: 1, word_in_line: 0 },
+      { ...word("d", 6.0, 6.4), line: 1, word_in_line: 1 },
+    ]);
+    let s = initEditor(withLines);
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x", at: 4.5, join: "next" });
+    expect(s.words.map((w) => [w.word, w.line, w.word_in_line])).toEqual([
+      ["a", 0, 0],
+      ["x", 1, 0],
+      ["c", 1, 1],
+      ["d", 1, 2],
+    ]);
+  });
+
+  it("with no audible gap and an overrunning previous word, onsets stay monotonic", () => {
+    let s = initEditor(map([word("a", 1.0, 2.2), word("b", 2.0, 2.4)]));
+    s = editorReducer(s, { type: "insert-word", after: 0, word: "x" });
+    expect(s.words[1].start).toBeCloseTo(2.0);
+    expect(s.words[1].start).toBeLessThanOrEqual(s.words[2].start);
+  });
+
+  it("blank text is a no-op", () => {
+    const s0 = initEditor(threeWords());
+    expect(editorReducer(s0, { type: "insert-word", after: 0, word: "   ", at: 1.6 })).toBe(s0);
   });
 });
 

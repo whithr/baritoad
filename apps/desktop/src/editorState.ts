@@ -76,7 +76,16 @@ export type EditorAction =
   | { type: "rewrap-up"; at: number }
   | { type: "rewrap-down"; at: number }
   | { type: "reflow-lines" }
-  | { type: "insert-word"; after: number; word: string }
+  | {
+      type: "insert-word";
+      after: number;
+      /** One word, or several (whitespace-separated) sharing the slot. */
+      word: string;
+      /** Onset in original-song seconds; omitted = the neighbor gap. */
+      at?: number;
+      /** Which neighbor's lyric line the words join (default "prev"). */
+      join?: "prev" | "next";
+    }
   | { type: "delete-word"; index: number }
   | { type: "nudge-range"; first: number; last: number; deltaS: number }
   | { type: "replace-words"; words: WordTiming[] }
@@ -116,6 +125,43 @@ export function clampWord(
   if (!isFinite(s)) s = words[i].start;
   if (!isFinite(e)) e = Math.max(words[i].end, s);
   return { start: s, end: e };
+}
+
+/** Sung length given to each word inserted at a chosen time. */
+export const INSERT_WORD_S = 0.3;
+
+/**
+ * The span `insert-word` fills after index `after` (-1 = before the first
+ * word), or null with no neighbor at all. At `at` when given: clamped
+ * between the neighbors' onsets, INSERT_WORD_S per word, never past the
+ * next onset. Otherwise the middle half of the neighbor gap; with no audible
+ * gap, the next onset (zero-ish duration — the user nudges it).
+ */
+export function insertSlot(
+  words: WordTiming[],
+  duration: number,
+  after: number,
+  at?: number,
+  count = 1,
+): { start: number; end: number } | null {
+  const prev = after >= 0 ? words[after] : null;
+  const next = after + 1 < words.length ? words[after + 1] : null;
+  if (!prev && !next) return null;
+  const prevOnset = prev ? prev.start : 0;
+  const nextOnset = next ? next.start : duration;
+  if (at != null && isFinite(at)) {
+    const start = Math.min(Math.max(at, prevOnset, 0), nextOnset, duration);
+    return { start, end: Math.max(start, Math.min(start + INSERT_WORD_S * count, nextOnset, duration)) };
+  }
+  const gapStart = prev ? Math.max(prev.end, prev.start) : 0;
+  const gapEnd = Math.max(nextOnset, gapStart);
+  if (gapEnd - gapStart > 0.06) {
+    const gap = gapEnd - gapStart;
+    return { start: gapStart + gap * 0.25, end: gapEnd - gap * 0.25 };
+  }
+  // No gap: the next onset — never prev's end, which may overrun it.
+  const start = Math.min(nextOnset, duration);
+  return { start, end: Math.min(start + 0.12, duration) };
 }
 
 /**
@@ -291,33 +337,19 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case "insert-word": {
-      // Insert after index `after` (-1 = before the first word). Timing sits
-      // in the middle half of the neighbor gap; with no audible gap the word
-      // lands at the next onset (zero-ish duration — the user nudges it).
+      // Insert after index `after` (-1 = before the first word), timed by
+      // insertSlot; several words split the slot evenly.
       const { after } = action;
-      const word = action.word.trim();
-      if (word === "" || after < -1 || after >= state.words.length) return state;
+      const tokens = tokenizeLyric(action.word);
+      if (tokens.length === 0 || after < -1 || after >= state.words.length) return state;
+      const slot = insertSlot(state.words, state.duration, after, action.at, tokens.length);
+      if (!slot) return state;
       const prev = after >= 0 ? state.words[after] : null;
       const next = after + 1 < state.words.length ? state.words[after + 1] : null;
-      if (!prev && !next) return state;
-      const prevOnset = prev ? prev.start : 0;
-      const nextOnset = next ? next.start : state.duration;
-      const gapStart = prev ? Math.max(prev.end, prev.start) : 0;
-      const gapEnd = Math.max(nextOnset, gapStart);
-      let start: number;
-      let end: number;
-      if (gapEnd - gapStart > 0.06) {
-        const gap = gapEnd - gapStart;
-        start = gapStart + gap * 0.25;
-        end = gapEnd - gap * 0.25;
-      } else {
-        start = Math.min(Math.max(gapEnd, prevOnset), state.duration);
-        end = Math.min(start + 0.12, state.duration);
-      }
-      // Lyric link: join prev's line (or next's when inserting at the front),
-      // then bump word_in_line for the rest of that line so links keep
-      // walking strictly forward (core validate()).
-      const line = prev?.line ?? next?.line;
+      // Lyric link: join the chosen neighbor's line (the other one's when it
+      // has none), then bump word_in_line for the rest of that line so links
+      // keep walking strictly forward (core validate()).
+      const line = action.join === "next" ? (next?.line ?? prev?.line) : (prev?.line ?? next?.line);
       let wordInLine: number | undefined;
       if (line != null) {
         wordInLine =
@@ -327,24 +359,29 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
               ? next.word_in_line
               : undefined;
       }
-      const inserted: WordTiming = {
+      const n = tokens.length;
+      const step = (slot.end - slot.start) / n;
+      const inserted: WordTiming[] = tokens.map((word, k) => ({
         word,
-        start,
-        end,
+        start: slot.start + step * k,
+        end: k === n - 1 ? slot.end : slot.start + step * (k + 1),
         confidence: 1,
         anchored: true,
         unsung: false,
         line,
-        word_in_line: wordInLine,
+        word_in_line: wordInLine != null ? wordInLine + k : undefined,
         ad_lib: false,
-      };
+      }));
       const words = state.words.slice();
-      words.splice(after + 1, 0, inserted);
+      // Sung words don't overlap: a prev word running past the new onset
+      // ends there (a double-click inside its span says it was too long).
+      if (prev && prev.end > slot.start) words[after] = { ...prev, end: Math.max(prev.start, slot.start) };
+      words.splice(after + 1, 0, ...inserted);
       if (line != null && wordInLine != null) {
-        for (let i = after + 2; i < words.length; i++) {
+        for (let i = after + 1 + n; i < words.length; i++) {
           const w = words[i];
           if (w.line !== line) break;
-          if (w.word_in_line != null) words[i] = { ...w, word_in_line: w.word_in_line + 1 };
+          if (w.word_in_line != null) words[i] = { ...w, word_in_line: w.word_in_line + n };
         }
       }
       return { ...withEdit(state, words), selected: after + 1 };

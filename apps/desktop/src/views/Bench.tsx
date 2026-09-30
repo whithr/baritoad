@@ -55,12 +55,14 @@ import {
 import {
   editorReducer,
   initEditor,
+  insertSlot,
   isDirty,
   mapFromEditor,
   NUDGE_COARSE_S,
   NUDGE_S,
 } from "../editorState";
 import { sungThroughIndexAt, wordIndexAt } from "../highlight";
+import { tokenizeLyric } from "../lineEdit";
 import { shiftRange, type ShiftScope } from "../previewEditor";
 import { fmtTime } from "../format";
 import { onStage, openStage } from "../stage";
@@ -137,6 +139,13 @@ const LOOP_POST_S = 0.3;
  *  before the word — the run-up is what places it. */
 const LOOP_MIN_S = 1.6;
 const HEAR_PRE_S = 0.3;
+/** Dropping a dragged word rolls playback back this far before it and plays
+ *  on — the new timing heard in context, not a clip that stops. */
+const DROP_RUNUP_S = 1.5;
+/** Quiet time after the last arrow nudge before it plays (as a drop does):
+ *  longer than the usual ~500 ms key-repeat delay, so a held key doesn't
+ *  fire playback between its first press and its repeats. */
+const NUDGE_SETTLE_MS = 600;
 const LINE_LOOP_PAD_S = 0.3;
 const REALIGN_PAD_S = 1.0;
 const VOCAL_GUIDE_KEY = "karascape.bench.vocalGuide";
@@ -170,18 +179,40 @@ function stretchedEnd(words: { start: number; end: number }[], i: number, durati
   return Math.min(Math.max(w.end + deltaS, floor), cap);
 }
 
+/** A word's start after a stretch of `deltaS` at its left edge: never past
+ *  its end minus MIN_WORD_S, never before the previous word's end (sung words
+ *  do not overlap) — unless it already starts there, where it stays put. */
+function stretchedStart(words: { start: number; end: number }[], i: number, deltaS: number): number {
+  const w = words[i];
+  const ceil = Math.max(Math.max(w.end, w.start) - MIN_WORD_S, w.start);
+  const prevEnd = i > 0 ? Math.max(words[i - 1].end, words[i - 1].start) : 0;
+  return Math.max(Math.min(w.start + deltaS, ceil), Math.min(prevEnd, w.start));
+}
+
 interface DragState {
   index: number;
   first: number;
   last: number;
-  /** "move" shifts the word; "stretch" (grabbed by the right-edge handle)
-   *  moves only the word's end. */
-  mode: "move" | "stretch";
+  /** "move" shifts the word; "start" / "end" (grabbed by the left / right
+   *  edge handle) move only that edge — a length change. */
+  mode: "move" | "start" | "end";
   deltaS: number;
   lane: number;
   startX: number;
   moved: boolean;
 }
+
+/** An open "new word" box: insert after word `after` (-1 = first) with its
+ *  onset at `at`, joining the prev or next word's lyric line. */
+interface InsertDraft {
+  lane: number;
+  after: number;
+  at: number;
+  join: "prev" | "next";
+}
+
+/** Width of the "new word" box; it may overhang neighbouring chips. */
+const INSERT_BOX_W = 96;
 
 export default function Bench(props: Props) {
   const { mapPath, songId } = props;
@@ -260,6 +291,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const [state, dispatch] = useReducer(editorReducer, map, initEditor);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
+  const [inserting, setInserting] = useState<InsertDraft | null>(null);
   const [lineLoop, setLineLoop] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -273,6 +305,8 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const loadedOnce = useRef(false);
 
   const words = state.words;
+  const wordsRef = useRef(words);
+  wordsRef.current = words;
   const duration = map.duration;
   const dirty = isDirty(state);
 
@@ -368,31 +402,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     [audio, words],
   );
 
-  const nudge = useCallback(
-    (dir: -1 | 1, coarse: boolean) => {
-      if (!range) return;
-      dispatch({
-        type: "nudge-range",
-        first: range.first,
-        last: range.last,
-        deltaS: dir * (coarse ? NUDGE_COARSE_S : NUDGE_S),
-      });
-      // Nudging is also listening: keep the word looping while keys repeat.
-      const w = words[range.first];
-      if (w) {
-        audio.setLoop(loopWindow(w, duration));
-        if (!audio.playing) audio.play();
-        window.clearTimeout(nudgeTimer.current);
-        nudgeTimer.current = window.setTimeout(() => {
-          audio.setLoop(null);
-          audio.pause();
-        }, 900);
-      }
-    },
-    [range, words, audio, duration],
-  );
-  const nudgeTimer = useRef(0);
-
   // Click on a lane's background: play from there (DESIGN.md timing tools).
   // Leaves any loop in place; clears a pending "hear once" stop.
   const seekPlay = useCallback(
@@ -403,6 +412,31 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     },
     [audioSeek, audioPlay, duration],
   );
+
+  const nudgeTimer = useRef(0);
+  const nudge = useCallback(
+    (dir: -1 | 1, coarse: boolean) => {
+      if (!range) return;
+      const first = range.first;
+      dispatch({
+        type: "nudge-range",
+        first,
+        last: range.last,
+        deltaS: dir * (coarse ? NUDGE_COARSE_S : NUDGE_S),
+      });
+      // Nudging is also listening: once the keys settle, roll back before
+      // the nudged word and play on, as a drag's drop does.
+      window.clearTimeout(nudgeTimer.current);
+      nudgeTimer.current = window.setTimeout(() => {
+        const w = wordsRef.current[first];
+        if (w) seekPlay(w.start - DROP_RUNUP_S);
+      }, NUDGE_SETTLE_MS);
+    },
+    [range, seekPlay],
+  );
+  // Play/pause, a drag or a new-word box inside the settle window wins over
+  // a nudge's pending run-up.
+  const cancelNudgePlay = useCallback(() => window.clearTimeout(nudgeTimer.current), []);
 
   const hearWord = useCallback(
     (i: number) => {
@@ -422,6 +456,59 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       playOnce(a, b);
     },
     [lanes, words, playOnce],
+  );
+
+  // ---- new words: double-click a lane where one is sung (inserted at that
+  // time), or Ins (right after the selected word, else at the playhead)
+  const beginInsertAt = useCallback(
+    (k: number, t: number) => {
+      const l = lanes[k];
+      if (!l) return;
+      // After the lane's last word sung by `t`; before its first word the
+      // new one still joins this lane's line, not the line before.
+      let after = l.indices[0] - 1;
+      for (const i of l.indices) if (words[i].start <= t) after = i;
+      cancelNudgePlay();
+      audioPause();
+      setEditing(null);
+      setInserting({ lane: k, after, at: t, join: after < l.indices[0] ? "next" : "prev" });
+    },
+    [lanes, words, cancelNudgePlay, audioPause],
+  );
+  const beginInsert = useCallback(() => {
+    if (selected != null && selLane >= 0) {
+      const w = words[selected];
+      cancelNudgePlay();
+      audioPause();
+      setEditing(null);
+      setInserting({ lane: selLane, after: selected, at: Math.max(w.end, w.start), join: "prev" });
+    } else if (playLane >= 0) {
+      beginInsertAt(playLane, audio.time);
+    }
+  }, [selected, selLane, words, playLane, audio.time, beginInsertAt, cancelNudgePlay, audioPause]);
+  const commitInsert = useCallback(
+    (text: string) => {
+      const d = inserting;
+      setInserting(null);
+      const n = tokenizeLyric(text).length;
+      if (!d || n === 0) return;
+      const slot = insertSlot(words, duration, d.after, d.at, n);
+      dispatch({ type: "insert-word", after: d.after, word: text, at: d.at, join: d.join });
+      // Hear it in context and play on, as after a drop.
+      if (slot) seekPlay(slot.start - DROP_RUNUP_S);
+    },
+    [inserting, words, duration, seekPlay],
+  );
+  const cancelInsert = useCallback(() => setInserting(null), []);
+  // Retyping a word (double-click / F2) pauses, as the new-word box does.
+  const beginEdit = useCallback(
+    (i: number) => {
+      cancelNudgePlay();
+      audioPause();
+      setInserting(null);
+      setEditing(i);
+    },
+    [cancelNudgePlay, audioPause],
   );
 
   const save = useCallback(async () => {
@@ -490,27 +577,30 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     [dirty, save, mapPath, song, props.title],
   );
 
-  // ---- drag (direct manipulation, loop while held, replay once on release)
+  // ---- drag (direct manipulation, loop while held; on release a move rolls
+  // back and plays on, a click or a length change just plays on)
   const laneWidth = useRef<Record<number, number>>({});
   const onWordDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>, index: number, laneIdx: number) => {
       if (e.button !== 0 || editing != null) return;
       e.currentTarget.setPointerCapture(e.pointerId);
+      cancelNudgePlay();
       // Drag moves the word you grabbed (DESIGN.md bench chips). The Shift
       // scope (word / line / from here) governs the keyboard nudges only —
       // a line-scoped drag read as "I can't move a single word".
       dispatch({ type: "select", index });
-      // The right-edge handle (<=7px, a third of a narrow chip) stretches the
-      // end; the rest of the chip moves the word (DESIGN.md bench chips).
+      // The edge handles (<=7px, a third of a narrow chip) stretch the start
+      // or end; the rest of the chip moves the word (DESIGN.md bench chips).
       const rect = e.currentTarget.getBoundingClientRect();
-      const mode = e.clientX >= rect.right - Math.min(7, rect.width / 3) ? "stretch" : "move";
+      const handle = Math.min(7, rect.width / 3);
+      const mode = e.clientX >= rect.right - handle ? "end" : e.clientX <= rect.left + handle ? "start" : "move";
       setDrag({ index, first: index, last: index, mode, deltaS: 0, lane: laneIdx, startX: e.clientX, moved: false });
       const loop = loopWindow(words[index], duration);
       audio.setLoop(loop);
       audio.seek(loop.start);
       audio.play();
     },
-    [words, audio, duration, editing],
+    [words, audio, duration, editing, cancelNudgePlay],
   );
   const onWordMove = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
@@ -526,25 +616,27 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     (e: ReactPointerEvent<HTMLElement>) => {
       if (!drag) return;
       e.currentTarget.releasePointerCapture(e.pointerId);
+      // Playback never stops here: the hold's loop is cleared and the audio
+      // plays on (the Loop toggle is left as it was, so a looped line keeps
+      // looping). Only a move rolls back to hear the word in its new place.
       audio.setLoop(null);
       const d = drag;
       setDrag(null);
-      if (d.moved && d.mode === "stretch") {
-        const w = words[d.index];
-        const end = stretchedEnd(words, d.index, duration, d.deltaS);
-        dispatch({ type: "commit-drag", index: d.index, start: w.start, end });
-        playOnce(w.start - LOOP_PRE_S, end + LOOP_POST_S);
-      } else if (d.moved) {
+      if (!d.moved) return;
+      const w = words[d.index];
+      if (d.mode === "move") {
         dispatch({ type: "nudge-range", first: d.first, last: d.last, deltaS: d.deltaS });
-        const w = words[d.index];
-        const start = w.start + d.deltaS;
-        playOnce(start - LOOP_PRE_S, Math.max(w.end + d.deltaS, start) + LOOP_POST_S);
+        seekPlay(w.start + d.deltaS - DROP_RUNUP_S);
       } else {
-        audio.pause();
-        audio.seek(Math.max(0, words[d.index].start - 0.05));
+        dispatch({
+          type: "commit-drag",
+          index: d.index,
+          start: d.mode === "start" ? stretchedStart(words, d.index, d.deltaS) : w.start,
+          end: d.mode === "end" ? stretchedEnd(words, d.index, duration, d.deltaS) : w.end,
+        });
       }
     },
-    [drag, audio, words, duration, playOnce],
+    [drag, audio, words, duration, seekPlay],
   );
 
   // ---- keyboard
@@ -579,6 +671,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         case " ":
           e.preventDefault();
           stopAt.current = null;
+          cancelNudgePlay();
           audio.toggle();
           return;
         case "1":
@@ -616,7 +709,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         case "F2":
           if (selected != null && view !== "text") {
             e.preventDefault();
-            setEditing(selected);
+            beginEdit(selected);
           }
           return;
         case "Delete":
@@ -624,6 +717,12 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
           if (selected != null && view !== "text") {
             e.preventDefault();
             dispatch({ type: "delete-word", index: selected });
+          }
+          return;
+        case "Insert":
+          if (view !== "text") {
+            e.preventDefault();
+            beginInsert();
           }
           return;
         default:
@@ -668,7 +767,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [audio, duration, editing, hearLine, hearWord, lanes, nudge, playLane, save, selLane, select, selected, view, words]);
+  }, [audio, beginEdit, beginInsert, cancelNudgePlay, duration, editing, hearLine, hearWord, lanes, nudge, playLane, save, selLane, select, selected, view, words]);
 
   // ---- leaving: 98-style "Save changes?" on every way out (Close, the
   // Library button, Alt+F4 / caption X via the window's close guard)
@@ -755,6 +854,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const onLanes = view !== "text";
   const togglePlay = () => {
     stopAt.current = null;
+    cancelNudgePlay();
     audio.toggle();
   };
   const toggleLoop = () => {
@@ -764,7 +864,8 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const exportItems: MenuEntry[] = EXPORTS.map(([f, label]) => ({ label, run: () => void doExport(f) }));
   const wordCommands = {
     hear: { label: "&Hear word", accel: "Enter", run: () => hasSel && hearWord(selected), disabled: !hasSel },
-    edit: { label: "&Edit word", accel: "F2", run: () => hasSel && setEditing(selected), disabled: !hasSel || !onLanes },
+    edit: { label: "&Edit word", accel: "F2", run: () => hasSel && beginEdit(selected), disabled: !hasSel || !onLanes },
+    insert: { label: "&Insert word", accel: "Ins", run: beginInsert, disabled: !onLanes || (!hasSel && playLane < 0) },
     del: {
       label: "&Delete word",
       accel: "Del",
@@ -797,6 +898,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         { label: "&Redo", accel: "Ctrl+Y", run: () => dispatch({ type: "redo" }), disabled: state.future.length === 0 },
         "-",
         wordCommands.edit,
+        wordCommands.insert,
         wordCommands.del,
       ],
     },
@@ -867,6 +969,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const wordMenu: MenuEntry[] = [
     wordCommands.hear,
     wordCommands.edit,
+    wordCommands.insert,
     wordCommands.del,
     "-",
     wordCommands.hearLine,
@@ -890,6 +993,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
               ["Enter", "Hear the selected word"],
               ["L", "Loop the line"],
               ["F2", "Edit the word"],
+              ["Ins", "Add a word after it (or double-click a lane where it's sung)"],
               ["Del", "Delete the word"],
               ["− +", "Text / Lanes / Focus"],
               ["Ctrl+Z / Ctrl+Y", "Undo / redo"],
@@ -919,6 +1023,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     drag,
     editing,
     setEditing,
+    onEdit: beginEdit,
     dispatch,
     sungThrough,
     nowWord,
@@ -932,6 +1037,10 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     onHearLine: hearLine,
     onSeekPlay: seekPlay,
     onRealign: realignLane,
+    inserting,
+    onInsertAt: beginInsertAt,
+    onInsertCommit: commitInsert,
+    onInsertCancel: cancelInsert,
     laneWidth,
     select,
   };
@@ -939,7 +1048,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const hints =
     view === "text"
       ? "↑↓ Line · Enter Break / play · Backspace Join up · Space Play · + Lanes"
-      : "Space Play · ↑↓ Line · Tab Word · 1 2 3 Scope · ←→ Nudge · Enter Hear · L Loop · F2 Edit";
+      : "Space Play · ↑↓ Line · Tab Word · 1 2 3 Scope · ←→ Nudge · Enter Hear · L Loop · F2 Edit · Ins Add";
 
   return (
     <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
@@ -1225,6 +1334,8 @@ interface LaneCommon {
   drag: DragState | null;
   editing: number | null;
   setEditing: (i: number | null) => void;
+  /** Open the retype box on word `i`. */
+  onEdit: (i: number) => void;
   dispatch: React.Dispatch<Parameters<typeof editorReducer>[1]>;
   sungThrough: number | null;
   nowWord: number | null;
@@ -1238,6 +1349,12 @@ interface LaneCommon {
   /** Background click at original-song time `t`: seek there and play. */
   onSeekPlay: (t: number) => void;
   onRealign: (k: number) => void;
+  /** The open "new word" box, if any (drawn in its lane). */
+  inserting: InsertDraft | null;
+  /** Background double-click in lane `k` at original-song time `t`. */
+  onInsertAt: (k: number, t: number) => void;
+  onInsertCommit: (text: string) => void;
+  onInsertCancel: () => void;
   laneWidth: React.MutableRefObject<Record<number, number>>;
   select: (i: number | null, seek?: boolean) => void;
 }
@@ -1271,13 +1388,23 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
   const inLane = playLane === index;
   const dragging = drag && lane.indices.includes(drag.index) ? drag : null;
   const shiftFor = (i: number) => (drag && drag.mode === "move" && drag.moved && i >= drag.first && i <= drag.last ? drag.deltaS : 0);
+  const startFor = (i: number) =>
+    drag && drag.mode === "start" && drag.moved && i === drag.index
+      ? stretchedStart(words, i, drag.deltaS)
+      : words[i].start + shiftFor(i);
   const endFor = (i: number) => {
     const w = words[i];
-    return drag && drag.mode === "stretch" && drag.moved && i === drag.index
+    return drag && drag.mode === "end" && drag.moved && i === drag.index
       ? stretchedEnd(words, i, props.duration, drag.deltaS)
       : Math.max(w.end, w.start);
   };
   const showLoop = loop && loop.end > lane.start && loop.start < lane.end && (inLane || dragging || (selected != null && lane.indices.includes(selected)));
+  const draft = props.inserting?.lane === index ? props.inserting : null;
+  const draftAt = draft ? (insertSlot(words, props.duration, draft.after, draft.at)?.start ?? null) : null;
+  const stripTime = (e: React.MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return r.width > 0 ? lane.start + pxToSec(e.clientX - r.left, lane, r.width) : null;
+  };
 
   return (
     <div className={`b-lane${focused ? " focus" : ""}`}>
@@ -1288,11 +1415,16 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
         style={{ height }}
         onClick={(e) => {
           // Chips own their clicks (select / drag / edit); the rest of the
-          // strip is the track - click to play from that time.
+          // strip is the track - click to play from that time, double-click
+          // to add a missing word there.
           if ((e.target as HTMLElement).closest(".b-word")) return;
-          const r = e.currentTarget.getBoundingClientRect();
-          if (r.width <= 0) return;
-          props.onSeekPlay(lane.start + pxToSec(e.clientX - r.left, lane, r.width));
+          const t = stripTime(e);
+          if (t != null) props.onSeekPlay(t);
+        }}
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest(".b-word")) return;
+          const t = stripTime(e);
+          if (t != null) props.onInsertAt(index, t);
         }}
       >
         <div className="b-wave" style={{ height: dims.wave }}>
@@ -1304,21 +1436,20 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
             <div className="b-loop" style={{ left: px(loop.start), width: px(loop.end) - px(loop.start), height: dims.wave }} />
             {focused && (
               <div className="b-loop-label" style={{ left: px(loop.start) + 6 }}>
-                {dragging ? "Loop — release to hear once" : "Loop"}
+                {dragging ? "Loop — release to play on" : "Loop"}
               </div>
             )}
           </>
         )}
         {lane.indices.map((i, k) => {
           const w = words[i];
-          const shift = shiftFor(i);
-          const x0 = px(w.start + shift);
-          const x1 = Math.max(x0 + 6, px(endFor(i) + shift));
+          const x0 = px(startFor(i));
+          const x1 = Math.max(x0 + 6, px(endFor(i) + shiftFor(i)));
           // A chip is a label first: a short sung span ("in", "my") gets a box
           // too narrow to read, so widen it up to the next word's onset, and
           // past that shrink the type (to a floor) before clipping.
           const next = lane.indices[k + 1];
-          const room = (next != null ? px(words[next].start + shiftFor(next)) : width) - x0 - 2;
+          const room = (next != null ? px(startFor(next)) : width) - x0 - 2;
           const need = Math.ceil(textWidth(w.word, dims.font) + 12);
           const boxW = Math.max(x1 - x0, Math.min(need, room));
           const fontPx = boxW < need ? Math.max(dims.font * 0.75, (dims.font * (boxW - 12)) / Math.max(1, need - 12)) : dims.font;
@@ -1363,12 +1494,13 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     props.select(i, false);
-                    props.setEditing(i);
+                    props.onEdit(i);
                   }}
                   title={`${w.word} · ${w.start.toFixed(2)}–${w.end.toFixed(2)} s`}
                   role="button"
                   tabIndex={-1}
                 >
+                  <span className="b-word-start" style={{ width: handleW }} aria-hidden />
                   {w.word}
                   <span className="b-word-end" style={{ width: handleW }} aria-hidden />
                 </span>
@@ -1376,8 +1508,21 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
             </span>
           );
         })}
+        {draftAt != null && (
+          <>
+            <span className="b-tick sel" style={{ left: px(draftAt), top: 0, height: keysTop }} />
+            {/* Kept inside the strip: the playhead can sit past the lane's
+                window in a gap between lines. */}
+            <span
+              className="b-word sel inserting"
+              style={{ left: Math.max(0, Math.min(px(draftAt), width - INSERT_BOX_W)), width: INSERT_BOX_W, top: keysTop, height: dims.key, fontSize: dims.font }}
+            >
+              <WordEditor value="" label="New word" onCommit={props.onInsertCommit} onCancel={props.onInsertCancel} />
+            </span>
+          </>
+        )}
         {focused && dragging && dragging.moved && (
-          <span className="b-puck" style={{ left: px(dragging.mode === "stretch" ? endFor(dragging.index) : words[dragging.index].start + dragging.deltaS), top: dims.wave - 8 }} />
+          <span className="b-puck" style={{ left: px(dragging.mode === "end" ? endFor(dragging.index) : startFor(dragging.index)), top: dims.wave - 8 }} />
         )}
         {focused && (
           <div className="b-readout">
@@ -1405,9 +1550,19 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
   );
 }
 
-function WordEditor(props: { value: string; onCommit: (text: string) => void; onCancel: () => void }) {
+function WordEditor(props: { value: string; label?: string; onCommit: (text: string) => void; onCancel: () => void }) {
   const [v, setV] = useState(props.value);
   const ref = useRef<HTMLInputElement>(null);
+  // Settles once: Enter / Esc close the box, and the blur that follows (the
+  // input unmounting) must not commit again — a second insert, or a commit
+  // after Esc.
+  const settled = useRef(false);
+  const settle = (commit: boolean) => {
+    if (settled.current) return;
+    settled.current = true;
+    if (commit) props.onCommit(v);
+    else props.onCancel();
+  };
   useEffect(() => {
     ref.current?.focus();
     ref.current?.select();
@@ -1417,14 +1572,16 @@ function WordEditor(props: { value: string; onCommit: (text: string) => void; on
       ref={ref}
       type="text"
       value={v}
-      aria-label="Edit word"
+      aria-label={props.label ?? "Edit word"}
       onChange={(e) => setV(e.target.value)}
-      onBlur={() => props.onCommit(v)}
+      onBlur={() => settle(true)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") props.onCommit(v);
-        else if (e.key === "Escape") props.onCancel();
+        if (e.key === "Enter") settle(true);
+        else if (e.key === "Escape") settle(false);
         e.stopPropagation();
       }}
+      // A double-click inside the box selects text, not a new-word slot.
+      onDoubleClick={(e) => e.stopPropagation()}
     />
   );
 }

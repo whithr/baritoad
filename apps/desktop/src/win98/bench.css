@@ -233,15 +233,16 @@
   cursor: grab;
 }
 
+/* Play state is colour only: every chip keeps the one raised frame. A
+   sunken "sung" / flat "now" frame read as the boxes resizing as the head
+   crossed them, and again as they all snapped back on the next row. */
 .b-word.sung {
-  box-shadow: var(--w-thin-sunken);
   color: var(--w-text-dim);
 }
 
 .b-word.now {
   background: var(--w-check);
   color: #000;
-  box-shadow: inset 0 0 0 1px #000;
 }
 
 .b-word.sel {
@@ -262,31 +263,57 @@
   z-index: 4;
 }
 
-.b-word.dragging.stretch {
+.b-word.dragging.start,
+.b-word.dragging.end {
   cursor: ew-resize;
 }
 
+.b-word.inserting {
+  cursor: text;
+  z-index: 5;
+}
+
+/* Edge handles: drag either side to change the word's length. */
+.b-word-start,
 .b-word-end {
   position: absolute;
-  right: 0;
   top: 0;
   bottom: 0;
   cursor: ew-resize;
 }
 
+.b-word-start {
+  left: 0;
+}
+
+.b-word-end {
+  right: 0;
+}
+
+.b-word:hover .b-word-start::before,
 .b-word:hover .b-word-end::before,
-.b-word.stretch .b-word-end::before {
+.b-word.start .b-word-start::before,
+.b-word.end .b-word-end::before {
   content: "";
   position: absolute;
-  right: 2px;
   top: 25%;
   bottom: 25%;
   width: 2px;
   background: var(--w-shadow);
 }
 
+.b-word-start::before {
+  left: 2px;
+}
+
+.b-word-end::before {
+  right: 2px;
+}
+
+.b-word.sel:hover .b-word-start::before,
 .b-word.sel:hover .b-word-end::before,
-.b-word.sel.stretch .b-word-end::before {
+.b-word.sel.start .b-word-start::before,
+.b-word.sel.end .b-word-end::before {
   background: var(--w-sel-text);
 }
 

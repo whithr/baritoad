@@ -203,7 +203,9 @@ Separator · icons.
   Export ▾, **Sing on TV** (default button); Text/Lanes/Focus tabs; lanes are
   sunken tracks with waveform + raised Barlow word chips (selected = navy; no
   per-word confidence markers — pasted lyrics align cleanly and the markers
-  read as noise). Status bar carries line/word timing, key hints, save state.
+  read as noise; play state — now / sung — is colour only, every chip keeps
+  the one raised frame, so rows don't appear to resize as the head passes).
+  Status bar carries line/word timing, key hints, save state.
 - **Stage (TV player)** — separate window; full-bleed stage; chrome is a
   floating tool-window dock (auto-hides) plus "Now singing"/"Up next" captions.
 - **Properties** — tabbed property sheet (Appearance, Bench, Player, Processing).
