@@ -213,12 +213,12 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
           )}
           {tab === "processing" && (
             <>
-              <GroupBox label="Separate vocals on">
+              <GroupBox label="Import songs on">
                 <RadioGroup
-                  ariaLabel="Separate vocals on"
+                  ariaLabel="Import songs on"
                   column
-                  value={draft.separateOn}
-                  onChange={(v) => change({ separateOn: v })}
+                  value={draft.importOn}
+                  onChange={(v) => change({ importOn: v })}
                   options={[
                     { value: "gpu", label: "&Graphics card — fastest" },
                     { value: "cpu", label: "&Processor only — slower, keeps the graphics card free" },
@@ -231,8 +231,8 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div>Vocal separation and word timing run on this computer. Karascape never uploads your audio.</div>
                     <div>
-                      On the graphics card, separation uses DirectML when it passes a quality check, otherwise the processor. Word timing runs on
-                      the processor. Imports run at low priority so the rest of the computer stays responsive.
+                      On the graphics card, vocal separation and word timing use DirectML when each passes a quality check, otherwise the
+                      processor. Imports run at low priority so the rest of the computer stays responsive.
                     </div>
                   </div>
                 </div>

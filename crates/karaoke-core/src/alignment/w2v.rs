@@ -12,6 +12,8 @@
 //!    cost scales quadratically with chunk length, so 10 s dispatches carry
 //!    ≤ 1/9 the attention work and stay far inside the watchdog budget. (The
 //!    dev-only alternative — raising TdrDelay — is deliberately not used.)
+//!    Measured 2026-09-30: a 10 s chunk runs in 45 ms with +684 MB VRAM;
+//!    15 full-song soak runs caused no resets.
 //! 2. **Silent garbage.** The separation spike caught DirectML producing
 //!    *finite* wrong numbers with no error (graph fusion bug); the non-finite
 //!    check below cannot see that failure mode. So a DML session must pass a

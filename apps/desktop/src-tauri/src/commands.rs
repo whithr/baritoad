@@ -4,10 +4,10 @@
 //! the main/UI thread. The only long-running work (the pipeline itself) is
 //! handed to the queue worker; every command here returns promptly.
 //!
-//! EP policy (task decision, PLAN.md §5 GPU story): requests always use
-//! `EpChoice::Auto` — DirectML for separation (parity-gated, falls closed to
-//! CPU) and CPU for wav2vec2 (TDR risk; already encoded in the pipeline). An
-//! advanced setting can surface this later; no settings UI in milestone 1.
+//! EP policy (PLAN.md §5 GPU story): requests use `EpChoice::Auto` —
+//! DirectML for separation and wav2vec2 (each parity-gated, falling closed
+//! to CPU) — unless Properties → Processing pins the processor
+//! (`cpu_only`), which keeps the whole import off the graphics card.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,10 +48,10 @@ pub struct GenerateSongRequest {
     /// slower, cleaner stems). See the preset note in [`generate_song`].
     #[serde(default)]
     pub hq_separation: bool,
-    /// Separate on the CPU only (Properties → Processing): slower, leaves
-    /// the graphics card free.
+    /// Run the import on the CPU only (Properties → Processing): slower,
+    /// leaves the graphics card free.
     #[serde(default)]
-    pub cpu_separation: bool,
+    pub cpu_only: bool,
 }
 
 fn parse_format(s: &str) -> Result<Format, String> {
@@ -123,7 +123,7 @@ pub async fn generate_song(
         req.exports = formats;
     }
     // EpChoice::Auto: DML separation, CPU alignment (module docs).
-    if request.cpu_separation {
+    if request.cpu_only {
         req.ep = separation::EpChoice::Cpu;
     }
 

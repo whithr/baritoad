@@ -216,6 +216,7 @@ struct SepKey {
 struct AlignKey {
     files: Vec<String>,
     whisper_int8: bool,
+    w2v_dml: bool,
 }
 
 /// Run (or resume) the full generate pipeline. Every stage transition is
@@ -520,7 +521,7 @@ pub fn generate_with(
         "clean_token": clean_token,
         "whisper_int8": req.whisper_int8,
         "onset_bias_s": onset_bias,
-        "w2v_dml": false, // pipeline runs wav2vec2 on CPU (TDR risk — w2v docs)
+        "w2v_dml": req.ep != EpChoice::Cpu,
         "models": [
             model_file_id(&model_dir.join(crate::alignment::WHISPER_DIR_NAME)),
             model_file_id(&model_dir.join(crate::alignment::WAV2VEC2_DIR_NAME)),
@@ -553,6 +554,7 @@ pub fn generate_with(
             cleaned.as_ref(),
             req.whisper_int8,
             onset_bias,
+            req.ep != EpChoice::Cpu,
             &map_path,
             cache,
             on_event,
@@ -847,6 +849,7 @@ fn run_align_stage(
     cleaned: Option<&CleanLyrics>,
     whisper_int8: bool,
     onset_bias_s: f64,
+    w2v_dml: bool,
     map_path: &Path,
     cache: &mut ModelCache,
     on_event: &mut dyn FnMut(&PipelineEvent),
@@ -868,7 +871,9 @@ fn run_align_stage(
     let cfg = AlignConfig {
         whisper_int8,
         onset_bias_s,
-        w2v_try_dml: false, // TDR risk — CLI `align --ep dml` remains the opt-in path
+        // wav2vec2 on DirectML unless the request pins the CPU (soak-tested —
+        // AlignConfig::w2v_try_dml docs); parity-gated, falls closed to CPU.
+        w2v_try_dml: w2v_dml,
         ..AlignConfig::default()
     };
     let key = AlignKey {
@@ -877,6 +882,7 @@ fn run_align_stage(
             .map(|d| model_file_id(&model_dir.join(d)))
             .collect(),
         whisper_int8,
+        w2v_dml,
     };
     if !matches!(&cache.aligner, Some((k, _)) if *k == key) {
         cache.aligner = None;

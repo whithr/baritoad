@@ -80,7 +80,7 @@ export default function AddSongWizard(props: {
         title: title.trim() === "" ? undefined : title.trim(),
         artist: artist.trim() === "" ? undefined : artist.trim(),
         hq_separation: hq || undefined,
-        cpu_separation: settings.separateOn === "cpu" || undefined,
+        cpu_only: settings.importOn === "cpu" || undefined,
       });
       props.onStarted(snap.id, snap.title || title);
     } catch (e) {

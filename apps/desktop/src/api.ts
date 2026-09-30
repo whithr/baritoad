@@ -93,8 +93,8 @@ export interface GenerateSongRequest {
   /** High-quality separation: higher overlap + shift-averaging (~3x slower,
    *  cleaner stems). */
   hq_separation?: boolean;
-  /** Separate on the CPU only (leaves the graphics card free; slower). */
-  cpu_separation?: boolean;
+  /** Run the import on the CPU only (leaves the graphics card free; slower). */
+  cpu_only?: boolean;
 }
 
 export const generateSong = (request: GenerateSongRequest) =>

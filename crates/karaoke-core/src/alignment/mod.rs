@@ -60,12 +60,15 @@ pub struct AlignConfig {
     /// Try DirectML for wav2vec2 emissions (13x on the spike GPU). Whisper
     /// always runs on CPU (DML measured 4x slower for its decoder).
     ///
-    /// **Default false, pending on-hardware validation.** The two DML hazards
-    /// are now mitigated in [`w2v`] — 10 s dispatches bound per-dispatch GPU
-    /// work under the TDR watchdog (an RTX 2080 SUPER reset its driver on the
-    /// old 30 s chunks, System event 4101), and a cached golden-signal parity
-    /// gate catches silent-garbage EPs. Flip the default only after the
-    /// bounded path survives a TDR soak on the affected hardware.
+    /// The two DML hazards are mitigated in [`w2v`] — 10 s dispatches bound
+    /// per-dispatch GPU work under the TDR watchdog (an RTX 2080 SUPER reset
+    /// its driver on the old 30 s chunks, System event 4101), and a cached
+    /// golden-signal parity gate catches silent-garbage EPs. Soak-tested on
+    /// that GPU 2026-09-30: 15 full-song runs (5 songs, 3-6.4 min), 1.4-3.0 s
+    /// each vs 13-30 s on CPU, no driver resets; a 10 s chunk is 45 ms and
+    /// +684 MB VRAM. The generate pipeline turns it on unless the request
+    /// pins the CPU; this struct's default (and `karaoke align` without
+    /// `--ep dml`) stays CPU.
     pub w2v_try_dml: bool,
     /// Intra-op threads for the CPU sessions (default leaves cores free for
     /// the UI and player — [`crate::compute::inference_threads`]).
