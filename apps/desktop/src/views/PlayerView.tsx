@@ -90,7 +90,7 @@ import {
   type GapCue,
   type LyricFrame,
 } from "../playerView";
-import { fmtTime } from "../reviewUi";
+import { fmtTime } from "../format";
 import {
   IconBack,
   IconCompress,

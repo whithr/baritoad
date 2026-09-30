@@ -1,635 +1,242 @@
 ---
-name: Karascape
-description: The karaoke machine as an 80s digital dashboard — every state a glowing instrument on smoked glass.
+name: Karascape 98
+description: The karaoke machine as a late-90s desktop program — bevelled silver chrome, navy title bars, menus for everything, and lyrics that stay big and smooth.
 colors:
-  ground: "#0b0d10"
-  well: "#07090c"
-  panel: "#10141a"
-  panel-raised: "#161c24"
-  panel-pressed: "#0d1116"
-  line: "#232b36"
-  line-strong: "#33404f"
-  text: "#e9edf3"
-  text-dim: "#96a1b4"
-  text-faint: "#7e899c"
-  cyan: "#45e0d8"
-  cyan-dim: "#1d5f5c"
-  cyan-bright: "#8ff2ec"
-  cyan-wash: "rgba(69, 224, 216, 0.10)"
-  cyan-glow: "rgba(69, 224, 216, 0.35)"
-  amber: "#f2a33c"
-  amber-dim: "#7a5220"
-  amber-bright: "#ffc36b"
-  amber-wash: "rgba(242, 163, 60, 0.12)"
-  amber-glow: "rgba(242, 163, 60, 0.35)"
-  green: "#49e57d"
-  green-dim: "#1d5f38"
-  green-bright: "#8df2ae"
-  green-wash: "rgba(73, 229, 125, 0.10)"
-  green-glow: "rgba(73, 229, 125, 0.35)"
-  magenta: "#ee7fdb"
-  magenta-dim: "#75285e"
-  magenta-bright: "#f9b0e5"
-  magenta-wash: "rgba(238, 127, 219, 0.10)"
-  magenta-glow: "rgba(238, 127, 219, 0.35)"
-  red: "#e8654f"
-  red-dim: "#6e2418"
-  red-deep: "#e8452c"
-  red-wash: "rgba(232, 69, 44, 0.12)"
-  red-glow: "rgba(232, 69, 44, 0.35)"
-  ink: "#131007"
+  face: "#c0c0c0"
+  light: "#dfdfdf"
+  highlight: "#ffffff"
+  shadow: "#808080"
+  dark: "#0a0a0a"
+  window: "#ffffff"
+  text: "#000000"
+  text-disabled: "#808080"
+  title: "#000080"
+  title-fade: "#1084d0"
+  title-inactive: "#808080"
+  title-inactive-fade: "#b5b5b5"
+  selection: "#000080"
+  selection-text: "#ffffff"
+  desktop: "#008080"
+  tooltip: "#ffffe1"
+  lcd: "#000000"
+  lcd-ink: "#00ff40"
+  lcd-ghost: "#0a2a12"
+  ok: "#008000"
+  check: "#ffff00"
+  error: "#ff0000"
+  wave: "#808080"
+  wave-active: "#000080"
+  playhead: "#ff0000"
+  stage: "#000010"
+  sung: "#00ffff"
 typography:
-  display:
+  ui:
+    fontFamily: "Pixel Operator, Tahoma, Microsoft Sans Serif, Barlow, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+  ui-bold:
+    fontFamily: "Pixel Operator, Tahoma, Microsoft Sans Serif, Barlow, sans-serif"
+    fontSize: "16px"
+    fontWeight: 700
+  lyric-stage:
     fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
     fontSize: "clamp(34px, 4.6vw, 62px)"
     fontWeight: 700
-    lineHeight: 1.25
-  lyric-resting:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "clamp(22px, 2.6vw, 34px)"
-    fontWeight: 600
-  lyric-preview:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "30px"
-    fontWeight: 700
-  lyric-preview-next:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "20px"
-    fontWeight: 500
-  celebrate:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "34px"
-    fontWeight: 700
-  cover-initials:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "38px"
-    fontWeight: 700
-  title:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "19px"
-    fontWeight: 700
-    letterSpacing: "0.14em"
-  brand:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "17px"
-    fontWeight: 700
-    letterSpacing: "0.14em"
-  body:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "16px"
-    fontWeight: 400
-  body-strong:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "15px"
-    fontWeight: 500
-  body-secondary:
+  lyric-editor:
     fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
     fontSize: "14px"
-    fontWeight: 500
-  control:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "13px"
     fontWeight: 600
-    letterSpacing: "0.05em"
-  meta:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "12px"
-    fontWeight: 500
-  label:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "11px"
-    fontWeight: 600
-    letterSpacing: "0.09em"
-  micro:
-    fontFamily: "Barlow, Segoe UI, system-ui, sans-serif"
-    fontSize: "10px"
-    fontWeight: 600
-    letterSpacing: "0.05em"
-  seg:
-    fontFamily: "DSEG7, Barlow, sans-serif"
+  lcd:
+    fontFamily: "DSEG7 Classic, monospace"
     fontWeight: 400
-    letterSpacing: "0.06em"
 rounded:
-  lamp: "1px"
-  micro: "2px"
-  r: "3px"
-  r-lg: "6px"
+  none: "0px"
 spacing:
-  s1: "4px"
-  s2: "8px"
-  s3: "12px"
-  s4: "16px"
-  s5: "24px"
-  s6: "32px"
-  s7: "48px"
+  s1: "2px"
+  s2: "4px"
+  s3: "6px"
+  s4: "8px"
+  s5: "12px"
+  s6: "16px"
 components:
-  button-key:
-    backgroundColor: "{colors.panel-raised}"
+  button:
+    backgroundColor: "{colors.face}"
     textColor: "{colors.text}"
-    typography: "{typography.control}"
-    rounded: "{rounded.r}"
-    padding: "9px 16px"
-  button-key-hover:
-    backgroundColor: "#1b2330"
+    typography: "{typography.ui}"
+    rounded: "{rounded.none}"
+    padding: "0 10px"
+  button-default:
+    backgroundColor: "{colors.face}"
     textColor: "{colors.text}"
-  button-key-active:
-    backgroundColor: "{colors.panel-pressed}"
-  button-primary:
-    backgroundColor: "{colors.amber}"
-    textColor: "{colors.ink}"
-    typography: "{typography.control}"
-    rounded: "{rounded.r}"
-    padding: "9px 16px"
-  button-primary-hover:
-    backgroundColor: "{colors.amber-bright}"
-    textColor: "{colors.ink}"
-  danger-key:
-    backgroundColor: "{colors.red-deep}"
-    textColor: "#ffffff"
-    typography: "{typography.control}"
-    rounded: "{rounded.r}"
-    padding: "9px 16px"
-  input-well:
-    backgroundColor: "{colors.well}"
+    typography: "{typography.ui}"
+    rounded: "{rounded.none}"
+    padding: "0 10px"
+  field:
+    backgroundColor: "{colors.window}"
     textColor: "{colors.text}"
-    rounded: "{rounded.r}"
-    padding: "10px 12px"
-  dash-popup:
-    backgroundColor: "{colors.panel}"
-    rounded: "{rounded.r}"
-    padding: "5px"
-  song-card:
-    backgroundColor: "{colors.panel}"
-    rounded: "{rounded.r}"
+    rounded: "{rounded.none}"
+    padding: "3px 5px"
+  title-bar:
+    backgroundColor: "{colors.title}"
+    textColor: "{colors.selection-text}"
+    typography: "{typography.ui-bold}"
+    rounded: "{rounded.none}"
+    padding: "0 3px 0 4px"
+  selection:
+    backgroundColor: "{colors.selection}"
+    textColor: "{colors.selection-text}"
+  tooltip:
+    backgroundColor: "{colors.tooltip}"
+    textColor: "{colors.text}"
+    padding: "2px 5px"
 ---
 
-# Design System: Karascape
+# Design System: Karascape 98
 
 ## Overview
 
-**Creative North Star: "The Digital Dash"**
+**Creative North Star: "Karascape 98"**
 
-Karascape's UI is an 80s digital instrument cluster on smoked glass — the
-karaoke machine as a night-mode cockpit, not a streaming app. It refuses the
-streaming-app defaults (nav rail, cover grid, one decorative accent) and
-replaces them with instrument grammar: silk-screened labels on bezel panels,
-membrane keys with real travel, indicator lamps, segmented bar-graph meters,
-recessed display wells, and VFD-style segment readouts. Every state in the
-app is expressed as a glowing instrument: a lit lamp, a filled meter, a
-readout. The whole cabin boots with a brief power-on flash (480ms
-brightness/saturation settle), suppressed under `prefers-reduced-motion`.
+Karascape looks and behaves like a well-made desktop program from 1998: a
+silver window with a navy title bar, a menu bar that lists everything the
+program can do, a flat toolbar for the common jobs, a tree and a list view for
+the library, tabbed property sheets, wizards for multi-step jobs, message boxes
+for the moments that need an answer, and a status bar that always says what's
+going on. The joke is the costume; the craft is that it's a *good* 98 program —
+keyboard-complete, discoverable through its menus, and honest about state.
 
-Density is moderate and honest: real chrome (borders, inset shadows, seams)
-rather than flat washes, but a strictly rationed light budget. Color is never
-decoration — five glow families each carry one meaning, on a near-black
-ground. Contrast is tuned for a TV at 3 meters (PRODUCT.md accessibility
-commitments): every text step clears WCAG AA at its size, and the core
-sung/unsung lyric mechanic never relies on hue alone.
+The costume stops at the lyrics. Every place a singer reads words — the TV
+stage, the Bench word chips, the Focus preview, the Text view — uses big,
+smooth Barlow, never the pixel face (PRODUCT.md: legible at ~3 m).
 
-**Key Characteristics:**
-- Smoked-glass near-black ground (#0b0d10) with layered bezel panels and recessed wells
-- Five-glow discipline: cyan = information, amber = live, green = done, magenta = celebrate, red = redline only
-- Instrument chrome: lamps, segmented meters, faders, DSEG segment readouts
-- Silk-screen typography: uppercase, tracked Barlow labels on the panel
-- Angular, machined geometry — 3px corners, chamfered notches, square-capped icons
-- Measured performance: the player's per-frame DOM contract is load-bearing (60fps spike)
+Direction locked by the owner 2026-09-29 from the "Karascape 98" concept
+canvas; it replaces the Digital Dash (2026-08-05) and the hardware-panel chrome
+(2026-09-03) in full.
 
-**First viewport:** selector pod left with lamped nav; library display center —
-silk-screened title, search well, cover grid; the primary action is the
-amber-lit key.
-
-**Provenance:** the Digital Dash direction is a user-steered re-roll of grounded
-candidate 3 (Component Deck), seed `fe5a66cf`, locked 2026-08-05. Amplification
-pass (five-glow palette, bar-graph-note brand mark, dashboard chrome pass)
-approved by the owner 2026-08-05.
+**Key characteristics:**
+- Silver `face` chrome with 2-px bevels made of stacked inset box-shadows — no images.
+- Navy→blue title bars on active windows, grey on inactive ones; teal `desktop` only behind dialogs in previews.
+- Pixel Operator for chrome; Barlow for lyrics; DSEG7 for time/key/tempo readouts in black LCD wells.
+- Zero corner radius, zero transitions in chrome.
+- In-house 16-px pixel icons; no Microsoft icons, logos, fonts, or the word "Windows" in UI copy.
+- Two schemes: **Classic** (teal/silver) and **Night** (charcoal chrome, same geometry).
 
 ## Colors
 
-A near-black smoked-glass neutral stack lit by five glow families, each with
-a fixed meaning; washes and glows are the translucent halo steps of each
-family. (Ratios below are standard WCAG 2.1 relative luminance.)
+The chrome palette is the classic 3-D face ramp plus a handful of job-bound
+signals. Every colour below is a token in `apps/desktop/src/win98/tokens.css`;
+Night overrides the same names under `:root[data-scheme="night"]`.
 
-### Primary
-- **VFD Cyan** (#45e0d8, 12.0:1 on ground): the information voice — selection
-  states, links, focus rings, checked lamps, sung lyrics, clock/duration
-  readouts. `cyan-bright` (#8ff2ec) is highlighted-item
-  text; `cyan-dim` (#1d5f5c) is borders and quiet marks; `cyan-wash` is the
-  selected-row fill; `cyan-glow` is the lamp/focus halo.
-
-### Secondary
-- **Live Amber** (#f2a33c, 9.3:1 on ground as text): whatever is live *right
-  now* — the primary action key, the active nav lamp, the running stage,
-  playhead fills, the player clock. As a fill
-  it takes dark ink (#131007), never light text. `amber-bright` (#ffc36b) is
-  the hover step; `amber-dim`/`amber-wash`/`amber-glow` follow the family
-  pattern.
-
-### Tertiary
-- **Signal Red** (#e8452c as `red-deep`): redline only — errors, destructive
-  actions, failed jobs, clipping. `red-deep` is for fills and lamps, never
-  body text; the readable text step is `red` (#e8654f, 5.9:1 on ground).
-
-### Quaternary
-- **VFD Green** (#49e57d, 11.9:1 on ground — luminance-matched to cyan so
-  adjacent lamps and meter segments read evenly): done and success —
-  completed stages and jobs, ready badges, the low range of any future
-  green→amber→red meter ladder, and collection accents (the active
-  collection is *your* named shelf). `green-bright` (#8df2ae) is highlighted
-  text, `green-dim` (#1d5f38) borders and quiet marks; wash/glow follow the
-  family pattern. Green states never ride hue alone — always paired with a
-  label, lamp, or filled bar (deutan-safe next to cyan).
-
-### Quinary
-- **Magenta** (#ee7fdb, 8.1:1 on ground): celebrate and personality — the
-  song-finished moment, the one-shot job-completion flare, the brand mark's
-  voice, and the generated cover-art palette. The rarest glow in the cabin:
-  it marks moments, never persistent state. `magenta-bright` (#f9b0e5),
-  `magenta-dim` (#75285e), wash/glow follow the family pattern. Never white
-  text on a magenta fill (2.4:1) — magenta fills take ink.
-
-### Neutral
-- **Ground** (#0b0d10): the cabin at night; the app background.
-- **Well** (#07090c): recessed display wells — inputs, dropzone, preview stage, meters, the player stage.
-- **Panel** (#10141a) / **Panel Raised** (#161c24) / **Panel Pressed** (#0d1116): bezel panels, raised keys and hover ground, key travel.
-- **Line** (#232b36) / **Line Strong** (#33404f): panel seams; focused seams and hover edges.
-- **Text** (#e9edf3, 15.9:1) / **Text Dim** (#96a1b4, 6.6:1) / **Text Faint** (#7e899c, 4.6:1 — AA at any size): the three text steps on ground.
-- **Ink** (#131007): dark ink on amber fills.
-
-### Named Rules
-**The Five-Glow Rule.** Cyan carries information, amber carries what is live
-right now, green carries done/success, magenta carries celebrate/personality,
-red is redline only. A glow is never used outside its meaning — no decorative
-accents, no sixth color. Green and magenta are additive and job-bound; the
-original three meanings are untouched.
-
-**The Dark-Ink Rule.** Every lit fill — amber, green, magenta — takes dark
-ink (#131007); the family color as text sits only on the dark ground. Only
-`red-deep` takes white. Never light text on an amber (2.6:1), green (1.6:1),
-or magenta (2.4:1) fill.
-
-**The Redline-Text Rule.** `red-deep` (#e8452c) is for lamps and fills;
-running text in the red family uses `red` (#e8654f), the step that clears
-contrast on ground.
+- **Face ramp** (`face`, `light`, `highlight`, `shadow`, `dark`): raised things are
+  lit top-left (`highlight`/`light`) and shaded bottom-right (`shadow`/`dark`);
+  sunken things invert it. Never flatten a control to a single border.
+- **Title** (`title`→`title-fade`): the active window's caption. Inactive
+  windows use the grey pair. Nothing else uses the title gradient.
+- **Selection** (`selection` + `selection-text`): the one "chosen" colour —
+  selected list rows, tree nodes, word chips, menu highlight. Keyboard focus is
+  the dotted focus rectangle, never colour alone.
+- **Signals**: `ok` green check (Ready), `check` yellow marker (Needs checking /
+  low-confidence word), `error` red (failures, destructive icons), `playhead` red.
+  Each always pairs with an icon or text, never hue alone.
+- **LCD**: black well, green ink, dim ghost `88:88` segments behind.
+- **Stage** (`stage`, `sung`): the default TV theme — near-black with cyan
+  sung words. Stage colours are user content (see Player Themes).
 
 ## Typography
 
-**UI/Lyric Font:** Barlow (with Segoe UI, system-ui fallback) — SIL OFL 1.1, self-hosted (latin + latin-ext), weights 400/500/600/700 + 400 italic.
-**Instrument Font:** DSEG7 Classic / DSEG14 Classic — SIL OFL 1.1, self-hosted; digits and `: . -` readouts only (DSEG14 for alphanumeric readouts).
-
-**Character:** Barlow is the silk-screen and the lyric voice — a plain-spoken
-grotesque that turns industrial when uppercased and tracked. DSEG is the
-machine's own voice: italic, tabular, segment-display numerals used strictly
-as instrument chrome.
-
-### Hierarchy
-- **Display** (700, visually clamp(35px, 4.6vw, 62px), 1.25): the player's
-  current lyric line — sized for couch distance, laid out at the display
-  size (clamp(35.2px, 4.6vw, 62px)) with resting lines at scale(0.625), so
-  layout never re-wraps and the focal line rasterizes at identity transform
-  (player section). Review-preview lines are 30px/700.
-- **Title** (700, 19px, 0.14em, uppercase): module titles (h1) silk-screened
-  onto the panel with a seam rule below; the brand wordmark (17px) shares
-  this voice.
-- **Body** (400–500, 13–16px): default text is 16px; most component copy runs
-  13–14px at weight 500–600. `.small` is 13px.
-- **Control** (600, 13px, 0.05em, uppercase): the key voice — every button
-  label, job headline, stage-pill label.
-- **Label** (600, 11px, 0.09em, uppercase, text-dim): the silk-screened
-  control label — field labels, popup group labels, sidebar footer.
-- **Seg** (DSEG7 italic, tabular-nums, 0.06em): clocks, durations, queue
-  positions, key/tempo readouts. Sized in context (10–15px observed).
-- **Seg14** (DSEG14 upright, 0.08em): 4-character annunciator mnemonics
-  only (STBY/RUN/RDY/ERR/OFF, PLAY/PAUS), 12–13px, voiced in the status
-  family. Celebrate moments (34px/700 Barlow) voice in magenta.
-
-### Named Rules
-**The Instrument-Chrome Rule.** DSEG faces render digits, `: . -`, and
-4-character machine mnemonics (SegWord annunciators) only — never lyric,
-body, or label type. Real words belong to Barlow.
-
-**The Silk-Screen Rule.** Anything printed "on the panel" (labels, module
-titles, key caps, nav) is uppercase Barlow with tracking (0.05–0.14em);
-conversational text (body copy, lyrics, song titles) keeps normal case.
+- **Pixel Operator** (CC0, vendored) at its native 16-px grid for all chrome:
+  menus, buttons, labels, lists, dialogs, status bars. Bold for title bars,
+  default buttons and headings. The **Pixel font** setting swaps to the smooth
+  stack (Tahoma → Microsoft Sans Serif → Barlow) for fractional-DPI screens
+  where 1-px glyphs blur.
+- **Barlow** (OFL) for every lyric surface. Unsung words are italic + dim.
+- **DSEG7 Classic** (OFL) for numeric readouts only (clock, key, tempo, wait
+  seconds) — never words.
+- Access keys are underlined in menus, buttons and labels (`&File`).
 
 ## Layout
 
-A fixed cockpit shell: a 232px selector pod (sidebar) on panel background
-with a right seam, and a scrolling content panel. Pages center at max-width
-880px (1140px for wide pages like the editor) with 32px top / 40px side /
-64px bottom padding. The library adds a second 208px collection rail inside
-the content area. Song cards form a `repeat(auto-fill, minmax(164px, 1fr))`
-grid.
-
-Spacing follows the 4px-based rhythm `4 / 8 / 12 / 16 / 24 / 32 / 48`
-(`--s1`–`--s7`); component gaps sit at 8–16px, section gaps at 24–32px. The
-full-screen player is a `position: fixed` overlay (z-index 100) with header /
-lyric viewport / control console stacked vertically; the viewport is
-vertically masked (transparent → solid 12%–82% → transparent) and lyric type
-scales with the viewport via clamp.
-
-Motion is quick and mechanical: 120ms (`--t-fast`) for key/lamp state, 240ms
-(`--t-med`) reserved, all on `cubic-bezier(0.16, 1, 0.3, 1)`. The player is
-the deliberate exception (owner call 2026-08-07: slower, smoother): line
-growth is a 460ms transform scale on a zero-launch S-curve
-(`cubic-bezier(0.45, 0, 0.15, 1)` — the world's ease-out starts at max
-velocity, which reads as a pop at display size), chrome fades 420ms, and the
-lyric scroll is a critically damped spring (ω 8 s⁻¹ ≈ the old 260ms pace)
-whose velocity survives retargeting, so line switches bend the glide instead
-of kicking it. `prefers-reduced-motion` collapses every transition and
-animation to 0.01ms.
+- Every screen is a window: title bar → menu bar → toolbar → client area →
+  status bar. The main window swaps its client area between **Library** and
+  **Bench**; the **Stage** (TV player) is its own window.
+- Controls sit on a 4-px rhythm; default button height 24 px (tool buttons 28 px).
+- Dialogs: OK / Cancel / Apply bottom-right; wizards: < Back / Next > / Cancel.
+- Group boxes (etched frame + caption) gather related controls; don't nest cards.
 
 ## Elevation & Depth
 
-Depth is physical, not tonal: real shadows with offset and blur carry the
-bezel-and-well construction. Panels sit *up* (`0 2px 10px rgba(0,0,0,0.45)`),
-popups pop (`0 10px 28px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45)`), and
-display wells sink *in* (`inset 0 2px 6px rgba(0,0,0,0.55)`). Pressed keys
-travel with an inset shadow. Glows (`0 0 6–22px` in a family's glow color)
-are **light, not elevation** — they mark a lit lamp, a focused well, an
-active word, never height.
-
-### Shadow Vocabulary
-- **shadow-panel** (`0 2px 10px rgba(0, 0, 0, 0.45)`): resting bezel panels — sidebar, job cards.
-- **shadow-pop** (`0 10px 28px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.45)`): floating chrome — dash popups, the player's advanced panel.
-- **inset-well** (`inset 0 2px 6px rgba(0, 0, 0, 0.55)`): every recessed well — inputs, dropzone, fader track, seek bar, line tracks, preview stage.
-- **key travel** (`inset 0 2px 4px rgba(0, 0, 0, 0.5)`): `button:active` press-in.
-- **lamp/focus glow** (`0 0 6–12px var(--*-glow)`): lit lamps, focused inputs, selected chips — always in the meaning-correct family.
-
-### Named Rules
-**The Light-Is-Not-Height Rule.** Black shadows carry depth; colored glows
-carry state. Never use a colored glow to fake elevation or a black shadow to
-mark state.
+Depth is the bevel, nothing else: `--w-raised` (buttons, panels, headers),
+`--w-sunken` (fields, lists, wells), `--w-pressed` (pushed/toggled buttons,
+toggled state also gets the 2-px dither), `--w-etched` (group boxes,
+separators), `--w-default` (the extra dark ring on the default button). No
+drop shadows except the tooltip's 2-px offset.
 
 ## Shapes
 
-Angular and machined. The world's corner is 3px (`--r`); outer bezels only
-get 6px (`--r-lg`); micro-chrome (lamps, chips, fader parts, badges,
-timebars) tightens to 2px or 1px. Nothing is a circle and nothing is a pill —
-even indicator lamps are 7–8px *squares* at 1px radius. Chamfers are the
-signature cut: the song-card cover clips a 14px corner notch
-(`polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%)` — the
-cartridge notch), and a 10px two-corner chamfer polygon exists as the
-`--chamfer` token for bezel use. Seams are 1px `line` borders; hover and
-focus strengthen the seam (`line-strong`) before anything glows. Meters and
-timebars are rectangles with segment gaps cut by repeating gradients.
+Rectangles. Radius 0 everywhere except radio buttons (circles) and tab tops
+(3 px). Icons are 16-px pixel art drawn as crisp SVG rects, shown at 1× or 2×.
 
 ## Components
 
-### Keys (buttons)
-- **Character:** membrane keys on the panel — they depress, they don't bounce.
-- **Shape:** machined corner (3px); control voice (13px/600 uppercase, 0.05em).
-- **Default key:** raised panel (#161c24) with a 1px line seam, 9px 16px padding. Hover strengthens seam and lightens to #1b2330; active presses in (#0d1116 + inset shadow). Disabled is 0.45 opacity.
-- **Primary key (amber-lit):** amber fill, dark ink, soft amber shadow (`0 2px 10px rgba(242,163,60,0.25)`); hover steps to amber-bright. One per surface — it is the "what happens next" key (FIRST VIEWPORT contract).
-- **Big key:** 15px/12px 26px for golden-path moments.
-- **Danger key:** red-deep fill, white text — only inside a redline context (confirm strip).
-- **Linkish:** underlined, normal-case text-dim text; hover to cyan. For de-emphasized escape hatches.
+All live in `apps/desktop/src/win98/`, behaviour from `@base-ui/react`
+primitives, look from `base.css`:
+AppFrame/TitleBar · MenuBar · ContextMenu · Toolbar/ToolButton · Button ·
+GroupBox · TextField/TextArea · Select · Checkbox · RadioGroup · Trackbar ·
+Spinner · ProgressBlocks · Tabs · ListView · TreeView · StatusBar · Tooltip ·
+Dialog/PropertySheet · Wizard · MessageBox (`useMessageBox`) · Lcd · Well ·
+Separator · icons.
 
-### Indicator Lamps
-- **Style:** 7–8px squares (1px radius), unlit = well fill + line border; lit = family fill + family border + `0 0 6–8px` family glow.
-- **Meaning:** amber lamp = the active source (nav) or running stage; cyan lamp = selected/checked; green lamp = done/success (completed stages); red lamp = the annunciator dot on error banners; magenta = the one-shot celebrate flare, never a steady lamp. Lamps are the app's state language — nav rows, menu items, select options, stage pills, and banners all carry one. On boot the nav lamps sweep amber once, top to bottom, with the power-on flash.
+- **Command tables**: each view lists its commands once (label with access key,
+  accelerator, run, enabled/checked); menus, toolbar tooltips and status-bar
+  hints read from it.
+- **Message boxes** replace `window.confirm` and inline confirm strips:
+  info/question/error icon, one sentence of what happened, one of what to do.
 
-### Inputs / Fields
-- **Style:** recessed wells — well fill, 1px line seam, 3px corner, `inset-well` shadow; placeholder in text-faint; labels are silk-screen labels above.
-- **Focus:** cyan seam + `0 0 0 1px` cyan ring + 12px cyan glow (information family — you are pointing at it).
-- **Checkboxes:** `accent-color: cyan`.
+## Screens
 
-### Dash Popups (Select / Menu)
-- **Style:** panel bezel with strong seam, 3px corner, `shadow-pop`, 5px padding; items are 13px rows with a lamp slot; highlighted = cyan wash + cyan-bright text; danger items = red text + red wash.
-- **Select trigger:** a membrane key showing its value in cyan (normal case) with a solid triangle caret. Built on Base UI (MIT, §6 row) — behavior and keyboard from the primitive, every visible pixel from this system.
-
-### Fader (slider)
-- **Style:** the vocal-guide control — a 10px recessed track with amber fill, segment gaps cut by a repeating gradient (7px on / 2px gap), and a 10×22px rectangular fader cap with an amber grip line. 150px wide, 24px hit area.
-
-### Segmented Meters
-- **Style:** every progress readout is a segmented bar-graph: ground/well track, amber fill, and a repeating-gradient overlay cutting 2px gaps every 6–8px. Stage bars animate via `transform` scale (300ms); the player timebar fill mutates `width` directly. Completed states re-voice to green.
-
-### SegText Readout
-- **Style:** the VFD readout — DSEG7 italic digits with the signature unlit-segment ghost: a stacked `8`-shapes layer at 0.22 opacity behind the lit digits (inline-grid, both layers in the same cell). Used for the editor clock, queue positions, cover durations, and the library's odometer song count (green, leading zeros).
-- **Constraint:** static DOM only — never inside the player's rAF-mutated spans (the ghost doubles DOM per digit).
-
-### SegWord Annunciator
-- **Style:** the 14-segment word readout (DSEG14, upright) with the same `~` all-segments ghost — short status words only: `STBY`/`RUN`/`RDY`/`ERR`/`OFF` on job cards, `PLAY`/`PAUS` in the player console, voiced in the status's glow family. Status is always triple-coded (word + family color + Barlow headline), never hue alone.
-- **Constraint:** instrument chrome, not copy — the Instrument-Chrome Rule still gives every real word to Barlow; SegWord is capped at 4-character machine mnemonics. Same static-DOM rule as SegText.
-
-### Song Cards (cartridges)
-- **Style:** panel fill, line seam, 3px corner; square cover with the 14px chamfered cartridge notch (top-right); title 14px/600, artist 13px dim; duration as a cyan mini-readout on the cover. Generated fallback covers are deterministic hash gradients with a wide hue spread (+70°) at cassette-sleeve saturation — covers are **content** (the album-art zone) and exempt from the five-glow discipline.
-- **Hover (openable):** cyan seam + `0 0 0 1px cyan-dim` ring + drop shadow.
-- **Play key:** the amber-lit key rests visible on every ready card (bottom-left, amber icon on dark, amber-dim seam); hover/focus lights the seam and glow; direct hover fills solid amber with ink. The card menu key (top-right) appears on hover/focus only.
-- **Processing cards:** a bottom gradient overlay with an amber processing headline and a live segmented meter.
-
-### Annunciator Strips (banners / confirm / advisory)
-- **Style:** wash-filled strips with a family lamp dot: red wash + red-dim seam for errors, cyan wash + cyan-dim seam for notices, amber wash + amber-dim seam for advisories ("look here first").
-- **Confirm strip:** destructive confirms are an in-world red annunciator with its own keys (danger key + cancel), `role="alertdialog"`, Escape to cancel, initial focus on Cancel — replacing system dialogs.
-- **Advisory strip:** the amber variant carries a nudge plus its membrane keys and may unfold an inline panel (e.g. the review bench's auto-transcribed-lyrics strip unfolds a paste-lyrics well + cleanup preview; submitting re-runs cleanup/align/export against the reused stems). The page's single amber primary key stays elsewhere — advisory keys are membrane-gray.
-
-### Icons
-- **Grammar:** one grammar for the whole dash — 16×16 grid, 1.75 stroke, square caps, miter joins; angular instrument pictograms, not rounded consumer glyphs. Fill is reserved for the solid transport marks (play/pause), small square dot-clusters (dots, grip, queue lamps, jobs meters), and the brand mark; everything else is stroked. `currentColor` throughout.
-
-### Brand Mark (the bar-graph note)
-- **Mark:** an eighth note whose body is ascending VU segments — two segmented bars rising into a full-height solid stem carrying an angular flag. Reads as a note at a glance, as one of the app's own segmented meters up close. Solid fill, two variants: 16-grid (`IconBrandNote`, brand slot at 18px) and 32-grid (`IconBrandNoteLarge`, large renders like the 56px empty state — the 16-grid's 0.8px gaps blur upscaled).
-- **Voice:** magenta with the family glow in the brand slot (personality is magenta's job); flares brighter once on boot. The mark is unique to the brand — nav and empty states that aren't the brand use their own icons (New Song is the cartridge-plus).
-
-### Timeline Editor (the main editor)
-- **Character:** the enthusiast's bench — one recessed track well per lyric
-  line, each word a chip whose position and width are its true original-song
-  timing. Timing truth is never distorted: a 60 ms word stays a narrow chip.
-  Unreviewed songs open straight here (golden path step 4).
-- **Two stages (LYRICS | TIMING):** a scope-toggle in the console splits the
-  bench into a text pass and a timing pass. LYRICS is a free-typing well —
-  the whole lyric, one line per row, so Enter *is* "break here" and removing
-  a newline *is* "join up" — with a time gutter (each row's start via live
-  LCS against the words; the row being sung voices amber, click to seek) and
-  "Sync to music" as the stage's one amber key: cleanup → LCS diff (matched
-  words keep their exact timings and flags, so hand fixes survive a typo
-  pass) → changed runs re-align in windowed CTC passes (docEdit.ts, ≤100 s
-  windows that never swallow a matched neighbor) → ONE undo entry → hop to
-  TIMING. A mostly-rewritten document degrades into a near-full re-sync
-  automatically; without the vocal stem, changed words keep span-divided
-  estimates and the console says so. Unreviewed auto-transcribed songs land
-  on LYRICS (their text is the suspect part); pasted songs and every
-  explicit editor hop land on TIMING. The draft survives stage hops; dirty
-  drafts guard exit via ConfirmStrip and disable Preview. Each row's time
-  window is the line's extent padded 0.6 s and snapped outward to a
-  whole-second grid (`lineWindow`), so dragging or nudging a line's edge
-  words never re-maps the row under the pointer. Exactly one row shows the
-  cyan playhead — the line being sung (the upcoming line during a gap);
-  neighboring rows' overlapping windows never sweep parallel playheads.
-- **Chips:** raised-panel chips on the well; selected = cyan seam ring +
-  glow; unsung = amber wash; low-confidence = dashed seam; ad-lib = italic
-  label. Drag moves the word, the right-edge handle (≤7px, shrinking with
-  the chip so a draggable body always remains) stretches its end.
-- **VU floor (vocal levels):** every 48px track well carries the vocal
-  stem's peak envelope as bottom-anchored segmented level bars (2px bars on
-  a 4px pitch, cut every 3px — the meters' segment grammar) painted behind
-  the chips; chips sit 12px above the well floor so the bars' base band is
-  never occluded, even in packed lines. Word-covered singing is reference
-  chrome — cyan-dim at ghost weight; sustained singing no word covers
-  voices amber-dim, the editor's "look here first" (thresholds live in
-  levels.ts: ≥20% of the stem's peak for ≥150 ms, classified at 10 ms bin
-  resolution so coarse zooms can't inflate a breath into an advisory). The
-  global seek bar carries the same envelope. Canvas, redrawn only on
-  envelope/window/word change — never per frame; served by the
-  `vocal_levels` command from a sidecar cache beside the stem, and the
-  editor renders bare wells (the pre-levels look) when the stem is gone.
-- **Overflow labels (DAW-style):** a chip never truncates its word — the
-  label paints past the chip's right edge over the track, carrying a black
-  legibility halo (`text-shadow` 0 1px 3px rgba(0,0,0,0.9) + 0 0 6px
-  rgba(0,0,0,0.7) — legibility chrome, not elevation; Light-Is-Not-Height
-  holds). Hover/drag lifts a chip (and its label) above its neighbors;
-  selection lifts highest.
-- **Text editing:** click = select + seek; double-click / Enter = inline
-  retype in place (Tab commits and hops to the next word); Del removes
-  (selection advances, so Del chains) and Alt+click erases any word
-  outright; "+ Word" inserts into the gap after the selection. A whole
-  line edits as one sentence via the row's hover EDIT key, Shift+Enter,
-  or double-click on the track background — the sentence input fills the
-  track well (lineEdit.ts LCS retiming).
-- **Drag rewrap:** pulling a chip a row's height up/down turns the drag
-  into a line-break move — up takes the chip and the words before it in
-  its line onto the row above; down takes the chip and the rest of its
-  line below (grabbing the last/first word merges whole rows). Timing is
-  untouched; only line links move, renumbered canonically, one undo entry.
-  While the gesture is vertical the chip ghosts (0.45, dashed) and the
-  target row lights amber (amber-dim seam, amber wash, amber glow — the
-  turn-signal voice: where the action goes live); returning to the home
-  row resumes the time drag.
-- **Timing tools:** arrows nudge ±10 ms (Shift ±100 ms); Ctrl+←/→ hops the
-  selection word by word and Ctrl+↑/↓ line by line (anchored at the
-  playhead when nothing is selected); clicking a track's background seeks
-  to that time (play a line from just before its first word); per-line
-  checkboxes select a contiguous range for "Re-align selection" (CTC
-  re-pass spliced back as one undo entry); "Loop line" loops the selected
-  word's line.
-- **Console (sticky):** the toolbar (transport, source, Preview, undo/redo,
-  Re-align, Save), global seek bar, and the editing key row — word keys
-  (Retype / + Word / Remove), line keys (Edit line / Break here / Join up /
-  Reflow lines), and the export menu — pin to the top of the
-  scrollport on solid ground with a seam + panel shadow; the line tracks
-  scroll beneath. Error/busy/confirm strips render inside the console so
-  they are always visible.
-- **Flow:** Save is the primary key (saving marks reviewed; Ctrl+S);
-  "Preview" hops to the Review Bench for a karaoke-style check, saving
-  first; dirty exits are guarded by a ConfirmStrip.
-
-### Review Bench (karaoke preview + lyric console)
-- **Character:** the playback check — words on the display glass are live
-  instruments; the controls live on the console below, never floating on
-  the glass. Big current line with prev/next context lines, couch-readable
-  type. The home surface for reviewed songs (opening one from the library
-  lands here) and the Timeline Editor's "Preview" hop; fixes made while
-  listening stay first-class. There is no separate detail page — the bench
-  carries the song's actions, including the auto-transcribed-lyrics
-  advisory strip when the song needs it.
-- **Word states:** sung = cyan; active = the cyan wipe (same fill-edge
-  mechanic as the player — the fill is the word's final sung color, so the
-  sweep lands seamlessly; owner call 2026-08-06); selected = cyan seam ring
-  (information voice);
-  low-confidence timing = dashed amber-dim underline ("look here first");
-  unsung stays 0.55 italic. Click = select + seek to onset; double-click /
-  Enter = inline retype (a well-styled input swapped in place, Tab commits
-  and hops to the next word).
-- **Cue selector (BALL | FILL | BOTH):** how the active word is cued is a
-  sticky preference (`karascape.previewCue`) in the console. FILL = the
-  wipe alone, painting the word its final sung cyan across the note's
-  length; BALL = the cue puck alone, with the active word popping solid
-  amber (luminance + puck position still carry state — never hue alone);
-  BOTH (default) = the combined read.
-- **Cue puck:** an 8px amber square (1px radius — never a circle) riding
-  above the lyric lines: rests on the word being sung, arcs (sine hop,
-  0.18–0.6 s flight) to land exactly on the next onset — the "bouncing
-  ball" that makes mistimed words visible. When the gap to the next onset
-  is tighter than the minimum, the puck departs early through the previous
-  word's tail rather than teleporting; rapid-fire chains cap the flight at
-  the onset-to-onset interval (continuous motion). DOM-positioned per
-  frame via transform/opacity only; hidden when paused.
-- **Console bench row:** the Shift module (scope keys WORD | LINE |
-  FROM HERE, chevron nudge keys ±10 ms / shift ±100 ms, DSEG offset
-  readout showing the net shift since selection), word keys (Retype /
-  + Word / Remove / Undo / Redo), line keys (Edit line / Break here /
-  Join up / Reflow lines), and the edit-flow selector (LOOP LINE |
-  PAUSE | ROLL — what playback does while typing; sticky preference).
-- **Line editing:** "Edit line" (Shift+Enter) opens the whole line as one
-  sentence input — LCS-matched words keep their timing and flags, a
-  same-count replacement inherits the replaced words' timings 1:1, and
-  changed runs divide their old span evenly. "Reflow lines" rebuilds every
-  break from the song's own pauses (>0.8 s), terminal punctuation, and an
-  8-word cap — the poetic karaoke line shape — and gives structure to maps
-  that never had lines. All line ops renumber canonically (validator-safe)
-  and take one undo entry.
-- **Flow:** one amber key, picked by review state — an unreviewed song
-  (mid-review) keeps "Looks good" (saves fixes + marks reviewed); a
-  reviewed song's primary is "Sing it" (saves fixes first, then the
-  full-screen player), with a membrane "Save fixes" key for saving in
-  place. "Timeline editor" and the **export menu** (one membrane key
-  opening a dash popup — LRC / ASS / UltraStar rows with current/stale
-  freshness badges, an amber advisory lamp on the trigger while any
-  existing export is stale) are membrane keys; "Back to library" is the
-  linkish exit. Dirty exits are guarded by a ConfirmStrip. Full keyboard:
-  Space, arrows, Enter, Del, Ctrl+Z/Y.
+- **Library** — tree (Library › collections, Up next, Processing, Needs
+  checking) + sortable list view (Title, Artist, Length, Status, Added, Last
+  sung) + Up next group + status bar. Add Song is a wizard; processing is a
+  modeless dialog with the step list and block progress bar.
+- **Bench** — toolbar with LCD clock, transport, Loop, Vocal-guide trackbar,
+  Export ▾, **Sing on TV** (default button); Text/Lanes/Focus tabs; lanes are
+  sunken tracks with waveform + raised Barlow word chips (selected = navy, low
+  confidence = yellow marker). Status bar carries line/word timing, words to
+  check, key hints, save state.
+- **Stage (TV player)** — separate window; full-bleed stage; chrome is a
+  floating tool-window dock (auto-hides) plus "Now singing"/"Up next" captions.
+- **Properties** — tabbed property sheet (Appearance, Bench, Player, Processing).
+- **Player Themes** — display-properties-style dialog with a monitor preview.
 
 ### Full-Screen Player (signature)
-- **Character:** the night-mode cockpit — a fixed overlay on the well, with the song cover blurred to a dim backdrop (blur 48px, brightness 0.22) under a radial scrim.
-- **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform** (owner call 2026-08-10: the resting-`scale(0.625)` → identity grow read as a zoom-in and could carry the lead-in pips off-screen mid-transition; removed — the current line voices full text color at opacity 1, resting lines dim to 0.45, over 460ms on the player's S-curve). **One row per lyric line** (owner call 2026-08-10: a wrapped line reads as a line break and wrong-foots the singer): lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame, so wrap points stay state-invariant and the Four-Hook contract is untouched); a rare line past the 0.55 fit floor keeps the floor size and wraps after all (`data-overlong`) — couch legibility outranks the single row. Never animate font-size (it re-wraps words mid-transition). Sung words glow cyan (`0 0 35px cyan-glow` at layout scale — the old 22px visual), the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat, painting the word its final sung cyan so the sweep lands seamlessly — and unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone. The sung glow arrives *with* the letters: a `::before` shadow layer on the active word, masked to the wipe fraction with a 32px feathered edge whose travel ends at 100% of the inflated box, so at full wipe the mask is completely open and the flip to `.sung` is pixel-identical (the old travel stopped short — the clipped right end of the glow popped in at every word end). The player also opts out of the review bench's 80ms `.k-word` color tween (`transition: none`): the wipe already painted the word its final cyan, so the tween repainted finished words white→cyan — the "flashes complete" flash (both owner-reported, fixed 2026-08-07 second pass). During a pause the highlight cursor never parks-and-teleports: the finished word holds through the 0.25s grace, then the upcoming word's glow layer eases in (`--glow-in` opacity on the same `::before`, fill pinned at 0) across the last 0.6s before its onset — the glow travels to the next word while the fill edge stays beat-true. Rows are equally pause-proof: the scroll pre-rolls the next line only once the current line's last word is sung, so a mid-line pause inside the next line's lead window can't bounce the view forward and back (owner-reported, fixed 2026-08-07 third pass).
-- **Wait cues:** long instrumental gaps (≥5 s) get a **wait-meter row** between the lines — a `WAIT` SegWord annunciator, a draining segmented amber meter, and a whole-second DSEG readout — dim at rest (previewing the full wait), voiced amber while counting, and the scroll centers it mid-gap. Lines that start after ≥2.5 s of silence carry **lead-in pips**: three square amber lamps (the 8px lamp grammar — 13px CSS at the line subtree's display-scale layout) on a zero-width anchor left of the first word, counting 3-2-1 through the last three seconds (extinguishing toward the word). Amber in both is the live voice: this is what's happening *right now*. Logic in playerView.ts (`gapCues`/`cueLineFlags`/`pipsLitAt`).
-- **Console:** a bottom gradient console with the segmented amber timebar, transport key, amber DSEG-voiced clock (with glow), the vocal-guide fader, and key/tempo stepper readouts (cyan value in a bezel). Chrome auto-hides (opacity fade + `cursor: none`); everything is keyboard-operable.
-- **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe`/`--wipe-n` CSS vars on the active word — or, in a pause when that hook is idle, `--glow-in` on the single word being approached — (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks. *Amended 2026-08-07 for the wait cues:* (5) `width` + whole-second `textContent` on the counting gap row's meter/readout and its `counting` class at gap boundaries, and (6) `data-lit` on the upcoming line's pip anchor, mutated only on count change. The amendment still touches at most one small element per hook per frame; the 60fps claim for the amended set awaits a re-run of the player measurement harness.
+- **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform.** **One row per lyric line:** lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame); a rare line past the 0.55 fit floor keeps the floor size and wraps (`data-overlong`). Never animate font-size. Sung words take the theme's sung colour with its glow; the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat; unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone. During a pause the finished word holds through the 0.25s grace, then the upcoming word's glow eases in (`--glow-in`) across the last 0.6s before its onset. The scroll pre-rolls the next line only once the current line's last word is sung.
+- **Wait cues:** gaps ≥5 s get a wait row — a draining block meter and a whole-second DSEG7 readout, dim at rest, voiced in the theme accent while counting. Lines after ≥2.5 s of silence carry three square **lead-in pips** counting 3-2-1. Logic in playerView.ts (`gapCues`/`cueLineFlags`/`pipsLitAt`).
+- **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe`/`--wipe-n` CSS vars on the active word — or, in a pause when that hook is idle, `--glow-in` on the single word being approached — (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks. *Amended 2026-08-07 for the wait cues:* (5) `width` + whole-second `textContent` on the counting gap row's meter/readout and its `counting` class at gap boundaries, and (6) `data-lit` on the upcoming line's pip anchor, mutated only on count change. Any restyle of the stage must re-run the player measurement harness and report song length, hardware and frame-time numbers.
 
 ### Player Themes (user content zone)
-- **Model:** a theme is data (src/themes.ts) — background spec (cover blur /
-  flat color / imported image with blur+dim), lyric colors (resting / sung /
-  accent), glow strength, font, pips toggle, visualizer mode — applied to
-  the player stage as CSS vars (`--th-*`) plus a static background layer.
-  Resolution: song pin → app default → Digital Dash; the fallbacks in
-  styles.css equal the Digital Dash look exactly. Stored in one
-  localStorage blob; built-in presets are code. Background images are
-  imported into `%LOCALAPPDATA%\karaoke\themes` and served as data URLs
-  (CSP allows `data:` only; src-tauri/theme.rs, read_cover guard pattern).
-- **Content exemption:** like cover art, theme colors are user CONTENT —
-  exempt from the Five-Glow Rule *inside the player stage*. The app's own
-  chrome (console, header, every other surface) stays Digital Dash.
-- **Guardrails (code, not knobs):** unsung words stay italic + dimmed
-  whatever the palette (sung/unsung never hue alone — PRODUCT.md); text
-  sizes are not themable (couch-readable floor); the editor shows a live
-  WCAG AA contrast badge per text color and voices failures in the red
-  family.
-- **Visualizer (OFF | PULSE | BARS):** a canvas layer behind the lyric
-  glass driven by the INSTRUMENTAL's precomputed peak envelope (the
-  vocal_levels sidecar) sampled through the player clock — deterministic,
-  tempo-proof, no live audio tap. Single-band energy with deterministic
-  per-bar phasing (honest: not a spectrum; a spectral tap is the v2
-  upgrade). Off under `prefers-reduced-motion`. *Four-Hook amendment:* one
-  bounded canvas draw per frame joins the hook set; the 60fps claim for
-  the amended set awaits a re-run of the player measurement harness on
-  real hardware.
-- **Editor (THEMES in the selector pod):** the rack (built-ins + user
-  copies; duplicate-to-customize, built-ins immutable), a live preview
-  that IS the player (`.player-stage.theme-preview` un-fixes the real
-  stage CSS into a display well, with a looping demo wipe and synthetic
-  visualizer levels), and knob rows in the instrument grammar. Set-as-
-  default lives here; per-song pinning lives in the player's advanced
-  panel. Deleting a theme falls pinned songs back to the default via a
-  ConfirmStrip.
+- **Model:** a theme is data (src/themes.ts) — background spec (cover blur / flat color / imported image with blur+dim), lyric colors (resting / sung / accent), glow strength, font, pips toggle, visualizer mode — applied to the player stage as CSS vars (`--th-*`) plus a static background layer. Resolution: song pin → app default → built-in fallback. Stored in one localStorage blob; built-in presets are code. Background images are imported into `%LOCALAPPDATA%\karaoke\themes` and served as data URLs (CSP allows `data:` only).
+- **Content exemption:** theme colors are user CONTENT inside the stage. The chrome around it (dock, captions, dialogs) stays Karascape 98.
+- **Guardrails (code, not knobs):** unsung words stay italic + dimmed whatever the palette; text sizes are not themable; the editor shows a live WCAG AA contrast badge per text color.
+- **Visualizer (Off | Pulse | Bars):** a canvas layer behind the lyrics driven by the instrumental's precomputed peak envelope sampled through the player clock. Off under `prefers-reduced-motion`. One bounded canvas draw per frame joins the hook set.
 
-### Deferred (open items, not yet built — do not treat absence as a rule)
-- Live stem VU meters await level data from the audio engine (the natural home of the full green→amber→red ladder).
-- App icon: `src-tauri/icons/*` is still an off-brand pink circle (`bundle.active: false`) — regenerate from `IconBrandNoteLarge` (magenta on ground, chamfered-square tile, no circle) when bundling turns on.
-- Media-key handling in the player is deferred (PRODUCT.md commits to it).
+### Deferred
+- Live stem VU meters await level data from the audio engine.
+- App icon (`src-tauri/icons/*`) should be regenerated from the pixel brand mark when bundling turns on.
+- Media-key handling in the player (PRODUCT.md commits to it).
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep the Five-Glow Rule absolute: cyan = information/selection/sung, amber = live/active-now/primary action, green = done/success/collections, magenta = celebrate moments and brand personality, red = redline (errors, destructive) only.
-- **Do** express state as instrument chrome — a lamp, a meter, a readout — before reaching for text or toasts; every meter gets segment gaps.
-- **Do** put dark ink (#131007) on every lit fill — amber, green, magenta — and use `red` (#e8654f) not `red-deep` for red running text.
-- **Do** keep exactly one amber-lit primary key per surface; secondary actions stay membrane-gray.
-- **Do** keep the cyan `:focus-visible` outline (2px, offset 2px) and full keyboard operation on every new control; destructive confirms use the ConfirmStrip pattern, not `window.confirm`.
-- **Do** carry sung/unsung lyric state through luminance, fill-edge position, and italics — never hue alone (`--text-faint` #7e899c is the AA floor for tertiary text).
-- **Do** honor `prefers-reduced-motion`, keep state transitions at 120ms on the world's ease-out, and vendor any new font with its OFL text.
+- **Do** put every command in a menu, with its accelerator shown; toolbars and context menus are shortcuts to menu items, not the only way in.
+- **Do** keep full keyboard operation: Alt/F10 menus, access keys, Tab order, Shift+F10 context menus, Esc closes dialogs, Enter hits the default button.
+- **Do** use the dotted focus rectangle on every focusable control.
+- **Do** pair every signal colour with an icon or text.
+- **Do** use a message box when the user must answer; use the status bar for everything else.
+- **Do** vendor any new font with its license text and add its PLAN.md §6 row in the same change.
 
 ### Don't:
-- **Don't** set words in DSEG — segment faces are instrument chrome for digits, `: . -`, and 4-character annunciator mnemonics only; lyrics, labels, and body copy are Barlow.
-- **Don't** touch the player's per-frame path: no transitions, no React renders, and no new per-frame mutations beyond the Four-Hook contract; never place SegText (the ghost readout) inside the rAF-mutated spans.
-- **Don't** introduce circles, pills, or corner radii beyond 6px — the world is angular (2–3px, 6px bezels, chamfered notches); icons keep square caps and miter joins.
-- **Don't** glow decoratively, add a sixth accent family, or use a colored glow to imply elevation — black offset shadows carry depth. Green and magenta stay job-bound: green is done/success, magenta is celebrate/personality — neither ever restates cyan/amber/red's jobs.
-- **Don't** add an npm package or font without its PLAN.md §6 licensing row; no CDN assets — everything ships self-hosted.
-- **Don't** describe the product as "open source" in any UI copy — it is source-available (binding, PRODUCT.md).
+- **Don't** set lyrics in the pixel font or in DSEG.
+- **Don't** touch the player's per-frame path beyond the Four-Hook contract.
+- **Don't** add corner radii, gradients (other than title bars), glows, or transitions to chrome.
+- **Don't** use Microsoft's icons, logo, fonts, or the word "Windows" in UI copy — the look is an homage, drawn in-house.
+- **Don't** describe the product as "open source" — it is source-available (PLAN.md §1).
