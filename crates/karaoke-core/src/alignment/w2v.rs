@@ -40,6 +40,48 @@ const CHUNK_SEC_CPU: usize = 30;
 /// watchdog (module docs, hazard 1).
 const CHUNK_SEC_DML: usize = 10;
 const OVERLAP_SEC: usize = 4; // 2 s discarded on each side of interior joins
+/// wav2vec2's conv front end: one frame per 320 samples, 400-sample receptive
+/// field — a chunk of `n` samples yields `(n - 400) / 320 + 1` frames, one
+/// fewer than `n / 320` for whole-second chunks.
+const FRAME_HOP: usize = 320;
+
+/// Where each chunk's frames go in the song. `(sample_start, local_lo,
+/// local_hi)` per chunk: keep that chunk's frames `local_lo..local_hi`. The
+/// kept ranges tile the song's frame axis with no gaps or repeats — each
+/// frame is placed by its absolute position (sample offset / 320), and
+/// interior joins cut mid-overlap.
+///
+/// Counting frames instead (keep `t - trim` from each chunk, as before
+/// 2026-09-30) silently dropped one frame at every join, because a chunk
+/// yields one frame fewer than `chunk / 320`: word times drifted 20 ms
+/// earlier per join (CPU: every 26 s, ~-120 ms by the end of a 3-min song;
+/// DirectML's 10 s chunks: -320 ms by 136 s).
+fn chunk_plan(n_samples: usize, chunk: usize, hop: usize, trim_frames: usize) -> Vec<(usize, usize, usize)> {
+    let frames_in = |n: usize| if n < 400 { 0 } else { (n - 400) / FRAME_HOP + 1 };
+    let mut plan = Vec::new();
+    let mut start = 0usize;
+    let mut next_global = 0usize; // first song frame not yet placed
+    loop {
+        let end = (start + chunk).min(n_samples);
+        let t = frames_in(end - start);
+        let first_frame = start / FRAME_HOP;
+        let is_last = end == n_samples;
+        let lo = next_global.saturating_sub(first_frame).min(t);
+        let hi = if is_last {
+            t
+        } else {
+            // cut mid-overlap: the next chunk takes over trim frames after its start
+            ((start + hop) / FRAME_HOP + trim_frames - first_frame).min(t)
+        };
+        plan.push((start, lo, hi.max(lo)));
+        next_global = first_frame + hi.max(lo);
+        if is_last {
+            break;
+        }
+        start += hop;
+    }
+    plan
+}
 pub const MODEL_FILE: &str = "wav2vec2-base-960h.onnx";
 /// EP name key for the shared parity cache (distinct from separation's
 /// "directml" only via the model identity the cache also records).
@@ -333,21 +375,14 @@ impl W2v {
         let hop = chunk - overlap;
         let trim_frames = (OVERLAP_SEC as f64 / 2.0 / FRAME_SEC) as usize; // frames cut per interior edge
 
-        let n_chunks = if audio16k.len() <= chunk {
-            1
-        } else {
-            1 + (audio16k.len() - chunk).div_ceil(hop)
-        };
+        let plan = chunk_plan(audio16k.len(), chunk, hop, trim_frames);
+        let n_chunks = plan.len();
         let mut all: Vec<f32> = Vec::new();
         let mut n_frames_total = 0usize;
         let mut n_vocab: Option<usize> = None;
-        let mut start = 0usize;
-        let mut chunk_idx = 0usize;
-        loop {
+        for (chunk_idx, &(start, f_lo, f_hi)) in plan.iter().enumerate() {
             let end = (start + chunk).min(audio16k.len());
             let mut seg = audio16k[start..end].to_vec();
-            let is_first = chunk_idx == 0;
-            let is_last = end == audio16k.len();
             if self.do_normalize {
                 let mean = seg.iter().sum::<f32>() / seg.len() as f32;
                 let var =
@@ -366,9 +401,9 @@ impl W2v {
             if n_vocab.is_none() {
                 n_vocab = Some(c);
             }
-            // log-softmax per frame, trimming interior edges
-            let f_lo = if is_first { 0 } else { trim_frames };
-            let f_hi = if is_last { t } else { t - trim_frames };
+            // log-softmax per frame, over this chunk's share of the song
+            let f_hi = f_hi.min(t);
+            let f_lo = f_lo.min(f_hi);
             for f in f_lo..f_hi {
                 let row = &data[f * c..(f + 1) * c];
                 let m = row.iter().cloned().fold(f32::MIN, f32::max);
@@ -377,11 +412,6 @@ impl W2v {
             }
             n_frames_total += f_hi - f_lo;
             on_chunk(chunk_idx + 1, n_chunks);
-            if is_last {
-                break;
-            }
-            start += hop;
-            chunk_idx += 1;
         }
         Ok(Emissions {
             logprobs: all,
@@ -421,6 +451,25 @@ pub fn words_to_targets(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chunk_plan_tiles_the_song_frame_axis() {
+        let sr = 16000;
+        for (secs, chunk_s) in [(181.3f64, 30usize), (181.3, 10), (5.0, 10), (26.0, 30), (47.77, 10), (400.01, 30)] {
+            let n = (secs * sr as f64) as usize;
+            let (chunk, hop) = (chunk_s * sr, (chunk_s - OVERLAP_SEC) * sr);
+            let trim = (OVERLAP_SEC as f64 / 2.0 / FRAME_SEC) as usize;
+            let plan = super::chunk_plan(n, chunk, hop, trim);
+            let mut next = 0usize;
+            for &(start, lo, hi) in &plan {
+                assert_eq!(start / FRAME_HOP + lo, next, "gap/overlap at chunk {start} ({secs}s, {chunk_s}s chunks)");
+                assert!(lo <= hi);
+                next = start / FRAME_HOP + hi;
+            }
+            // exactly the frames one single pass over the whole song would give
+            assert_eq!(next, (n - 400) / FRAME_HOP + 1, "{secs}s, {chunk_s}s chunks");
+        }
+    }
+
     use super::*;
 
     fn vocab() -> HashMap<String, usize> {

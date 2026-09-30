@@ -40,7 +40,7 @@ use manifest::{Artifact, JobManifest, JobPointer, StageId};
 /// rerun the stage instead of trusting stale artifacts.
 pub const SEPARATE_STAGE_VERSION: u32 = 1;
 pub const CLEAN_LYRICS_STAGE_VERSION: u32 = 1;
-pub const ALIGN_STAGE_VERSION: u32 = 1;
+pub const ALIGN_STAGE_VERSION: u32 = 2;
 pub const EXPORT_STAGE_VERSION: u32 = 1;
 
 /// Progress/diagnostic events for a front end to subscribe to. The Tauri app
