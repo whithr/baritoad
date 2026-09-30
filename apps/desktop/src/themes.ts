@@ -309,3 +309,17 @@ export function contrastRatio(a: string, b: string): number | null {
 export function backgroundProbeColor(bg: ThemeBackground): string {
   return bg.kind === "color" ? bg.color : "#0b0d10";
 }
+
+/** Apply a Player Themes dialog draft onto the store as it is *now*: the
+ *  draft owns the theme list and the default; song pins come from the live
+ *  store (the stage may have pinned songs while the dialog was open), minus
+ *  pins to themes the draft deleted. */
+export function mergeThemeDraft(current: ThemeStore, draft: ThemeStore): ThemeStore {
+  const known = new Set(allThemes(draft).map((t) => t.id));
+  const songOverrides = Object.fromEntries(Object.entries(current.songOverrides).filter(([, id]) => known.has(id)));
+  return {
+    themes: draft.themes,
+    defaultId: known.has(draft.defaultId) ? draft.defaultId : DEFAULT_THEME.id,
+    songOverrides,
+  };
+}

@@ -9,6 +9,7 @@ import {
   duplicateTheme,
   glowColor,
   loadThemeStore,
+  mergeThemeDraft,
   resolveTheme,
   saveThemeStore,
   themeCssVars,
@@ -134,5 +135,27 @@ describe("css vars + contrast", () => {
       expect(contrastRatio(t.resting, bg)!).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(t.sung, bg)!).toBeGreaterThanOrEqual(3); // large text
     }
+  });
+});
+
+describe("mergeThemeDraft", () => {
+  it("keeps pins made meanwhile, drops pins to deleted themes, takes the draft's list and default", () => {
+    let draft = duplicateTheme(emptyStore(), "neon-stage")!;
+    const copyId = draft.themes[0].id;
+    draft = { ...draft, defaultId: copyId };
+    const current: ThemeStore = {
+      themes: [],
+      defaultId: DEFAULT_THEME.id,
+      songOverrides: { "1": "sunset-vhs", "2": "user-gone", "3": copyId },
+    };
+    const merged = mergeThemeDraft(current, draft);
+    expect(merged.themes.map((x) => x.id)).toEqual([copyId]);
+    expect(merged.defaultId).toBe(copyId);
+    expect(merged.songOverrides).toEqual({ "1": "sunset-vhs", "3": copyId });
+  });
+
+  it("falls back to the built-in default when the draft's default is unknown", () => {
+    const merged = mergeThemeDraft(emptyStore(), { ...emptyStore(), defaultId: "nope" });
+    expect(merged.defaultId).toBe(DEFAULT_THEME.id);
   });
 });

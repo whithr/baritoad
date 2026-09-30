@@ -60,6 +60,7 @@ import {
 } from "../win98";
 import { openStage } from "../stage";
 import AddSongWizard from "./AddSongWizard";
+import { useAppDialogs } from "./AppDialogs";
 import ProcessingDialog from "./ProcessingDialog";
 
 const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "wma"];
@@ -151,6 +152,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const { go, jobs } = props;
   const ask = useMessageBox();
   const prompt = usePrompt();
+  const dialogs = useAppDialogs();
 
   const [allSongs, setAllSongs] = useState<Song[]>([]);
   const [collSongs, setCollSongs] = useState<Song[] | null>(null);
@@ -582,8 +584,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     {
       label: "&Tools",
       items: [
-        { label: "Player &Themes…", run: () => go({ view: "themes" }) },
-        { label: "&Properties…", run: () => go({ view: "settings" }) },
+        { label: "Player &Themes…", run: () => dialogs.open("themes") },
+        { label: "&Properties…", run: () => dialogs.open("properties") },
       ],
     },
     {
@@ -591,7 +593,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       items: [
         { label: "&Keyboard Shortcuts", accel: "F1", keys: "f1", run: () => void showShortcuts() },
         "-",
-        { label: "&About Karascape", run: () => void showAbout() },
+        { label: "&About Karascape", run: () => dialogs.open("about") },
       ],
     },
   ];
@@ -625,15 +627,6 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         </div>
       ),
     });
-  const showAbout = () =>
-    ask({
-      kind: "info",
-      title: "About Karascape",
-      message: <b>Karascape</b>,
-      detail:
-        "Karaoke from the songs you already own. Vocal separation and word timing run on this computer; nothing is uploaded. Source-available.",
-    });
-
   // --------------------------------------------------------------- tree
 
   const tree: TreeNode[] = [
@@ -714,7 +707,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           Export
         </DropdownButton>
         <Vr />
-        <ToolButton icon={<Icon name="gear" />} onClick={() => go({ view: "settings" })} tip="Properties">
+        <ToolButton icon={<Icon name="gear" />} onClick={() => dialogs.open("properties")} tip="Properties">
           Properties
         </ToolButton>
         <span className="w-grow" />
@@ -925,6 +918,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           setProcOpen(true);
         }}
       />
+      {dialogs.element}
       <ProcessingDialog
         job={procJob != null ? jobs.jobs[procJob] : undefined}
         open={procOpen}

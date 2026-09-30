@@ -1,10 +1,10 @@
-// App shell: the bench is the app. One surface (Home → Bench → Player) and a
-// tiny hash router — no router dependency (four routes don't justify a
-// package and its §6 row).
+// App shell: Library → Bench in the main window, the TV player in its own
+// Stage window (stage.ts), and a tiny hash router — no router dependency
+// (three routes don't justify a package and its §6 row).
 //
-// Chrome is the hardware-panel language in hw.css (light/dark via
-// settings). The performance player and the stage-theme editor keep their
-// own legacy stylesheet, loaded on demand the first time either opens.
+// Chrome is Karascape 98 (win98/, DESIGN.md). Each view draws its own
+// window frame, menus and status bar; Properties, Player Themes and About
+// are dialogs (views/AppDialogs.tsx), not routes.
 
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { listJobs, measurePlan, onJobEvent } from "./api";
@@ -14,14 +14,8 @@ import { publishPrefs, subscribePrefs } from "./prefsSync";
 import { ROLE, onStage, openStage, stageCurrent, type StageRoute } from "./stage";
 import Home from "./views/Home";
 import Bench from "./views/Bench";
-import SettingsView from "./views/Settings";
 import PlayerView from "./views/PlayerView";
-import ThemesView from "./views/ThemesView";
-import { AppFrame, Icon, MessageBoxProvider, TipProvider } from "./win98";
-
-// hw.css pins .hw to the viewport; inside the 98 frame it becomes the client
-// area instead (until each view moves onto the kit).
-const LEGACY_IN_FRAME = { position: "relative", inset: "auto", flexGrow: 1, minHeight: 0 } as const;
+import { MessageBoxProvider, TipProvider } from "./win98";
 
 // Dev-only parts bin (#/kit); dead code in production builds.
 const KitView = import.meta.env.DEV ? lazy(() => import("./views/KitView")) : null;
@@ -29,16 +23,12 @@ const KitView = import.meta.env.DEV ? lazy(() => import("./views/KitView")) : nu
 export type Route =
   | { view: "home" }
   | { view: "library" }
-  | { view: "settings" }
-  | { view: "themes" }
   | { view: "kit" }
   | { view: "song"; mapPath: string; title?: string; songId?: number; at?: number }
   | { view: "play"; songId?: number; mapPath?: string; measure?: boolean };
 
 function parseHash(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
-  if (path === "settings") return { view: "settings" };
-  if (path === "themes") return { view: "themes" };
   if (path === "kit" && import.meta.env.DEV) return { view: "kit" };
   if (path === "song") {
     const params = new URLSearchParams(query ?? "");
@@ -67,12 +57,6 @@ export function navigate(route: Route) {
     case "home":
     case "library":
       window.location.hash = "#/home";
-      break;
-    case "settings":
-      window.location.hash = "#/settings";
-      break;
-    case "themes":
-      window.location.hash = "#/themes";
       break;
     case "kit":
       window.location.hash = "#/kit";
@@ -103,18 +87,11 @@ export const SettingsContext = createContext<{
 
 export const useSettings = () => useContext(SettingsContext);
 
-/** The legacy stylesheet (themes editor only, until it moves to the kit). */
-let legacyCssLoaded: Promise<unknown> | null = null;
-function ensureLegacyCss() {
-  if (!legacyCssLoaded) legacyCssLoaded = import("./styles.css");
-  return legacyCssLoaded;
-}
 
 export default function App() {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const [jobs, setJobs] = useState<JobsState>(emptyJobsState);
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
-  const [legacyReady, setLegacyReady] = useState(false);
   const stage = ROLE === "player";
 
   // Settings are owned by the main window (it saves and publishes); the
@@ -216,16 +193,6 @@ export default function App() {
     })();
   }, [go, stage]);
 
-  const needsLegacy = route.view === "themes";
-  useEffect(() => {
-    if (!needsLegacy || legacyReady) return;
-    let alive = true;
-    ensureLegacyCss().then(() => alive && setLegacyReady(true));
-    return () => {
-      alive = false;
-    };
-  }, [needsLegacy, legacyReady]);
-
   // The performance player is full-bleed: its own chrome, no app frame. The
   // stage window renders nothing else.
   if (route.view === "play" || stage) {
@@ -264,15 +231,11 @@ export default function App() {
     );
   }
 
-  const legacyTitle = route.view === "settings" ? "Karascape - Settings" : "Karascape - Player Themes";
-
   return (
     <SettingsContext.Provider value={settingsCtx}>
       <TipProvider>
         <MessageBoxProvider>
-          {route.view === "home" || route.view === "library" ? (
-            <Home go={go} jobs={jobs} />
-          ) : route.view === "song" ? (
+          {route.view === "song" ? (
             <Bench
               key={route.mapPath}
               mapPath={route.mapPath}
@@ -282,31 +245,10 @@ export default function App() {
               go={go}
             />
           ) : (
-            <AppFrame title={legacyTitle} icon={<Icon name="app" />}>
-              <div className="hw" style={LEGACY_IN_FRAME}>
-                {route.view === "settings" && <SettingsView go={go} />}
-                {route.view === "themes" && (legacyReady ? <LegacyThemes go={go} /> : null)}
-              </div>
-            </AppFrame>
+            <Home go={go} jobs={jobs} />
           )}
         </MessageBoxProvider>
       </TipProvider>
     </SettingsContext.Provider>
-  );
-}
-
-function LegacyThemes(props: { go: (r: Route) => void }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0 }}>
-      <div className="hw-topbar">
-        <button type="button" className="hw-key icon" onClick={() => props.go({ view: "settings" })} aria-label="Back">
-          ‹
-        </button>
-        <span className="hw-title">Player themes</span>
-      </div>
-      <div style={{ flexGrow: 1, minHeight: 0, overflow: "auto", userSelect: "auto" }}>
-        <ThemesView />
-      </div>
-    </div>
   );
 }

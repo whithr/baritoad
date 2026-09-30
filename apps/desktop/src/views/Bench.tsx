@@ -97,6 +97,7 @@ import {
   type MenuEntry,
 } from "../win98";
 import "../win98/bench.css";
+import { useAppDialogs } from "./AppDialogs";
 
 /** mm:ss and a tenths suffix for the LCD readouts. */
 function fmtClock(s: number, tenths = true): { main: string; frac: string } {
@@ -686,6 +687,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   // ---- leaving: 98-style "Save changes?" on every way out (Close, the
   // Library button, Alt+F4 / caption X via the window's close guard)
   const ask = useMessageBox();
+  const dialogs = useAppDialogs();
   const [reviewed, setReviewed] = useState(song?.reviewed_at != null);
   const title = song?.title ?? props.title ?? "Untitled";
   const saveAndCheck = useCallback(async () => {
@@ -876,8 +878,19 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       ],
     },
     {
+      label: "T&ools",
+      items: [
+        { label: "Player &Themes…", run: () => dialogs.open("themes") },
+        { label: "&Properties…", run: () => dialogs.open("properties") },
+      ],
+    },
+    {
       label: "&Help",
-      items: [{ label: "&Keyboard Shortcuts", accel: "F1", keys: "f1", run: () => void showKeys() }],
+      items: [
+        { label: "&Keyboard Shortcuts", accel: "F1", keys: "f1", run: () => void showKeys() },
+        "-",
+        { label: "&About Karascape", run: () => dialogs.open("about") },
+      ],
     },
   ];
   useAccelerators(menus);
@@ -1104,6 +1117,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         </Tabs>
       </div>
 
+      {dialogs.element}
       <StatusBar>
         <StatusPane width={120}>{selLane >= 0 ? `Line ${selLane + 1} of ${lanes.length}` : `${lanes.length} lines`}</StatusPane>
         <StatusPane width={250}>
