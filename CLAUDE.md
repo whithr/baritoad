@@ -52,3 +52,6 @@ Current phase: **Phase 0 — de-risk spikes** (PLAN.md §9, spikes/README.md).
 - `.claude/agents/` — spike-runner, pipeline-dev, licensing-auditor
 - `.claude/workflows/phase0-spikes.js` — runs the four Phase 0 spikes in
   parallel and synthesizes a go/no-go report
+- `docs/IMPORTING.md` — the folder layout bulk import reads;
+  `.claude/skills/prep-song-import/` — the agent workflow for getting a
+  user's audio + lyrics files into it (`karaoke scan` is the check)

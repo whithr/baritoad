@@ -14,6 +14,9 @@
 //!   pass first; the change summary lands on stderr (and in `--json`).
 //! - `karaoke export` — render a timing map as LRC / ASS / UltraStar
 //! - `karaoke lyrics clean` — dry-run preview of the lyric cleanup pass
+//! - `karaoke scan` — how the desktop app's Import Folder… will read a folder:
+//!   each song's lyrics pairing, title/artist, collection, and lyrics-format
+//!   problems (`--json` for agents preparing a folder — docs/IMPORTING.md)
 //!
 //! Progress goes to stderr; `--json` puts a machine-readable summary on stdout.
 
@@ -26,7 +29,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use karaoke_core::accuracy::{self, AccuracyReport, ErrorStats, SELF_CHECK_BOUND_MS};
 use karaoke_core::alignment::{AlignConfig, Aligner};
 use karaoke_core::audio;
-use karaoke_core::formats::{self, ultrastar, ExportMeta, Format};
+use karaoke_core::formats::{self, lrc, ultrastar, ExportMeta, Format};
+use karaoke_core::import::{self, LyricsFile};
 use karaoke_core::lyrics::{self, CleanLyrics};
 use karaoke_core::pipeline::manifest::{self, JobManifest, StageId};
 use karaoke_core::pipeline::{self, GenerateRequest, PipelineEvent};
@@ -68,6 +72,31 @@ enum Cmd {
     /// Lyric utilities
     #[command(subcommand)]
     Lyrics(LyricsCmd),
+    /// Show how Import Folder… (desktop app) will read folders or files:
+    /// which lyrics each song pairs with, its title/artist and collection,
+    /// and lyrics-format problems worth fixing first. Reads only — nothing
+    /// is imported or changed.
+    Scan(ScanArgs),
+}
+
+#[derive(Args)]
+struct ScanArgs {
+    /// Folders (searched recursively) and/or audio files
+    #[arg(required = true)]
+    paths: Vec<PathBuf>,
+
+    /// Print a machine-readable JSON report to stdout
+    #[arg(long)]
+    json: bool,
+
+    /// Exit with an error while any lyrics file has warnings or matched no
+    /// song. (Songs without lyrics are fine — they get transcribed.)
+    #[arg(long)]
+    strict: bool,
+
+    /// With --strict, also fail while any song has no usable lyrics
+    #[arg(long, requires = "strict")]
+    require_lyrics: bool,
 }
 
 #[derive(Args)]
@@ -285,6 +314,10 @@ struct LyricsCleanArgs {
     /// instead of the cleaned text
     #[arg(long)]
     json: bool,
+
+    /// Only the change summary and counts (stderr) — no lyrics text printed
+    #[arg(long, conflicts_with = "json")]
+    summary: bool,
 }
 
 #[derive(Args)]
@@ -449,6 +482,7 @@ fn main() {
         Cmd::Align(args) => run_align(&args),
         Cmd::Export(args) => run_export(&args),
         Cmd::Lyrics(LyricsCmd::Clean(args)) => run_lyrics_clean(&args),
+        Cmd::Scan(args) => run_scan(&args),
     };
     let code = match result {
         Ok(()) => 0,
@@ -1066,7 +1100,7 @@ fn run_export(args: &ExportArgs) -> Result<(), Box<dyn std::error::Error>> {
 /// text (or `--json` report) on stdout, change summary on stderr; nothing is
 /// written to disk.
 fn run_lyrics_clean(args: &LyricsCleanArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let raw = std::fs::read_to_string(&args.file)
+    let raw = import::read_text_file(&args.file)
         .map_err(|e| format!("cannot read lyrics {}: {e}", args.file.display()))?;
     let cleaned = lyrics::clean(&raw);
     eprintln!("lyric cleanup: {}", cleaned.summary());
@@ -1078,6 +1112,9 @@ fn run_lyrics_clean(args: &LyricsCleanArgs) -> Result<(), Box<dyn std::error::Er
         cleaned.lines.len(),
         cleaned.word_count()
     );
+    if args.summary {
+        return Ok(());
+    }
     if args.json {
         let report = serde_json::json!({
             "input": args.file,
@@ -1093,6 +1130,110 @@ fn run_lyrics_clean(args: &LyricsCleanArgs) -> Result<(), Box<dyn std::error::Er
         print!("{}", cleaned.to_text());
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// karaoke scan (bulk-import preparation — docs/IMPORTING.md)
+// ---------------------------------------------------------------------------
+
+fn run_scan(args: &ScanArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let scan = import::scan(&args.paths);
+    let mut songs = Vec::new();
+    let (mut with_lyrics, mut transcribe, mut unreadable, mut warned) = (0usize, 0usize, 0usize, 0usize);
+    for item in &scan.items {
+        // What the import will align: text as-is, LRC stripped to its words.
+        let text = match &item.lyrics {
+            LyricsFile::Text { path } => Some(import::read_text_file(path)?),
+            LyricsFile::Lrc { path } => Some(lrc::lyrics_text(&import::read_text_file(path)?).text),
+            _ => None,
+        };
+        let check = text.as_deref().map(import::check_lyrics);
+        match &item.lyrics {
+            LyricsFile::Text { .. } | LyricsFile::Lrc { .. } | LyricsFile::UltraStar { .. } => with_lyrics += 1,
+            LyricsFile::Unreadable { .. } => {
+                unreadable += 1;
+                transcribe += 1;
+            }
+            LyricsFile::None => transcribe += 1,
+        }
+        if check.as_ref().is_some_and(|c| !c.warnings.is_empty()) {
+            warned += 1;
+        }
+        songs.push((item, check));
+    }
+
+    if args.json {
+        let report = serde_json::json!({
+            "songs": songs.iter().map(|(item, check)| {
+                let mut v = serde_json::to_value(item).unwrap_or_default();
+                v["lyrics_check"] = serde_json::to_value(check).unwrap_or_default();
+                v
+            }).collect::<Vec<_>>(),
+            "unmatched_lyrics": scan.unmatched_lyrics,
+            "summary": {
+                "songs": scan.items.len(),
+                "with_lyrics": with_lyrics,
+                "will_transcribe": transcribe,
+                "unreadable_ultrastar": unreadable,
+                "lyrics_with_warnings": warned,
+                "unmatched_lyrics": scan.unmatched_lyrics.len(),
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        for (item, check) in &songs {
+            let who = match &item.artist {
+                Some(a) => format!("{a} - {}", item.title),
+                None => item.title.clone(),
+            };
+            let lyrics = match &item.lyrics {
+                LyricsFile::Text { path } => format!("lyrics {}", file_name(path)),
+                LyricsFile::Lrc { path } => format!("LRC {}", file_name(path)),
+                LyricsFile::UltraStar { path } => format!("UltraStar timings {}", file_name(path)),
+                LyricsFile::Unreadable { path, reason } => format!("UNREADABLE {} ({reason}) — will transcribe", file_name(path)),
+                LyricsFile::None => "no lyrics — will transcribe".into(),
+            };
+            let coll = item.collection.as_deref().map(|c| format!("  [{c}]")).unwrap_or_default();
+            let source = match item.title_source {
+                import::TitleSource::Ultrastar => "UltraStar header",
+                import::TitleSource::Tags => "tags",
+                import::TitleSource::Lrc => "LRC header",
+                import::TitleSource::Filename => "file name",
+            };
+            println!("{who}{coll}  (title from {source})\n    {}\n    {lyrics}", item.audio.display());
+            if let Some(c) = check {
+                println!("    {} lines, {} words kept ({})", c.lines, c.words, c.cleanup);
+                for w in &c.warnings {
+                    println!("    warning: {w}");
+                }
+            }
+        }
+        for p in &scan.unmatched_lyrics {
+            println!("unmatched lyrics file: {}", p.display());
+        }
+        println!(
+            "\n{} song(s): {with_lyrics} with lyrics, {transcribe} will be transcribed, {warned} lyrics file(s) with warnings, {} unmatched lyrics file(s)",
+            scan.items.len(),
+            scan.unmatched_lyrics.len()
+        );
+    }
+
+    let missing = if args.require_lyrics { transcribe } else { 0 };
+    if args.strict && (missing > 0 || warned > 0 || !scan.unmatched_lyrics.is_empty()) {
+        let mut why = vec![
+            format!("{warned} lyrics file(s) with warnings"),
+            format!("{} unmatched lyrics file(s)", scan.unmatched_lyrics.len()),
+        ];
+        if args.require_lyrics {
+            why.insert(0, format!("{transcribe} song(s) without usable lyrics"));
+        }
+        return Err(format!("not ready: {}", why.join(", ")).into());
+    }
+    Ok(())
+}
+
+fn file_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------

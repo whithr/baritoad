@@ -13,8 +13,10 @@
 //!    pairs them whatever their names.
 //!
 //! Everything else imports without lyrics (the aligner transcribes it).
-//! Lyrics files nobody claimed are reported, so a misnamed file is noticed
-//! rather than silently transcribed around.
+//! Every other `.txt` / `.lrc` counts as a possible lyrics file, and one
+//! nobody claimed is reported, so a misnamed file is noticed rather than
+//! silently transcribed around — except the usual non-lyrics names
+//! ([`NOT_LYRICS`]: readme, license, …), which are ignored.
 //!
 //! **Collections come from folders.** A folder with exactly one song in it is
 //! that song's own folder (the UltraStar layout), so the song belongs to the
@@ -59,6 +61,17 @@ pub enum LyricsFile {
     Unreadable { path: PathBuf, reason: String },
 }
 
+/// Where a scanned song's title came from (first that has one wins, in
+/// this order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    Ultrastar,
+    Tags,
+    Lrc,
+    Filename,
+}
+
 /// One song found by [`scan`].
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScanItem {
@@ -67,6 +80,9 @@ pub struct ScanItem {
     /// "Artist - Title" file name.
     pub title: String,
     pub artist: Option<String>,
+    /// Which of those supplied the title — renaming the audio file only
+    /// changes a title that came from the file name.
+    pub title_source: TitleSource,
     pub lyrics: LyricsFile,
     /// Collection named after the song's folder (module docs).
     pub collection: Option<String>,
@@ -158,6 +174,141 @@ pub fn decode_text(bytes: &[u8]) -> String {
     }
 }
 
+/// How a lyrics file will fare: what the cleanup pass keeps, plus format
+/// problems it *doesn't* fix — the checklist `karaoke scan` hands a person
+/// (or an agent) preparing a folder for import.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LyricsCheck {
+    /// Lines and words the lyric cleanup pass keeps (what gets aligned).
+    pub lines: usize,
+    pub words: usize,
+    /// The cleanup pass's one-line summary ("removed 2 section headers").
+    pub cleanup: String,
+    /// Problems worth fixing by hand, in plain words.
+    pub warnings: Vec<String>,
+}
+
+/// Check pasted-style lyrics text (see [`LyricsCheck`]).
+pub fn check_lyrics(text: &str) -> LyricsCheck {
+    let cleaned = crate::lyrics::clean(text);
+    let words = cleaned.word_count();
+    let raw_lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let mut warnings = Vec::new();
+
+    if words == 0 {
+        warnings.push("no lyric words left after cleanup".to_string());
+    } else if words < 15 {
+        warnings.push(format!("only {words} words — is this the whole song?"));
+    }
+    if words > 1500 {
+        warnings.push(format!("{words} words — this may hold more than one song"));
+    }
+    let long = raw_lines.iter().filter(|l| l.chars().count() > 100).count();
+    if long > 0 {
+        warnings.push(format!(
+            "{long} line(s) over 100 characters — put each sung line on its own line"
+        ));
+    }
+    let chords = raw_lines.iter().filter(|l| is_chord_line(l)).count();
+    if chords > 0 {
+        warnings.push(format!("{chords} chord line(s) — remove chords, keep only the words"));
+    }
+    let inline = raw_lines.iter().filter(|l| !is_chord_line(l) && has_inline_chord(l)).count();
+    if inline > 0 {
+        warnings.push(format!(
+            "{inline} line(s) with inline [chord] tags like [Am] — remove the tags, keep the words"
+        ));
+    }
+    let stamped = raw_lines.iter().filter(|l| starts_with_timestamp(l)).count();
+    if stamped > 0 {
+        warnings.push(format!(
+            "{stamped} line(s) start with [mm:ss] timestamps — this is an LRC file; give it the .lrc extension"
+        ));
+    }
+    if ["<br", "<p>", "&amp;", "&#39;", "&quot;"].iter().any(|t| text.contains(t)) {
+        warnings.push("HTML left over from a web page (<br>, &amp;, …) — replace it with plain text".to_string());
+    }
+    LyricsCheck {
+        lines: cleaned.lines.len(),
+        words,
+        cleanup: cleaned.summary(),
+        warnings,
+    }
+}
+
+/// "G  D/F#  Em7  Cadd9" — every token a chord name, at least two of them.
+fn is_chord_line(line: &str) -> bool {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    tokens.len() >= 2 && tokens.iter().all(|t| is_chord(t))
+}
+
+/// ChordPro-style "[Am]we sing [F]along" — a bracketed chord inside a line.
+fn has_inline_chord(line: &str) -> bool {
+    let mut rest = line;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find(']') else { return false };
+        if is_chord(after[..close].trim()) {
+            return true;
+        }
+        rest = &after[close + 1..];
+    }
+    false
+}
+
+fn is_chord(token: &str) -> bool {
+    let (main, bass) = match token.split_once('/') {
+        Some((m, b)) => (m, Some(b)),
+        None => (token, None),
+    };
+    let root = |s: &str| -> Option<usize> {
+        let mut c = s.chars();
+        let first = c.next()?;
+        if !('A'..='G').contains(&first) {
+            return None;
+        }
+        Some(if matches!(c.next(), Some('#') | Some('b')) { 2 } else { 1 })
+    };
+    let Some(n) = root(main) else { return false };
+    // quality? digits? (sus|add digits)? (b|# 5/9)? — "m7", "maj7", "7sus4", "m7b5"
+    let mut rest = &main[n..];
+    let take = |rest: &mut &str, options: &[&str]| -> bool {
+        match options.iter().find(|o| rest.starts_with(**o)) {
+            Some(o) => {
+                *rest = &rest[o.len()..];
+                true
+            }
+            None => false,
+        }
+    };
+    let digits = |rest: &mut &str| -> usize {
+        let n = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+        *rest = &rest[n..];
+        n
+    };
+    take(&mut rest, &["maj", "min", "dim", "aug", "sus", "add", "m", "M"]);
+    digits(&mut rest);
+    if take(&mut rest, &["sus", "add"]) && digits(&mut rest) == 0 {
+        return false;
+    }
+    if take(&mut rest, &["b", "#"]) && digits(&mut rest) == 0 {
+        return false;
+    }
+    rest.is_empty() && bass.map_or(true, |b| root(b).is_some_and(|k| k == b.len()))
+}
+
+fn starts_with_timestamp(line: &str) -> bool {
+    line.strip_prefix('[')
+        .and_then(|rest| rest.split_once(']'))
+        .is_some_and(|(tag, _)| {
+            let mut parts = tag.split([':', '.']);
+            matches!((parts.next(), parts.next()), (Some(m), Some(s))
+                if !m.is_empty() && !s.is_empty()
+                    && m.chars().all(|c| c.is_ascii_digit())
+                    && s.chars().all(|c| c.is_ascii_digit()))
+        })
+}
+
 /// Title and artist from an "Artist - Title" file name (underscores read as
 /// spaces); otherwise the cleaned stem is the title.
 pub fn meta_from_filename(path: &Path) -> (String, Option<String>) {
@@ -183,8 +334,12 @@ fn is_audio(p: &Path) -> bool {
     ext_of(p).is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.as_str()))
 }
 
+/// Text files that are never lyrics (compared by lowercase stem).
+pub const NOT_LYRICS: &[&str] = &["readme", "read me", "license", "licence", "copying", "changelog"];
+
 fn is_lyrics_candidate(p: &Path) -> bool {
-    ext_of(p).is_some_and(|e| e == "txt" || e == "lrc")
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+    ext_of(p).is_some_and(|e| e == "txt" || e == "lrc") && !NOT_LYRICS.contains(&stem.as_str())
 }
 
 fn ext_of(p: &Path) -> Option<String> {
@@ -381,6 +536,7 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
             continue;
         }
         let (mut title, mut artist) = meta_from_filename(audio);
+        let mut title_source = TitleSource::Filename;
         let mut lyrics = LyricsFile::None;
         let mut us_meta: Option<(Option<String>, Option<String>)> = None;
         if let Some(&ci) = paired.get(&ai) {
@@ -402,6 +558,7 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
                     }
                     if let Some(t) = &l.title {
                         title = t.clone();
+                        title_source = TitleSource::Lrc;
                     }
                     if l.artist.is_some() {
                         artist = l.artist.clone();
@@ -419,6 +576,7 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
         if let Ok(t) = tags::read_tags(audio) {
             if let Some(v) = t.title {
                 title = v;
+                title_source = TitleSource::Tags;
             }
             if t.artist.is_some() {
                 artist = t.artist;
@@ -428,12 +586,13 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
         if let Some((t, a)) = us_meta {
             if let Some(v) = t {
                 title = v;
+                title_source = TitleSource::Ultrastar;
             }
             if a.is_some() {
                 artist = a;
             }
         }
-        items.push(ScanItem { audio: audio.clone(), title, artist, lyrics, collection: None });
+        items.push(ScanItem { audio: audio.clone(), title, artist, title_source, lyrics, collection: None });
     }
 
     let unmatched = candidates
@@ -521,10 +680,12 @@ mod tests {
         touch(&d, "Robyn - Dancing On My Own.lrc", "[ar:Robyn]\n[00:01.00]Somebody said\n");
         touch(&d, "Nirvana - Lithium.mp3", "");
         touch(&d, "notes.txt", "remember to buy milk");
+        touch(&d, "README.txt", "about this pack");
         let s = scan(&[d.clone()]);
         assert_eq!(s.items.len(), 3);
         let w = item(&s, "ABBA - Waterloo.flac");
         assert_eq!((w.title.as_str(), w.artist.as_deref()), ("Waterloo", Some("ABBA")));
+        assert_eq!(w.title_source, TitleSource::Filename);
         assert!(matches!(&w.lyrics, LyricsFile::Text { path } if name_lower(path) == "abba - waterloo.txt"));
         assert!(matches!(item(&s, "Robyn - Dancing On My Own.mp3").lyrics, LyricsFile::Lrc { .. }));
         assert_eq!(item(&s, "Nirvana - Lithium.mp3").lyrics, LyricsFile::None);
@@ -542,6 +703,7 @@ mod tests {
         let q = item(&s, "Queen - Bohemian Rhapsody [karaoke].mp3");
         assert!(matches!(q.lyrics, LyricsFile::UltraStar { .. }));
         assert_eq!((q.title.as_str(), q.artist.as_deref()), ("Bohemian Rhapsody", Some("Queen")));
+        assert_eq!(q.title_source, TitleSource::Ultrastar);
         // The song folder isn't a collection; the flat root is.
         let root_name = d.file_name().unwrap().to_string_lossy().into_owned();
         assert_eq!(q.collection.as_deref(), Some(root_name.as_str()));
@@ -616,6 +778,45 @@ mod tests {
         assert_eq!(decode_text(b"\xEF\xBB\xBFcaf\xC3\xA9"), "café");
         assert_eq!(decode_text(b"caf\xE9 \x93hi\x94"), "café \u{201c}hi\u{201d}");
         assert_eq!(decode_text(&[0xFF, 0xFE, b'h', 0, b'i', 0]), "hi");
+    }
+
+    #[test]
+    fn clean_lyrics_pass_the_check() {
+        let text = "[Verse 1]\nWe walked along the river line\nand counted every star in sight\n\n\
+                    [Chorus]\nOh the night is ours tonight (x2)\nhold on, hold on\n";
+        let c = check_lyrics(text);
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+        assert!(c.words > 15);
+        assert!(c.cleanup.contains("section header"), "{}", c.cleanup);
+    }
+
+    #[test]
+    fn format_problems_are_named() {
+        let unbroken = "we walked along the river line and counted every star in sight and the night was ours and nobody could take it away from us at all";
+        assert!(check_lyrics(unbroken).warnings.iter().any(|w| w.contains("own line")));
+        let chords = "G   D/F#   Em7   C\nwe walked along the river line and counted stars\nAm  F  C  G\n";
+        assert!(check_lyrics(chords).warnings.iter().any(|w| w.contains("2 chord line")));
+        let lrc = "[00:12.34]we walked along\n[00:15.00]the river line and counted every star in sight tonight\n";
+        assert!(check_lyrics(lrc).warnings.iter().any(|w| w.contains(".lrc")));
+        let inline = "[Am]we walked along the [F]river line and counted every [C]star in sight tonight\n";
+        assert!(check_lyrics(inline).warnings.iter().any(|w| w.contains("inline [chord]")));
+        assert!(check_lyrics("[Chorus]\nwe walked along the river line and counted every star in sight\nand the night was ours tonight\n")
+            .warnings
+            .is_empty());
+        let html = "we walked along<br>the river line &amp; counted every star in sight tonight oh yes\n";
+        assert!(check_lyrics(html).warnings.iter().any(|w| w.contains("HTML")));
+        assert!(check_lyrics("hi there").warnings.iter().any(|w| w.contains("whole song")));
+    }
+
+    #[test]
+    fn chord_detection_leaves_words_alone() {
+        assert!(is_chord_line("C G Am F"));
+        assert!(is_chord_line("Bbmaj7  Dsus4  E/G#"));
+        assert!(is_chord_line("Am7b5 G7sus4 Cadd9"));
+        assert!(!is_chord_line("A Day In The Life"));
+        assert!(!is_chord_line("Bad Guy"));
+        assert!(!is_chord_line("Dad Bad"));
+        assert!(!is_chord_line("C"));
     }
 
     #[test]
