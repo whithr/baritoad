@@ -246,7 +246,7 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
 // ------------------------------------------------------------------- about
 
 const NOTICES: [string, string][] = [
-  ["Tauri", "Apache-2.0 or MIT"],
+  ["Tauri (tao: Apache-2.0)", "Apache-2.0 or MIT"],
   ["React", "MIT"],
   ["Base UI", "MIT"],
   ["ONNX Runtime", "MIT"],
@@ -257,7 +257,8 @@ const NOTICES: [string, string][] = [
   ["Symphonia", "MPL-2.0"],
   ["SQLite", "Public domain"],
   ["ffmpeg (separate program)", "LGPL-2.1"],
-  ["Barlow, DSEG fonts", "SIL OFL 1.1"],
+  ["98.css (bevel recipes)", "MIT"],
+  ["Barlow, DSEG7 fonts", "SIL OFL 1.1"],
   ["Pixel Operator font", "CC0 1.0"],
 ];
 
