@@ -25,6 +25,7 @@ import {
   exportSong,
   librarySong,
   playbackSources,
+  playerPause,
   readTimingMap,
   realignSelection,
   saveTimingMap,
@@ -65,6 +66,7 @@ import {
 import { sungThroughIndexAt, wordIndexAt } from "../highlight";
 import { shiftRange, type ShiftScope } from "../previewEditor";
 import { fmtTime } from "../format";
+import { onStage, openStage } from "../stage";
 import { useAudio, type AudioController } from "../useAudio";
 import {
   AppFrame,
@@ -717,10 +719,35 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     if (await confirmLeave()) go({ view: "home" });
   }, [confirmLeave, go]);
 
+  // Sing on TV opens (or reuses) the Stage window; the Bench stays here.
+  // Bench audio and the stage never play over each other.
+  const [stageOpen, setStageOpen] = useState(false);
   const singOnTv = useCallback(async () => {
+    audioPause();
     if (dirty) await save();
-    go({ view: "play", songId, mapPath });
-  }, [dirty, save, go, songId, mapPath]);
+    const opened = await openStage({ song_id: songId ?? null, map_path: mapPath });
+    if (!opened) go({ view: "play", songId, mapPath });
+  }, [audioPause, dirty, save, go, songId, mapPath]);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    onStage((e) => {
+      if (e.kind === "closed") setStageOpen(false);
+      else {
+        setStageOpen(true);
+        audioPause();
+      }
+    })
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [audioPause]);
+  useEffect(() => {
+    if (stageOpen && audio.playing) playerPause().catch(() => undefined);
+  }, [stageOpen, audio.playing]);
 
   const markChecked = useCallback(async () => {
     if (songId == null) return;

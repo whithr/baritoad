@@ -1,0 +1,346 @@
+/* The TV stage — lyric rendering for the player (and the Player Themes
+   preview). Moved here from the pre-98 styles.css with the rules intact:
+   every per-frame hook keeps its selector, and nothing here adds a
+   transition to a hooked property (DESIGN.md, the Four-Hook Rule).
+   Theme vars (--th-*, themes.ts) win; the fallbacks equal the Karascape 98
+   stage theme. Class-scoped only — this file can load in any window. */
+
+.player-stage {
+  --stage-ground: #000010;
+  --stage-text: #ffffff;
+  --stage-text-dim: #b8b8c8;
+  --stage-faint: #8a8a9a;
+  --stage-sung: #00ffff;
+  --stage-sung-glow: rgba(0, 255, 255, 0.35);
+  --stage-accent: #ffff00;
+  --stage-accent-glow: rgba(255, 255, 0, 0.35);
+
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--stage-ground);
+  color: var(--stage-text);
+  font-family: Barlow, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+}
+
+.player-stage.controls-hidden {
+  cursor: none;
+}
+
+/* Themed background layer: cover/image backdrops get blur/dim from the
+   theme via inline filter; this filter is the no-theme fallback. */
+.pk-backdrop {
+  position: absolute;
+  inset: -40px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(48px) brightness(0.22) saturate(0.9);
+  z-index: 0;
+}
+
+.pk-backdrop.flat {
+  inset: 0;
+  filter: none;
+}
+
+.pk-scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 35%, transparent 0%, rgba(0, 0, 16, 0.7) 100%);
+  z-index: 0;
+}
+
+.pk-vis {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.pk-viewport {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(transparent 0%, #000 12%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(transparent 0%, #000 12%, #000 82%, transparent 100%);
+}
+
+.pk-loading {
+  text-align: center;
+  margin-top: 20vh;
+  color: var(--stage-text-dim);
+}
+
+.pk-scroller {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  will-change: transform;
+  padding: 0 6vw;
+}
+
+/* Every line lays out — and renders — at one constant display size (couch-
+   readable, PRODUCT.md); state is luminance and colour only. One row per
+   line: --fit (set at mount/resize, never per frame) shrinks a wide line;
+   past the 0.55 floor it wraps (data-overlong). */
+.pk-line {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 0 0.45em;
+  padding: 0.078125em 0;
+  width: 100%;
+  margin-inline: auto;
+  font-size: calc(clamp(35.2px, 4.6vw, 62px) * var(--fit, 1));
+  font-family: var(--th-font, inherit);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--th-rest, var(--stage-text-dim));
+  opacity: 0.45;
+  transition:
+    opacity 460ms cubic-bezier(0.45, 0, 0.15, 1),
+    color 460ms cubic-bezier(0.45, 0, 0.15, 1);
+  text-align: center;
+}
+
+.pk-line[data-overlong] {
+  flex-wrap: wrap;
+}
+
+.pk-line.current {
+  color: var(--th-rest, var(--stage-text));
+  opacity: 1;
+}
+
+.pk-line.next {
+  opacity: 0.8;
+  color: var(--stage-text);
+}
+
+/* Word states: sung = sung colour + glow; active = the wipe (fill edge
+   position carries the beat). Class flips land instantly. */
+.player-stage .k-word {
+  transition: none;
+}
+
+.player-stage .k-word.sung {
+  color: var(--th-sung, var(--stage-sung));
+  text-shadow: 0 0 calc(35px * var(--th-glow, 1)) var(--th-sung-glow, var(--stage-sung-glow));
+}
+
+.player-stage .k-word.active.wipe {
+  position: relative;
+  color: var(--th-rest, var(--stage-text));
+  background-image: linear-gradient(
+    90deg,
+    var(--th-sung, var(--stage-sung)) var(--wipe, 0%),
+    currentColor var(--wipe, 0%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+/* The sung glow arriving with the letters: a glyph-shaped shadow layer
+   masked to the same fill fraction (--wipe-n is --wipe, unitless). The box
+   is inflated 48px so the blur can spill; the edge feathers 32px and ends at
+   100% so the flip to .sung is pixel-identical. --glow-in eases the glow onto
+   the upcoming word during a pause. */
+.player-stage .k-word.active.wipe::before {
+  content: attr(data-w);
+  content: attr(data-w) / "";
+  position: absolute;
+  inset: -48px;
+  padding: 48px;
+  opacity: var(--glow-in, 1);
+  text-shadow: 0 0 calc(35px * var(--th-glow, 1)) var(--th-sung-glow, var(--stage-sung-glow));
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 calc(38px + (100% - 38px) * var(--wipe-n, 0) / 100),
+    transparent calc(38px + (100% - 38px) * var(--wipe-n, 0) / 100 + 32px)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 calc(38px + (100% - 38px) * var(--wipe-n, 0) / 100),
+    transparent calc(38px + (100% - 38px) * var(--wipe-n, 0) / 100 + 32px)
+  );
+  pointer-events: none;
+}
+
+.player-stage .k-word.unsung {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* ---- wait cues: gap meter rows + lead-in pips ----------------------------
+   A long instrumental gap gets a wait row: a label, a draining block meter
+   (98 progress-bar grammar) and a whole-second DSEG7 readout. Resting rows
+   preview the wait dimly; the counting row voices the theme accent. */
+.pk-gap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 0;
+  opacity: 0.3;
+  transition: opacity 340ms ease-out;
+}
+
+.pk-gap.counting {
+  opacity: 1;
+}
+
+.pk-gap-word {
+  font-family: "Pixel Operator", Tahoma, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: none;
+  color: var(--stage-faint);
+}
+
+.pk-gap-meter {
+  position: relative;
+  width: clamp(160px, 22vw, 280px);
+  height: 14px;
+  padding: 2px;
+  background: #000;
+  box-shadow: inset 1px 1px #404050, inset -1px -1px #a0a0b0;
+  overflow: hidden;
+}
+
+.pk-gap-meter-fill {
+  height: 100%;
+  width: 100%;
+  background: repeating-linear-gradient(90deg, var(--th-accent, var(--stage-accent)) 0 8px, transparent 8px 10px);
+}
+
+.pk-gap-secs {
+  font-family: "DSEG7 Classic", ui-monospace, monospace;
+  font-size: 15px;
+  min-width: 2ch;
+  text-align: right;
+  color: var(--stage-faint);
+}
+
+.pk-gap.counting .pk-gap-word,
+.pk-gap.counting .pk-gap-secs {
+  color: var(--th-accent, var(--stage-accent));
+  text-shadow: 0 0 10px var(--th-accent-glow, var(--stage-accent-glow));
+}
+
+/* Lead-in pips: three square lamps counting 3-2-1 into a line that follows
+   a silence, on a zero-width anchor so the line never re-flows. */
+.pk-cue {
+  display: inline-block;
+  width: 0;
+  position: relative;
+  vertical-align: middle;
+}
+
+.pk-cue-pips {
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.pk-cue[data-lit="1"] .pk-cue-pips,
+.pk-cue[data-lit="2"] .pk-cue-pips,
+.pk-cue[data-lit="3"] .pk-cue-pips {
+  opacity: 1;
+}
+
+.pk-cue-pips i {
+  width: 13px;
+  height: 13px;
+  background: #000;
+  border: 1px solid #505060;
+}
+
+.pk-cue[data-lit="3"] .pk-cue-pips i:nth-last-child(-n + 3),
+.pk-cue[data-lit="2"] .pk-cue-pips i:nth-last-child(-n + 2),
+.pk-cue[data-lit="1"] .pk-cue-pips i:nth-last-child(-n + 1) {
+  background: var(--th-accent, var(--stage-accent));
+  border-color: var(--th-accent, var(--stage-accent));
+  box-shadow: 0 0 8px var(--th-accent-glow, var(--stage-accent-glow));
+}
+
+/* ---- 98 chrome floating over the stage ----------------------------------- */
+
+.pk-caption {
+  position: absolute;
+  top: 16px;
+  z-index: 2;
+}
+
+.pk-caption.left {
+  left: 20px;
+}
+
+.pk-caption.right {
+  right: 20px;
+}
+
+.pk-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(1000px, calc(100% - 40px));
+  z-index: 3;
+}
+
+.controls-hidden .pk-caption,
+.controls-hidden .pk-dock {
+  visibility: hidden;
+}
+
+/* the seek bar: a sunken track whose fill width is hook (3) */
+.pk-timebar {
+  position: relative;
+  flex-grow: 1;
+  height: 16px;
+  padding: 2px;
+  background: var(--w-window);
+  box-shadow: var(--w-sunken);
+  cursor: pointer;
+}
+
+.pk-timebar:focus-visible {
+  outline: 1px dotted var(--w-focus);
+  outline-offset: 2px;
+}
+
+.pk-timebar-loaded {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  background: var(--w-light);
+  pointer-events: none;
+}
+
+.pk-timebar-fill {
+  position: relative;
+  height: 100%;
+  width: 0;
+  background: repeating-linear-gradient(90deg, var(--w-progress) 0 9px, transparent 9px 11px);
+  pointer-events: none;
+}
+
+.pk-clock {
+  font-family: var(--w-font-lcd);
+}

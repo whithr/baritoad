@@ -4,6 +4,7 @@ import {
   BUILTIN_THEMES,
   contrastRatio,
   deleteTheme,
+  DEFAULT_THEME,
   DIGITAL_DASH,
   duplicateTheme,
   glowColor,
@@ -17,14 +18,14 @@ import {
 
 const emptyStore = (): ThemeStore => ({
   themes: [],
-  defaultId: DIGITAL_DASH.id,
+  defaultId: DEFAULT_THEME.id,
   songOverrides: {},
 });
 
 describe("resolveTheme", () => {
-  it("falls through: song pin → default → Digital Dash", () => {
+  it("falls through: song pin → default → Karascape 98", () => {
     let s = emptyStore();
-    expect(resolveTheme(s, 7).id).toBe("digital-dash");
+    expect(resolveTheme(s, 7).id).toBe("karascape-98");
     s = { ...s, defaultId: "neon-stage" };
     expect(resolveTheme(s, 7).id).toBe("neon-stage");
     s = { ...s, songOverrides: { "7": "sunset-vhs" } };
@@ -39,7 +40,15 @@ describe("resolveTheme", () => {
       defaultId: "deleted-user-theme",
       songOverrides: { "7": "also-gone" },
     };
-    expect(resolveTheme(s, 7).id).toBe("digital-dash");
+    expect(resolveTheme(s, 7).id).toBe("karascape-98");
+  });
+});
+
+describe("built-ins", () => {
+  it("Karascape 98 is the default and listed first; Digital Dash stays selectable", () => {
+    expect(DEFAULT_THEME.id).toBe("karascape-98");
+    expect(BUILTIN_THEMES[0].id).toBe("karascape-98");
+    expect(BUILTIN_THEMES.some((b) => b.id === DIGITAL_DASH.id)).toBe(true);
   });
 });
 
@@ -68,7 +77,7 @@ describe("duplicate / update / delete", () => {
     s = { ...s, defaultId: id, songOverrides: { "3": id, "4": "midnight-snow" } };
     s = deleteTheme(s, id);
     expect(s.themes).toHaveLength(0);
-    expect(s.defaultId).toBe(DIGITAL_DASH.id);
+    expect(s.defaultId).toBe(DEFAULT_THEME.id);
     expect(s.songOverrides).toEqual({ "4": "midnight-snow" });
   });
 });
@@ -92,7 +101,7 @@ describe("store persistence", () => {
     expect(back.themes).toHaveLength(1);
     expect(back.themes[0].name).toMatch(/Sunset VHS copy/);
     localStorage.setItem("karascape.themes.v1", "{not json");
-    expect(loadThemeStore().defaultId).toBe(DIGITAL_DASH.id);
+    expect(loadThemeStore().defaultId).toBe(DEFAULT_THEME.id);
   });
 });
 

@@ -21,6 +21,20 @@
         "decorations": false,
         "shadow": false,
         "dragDropEnabled": true
+      },
+      {
+        "label": "player",
+        "create": false,
+        "title": "Karascape - Stage",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 640,
+        "minHeight": 360,
+        "decorations": false,
+        "shadow": false,
+        "visible": false,
+        "backgroundColor": "#000010",
+        "dragDropEnabled": false
       }
     ],
     "security": {

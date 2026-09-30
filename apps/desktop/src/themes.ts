@@ -40,7 +40,7 @@ export interface ThemeSpec {
   visualizer: VisualizerMode;
 }
 
-/** The player's own look, expressed as a theme. Fallback for everything. */
+/** The pre-98 player look, kept as a selectable preset. */
 export const DIGITAL_DASH: ThemeSpec = {
   id: "digital-dash",
   name: "Digital Dash",
@@ -55,7 +55,26 @@ export const DIGITAL_DASH: ThemeSpec = {
   visualizer: "off",
 };
 
+/** Karascape 98's own stage: near-black with cyan sung words — the
+ *  default and the fallback for everything (DESIGN.md). */
+export const KARASCAPE_98: ThemeSpec = {
+  id: "karascape-98",
+  name: "Karascape 98",
+  builtin: true,
+  background: { kind: "color", color: "#000010" },
+  resting: "#ffffff",
+  sung: "#00ffff",
+  accent: "#ffff00",
+  glow: 0.8,
+  font: null,
+  pips: true,
+  visualizer: "off",
+};
+
+export const DEFAULT_THEME = KARASCAPE_98;
+
 export const BUILTIN_THEMES: ThemeSpec[] = [
+  KARASCAPE_98,
   DIGITAL_DASH,
   {
     id: "neon-stage",
@@ -115,7 +134,8 @@ export const BUILTIN_THEMES: ThemeSpec[] = [
 // store
 // ---------------------------------------------------------------------------
 
-const STORE_KEY = "karascape.themes.v1";
+export const THEME_STORE_KEY = "karascape.themes.v1";
+const STORE_KEY = THEME_STORE_KEY;
 
 export interface ThemeStore {
   /** User-made themes (duplicated from presets, then edited). */
@@ -128,7 +148,7 @@ export interface ThemeStore {
 
 const EMPTY_STORE: ThemeStore = {
   themes: [],
-  defaultId: DIGITAL_DASH.id,
+  defaultId: DEFAULT_THEME.id,
   songOverrides: {},
 };
 
@@ -139,7 +159,7 @@ export function loadThemeStore(): ThemeStore {
     const p = JSON.parse(raw) as Partial<ThemeStore>;
     return {
       themes: Array.isArray(p.themes) ? p.themes.filter(isThemeSpec) : [],
-      defaultId: typeof p.defaultId === "string" ? p.defaultId : DIGITAL_DASH.id,
+      defaultId: typeof p.defaultId === "string" ? p.defaultId : DEFAULT_THEME.id,
       songOverrides:
         p.songOverrides && typeof p.songOverrides === "object" ? { ...p.songOverrides } : {},
     };
@@ -179,10 +199,10 @@ export function themeById(store: ThemeStore, id: string | null | undefined): The
   return allThemes(store).find((t) => t.id === id) ?? null;
 }
 
-/** Song override → app default → Digital Dash. Never returns null. */
+/** Song override → app default → Karascape 98. Never returns null. */
 export function resolveTheme(store: ThemeStore, songId?: number | null): ThemeSpec {
   const pin = songId != null ? themeById(store, store.songOverrides[String(songId)]) : null;
-  return pin ?? themeById(store, store.defaultId) ?? DIGITAL_DASH;
+  return pin ?? themeById(store, store.defaultId) ?? DEFAULT_THEME;
 }
 
 /** Copy a theme into the user list under a fresh id/name. */
@@ -215,7 +235,7 @@ export function deleteTheme(store: ThemeStore, id: string): ThemeStore {
   return {
     ...store,
     themes: store.themes.filter((t) => t.id !== id || t.builtin),
-    defaultId: store.defaultId === id ? DIGITAL_DASH.id : store.defaultId,
+    defaultId: store.defaultId === id ? DEFAULT_THEME.id : store.defaultId,
     songOverrides: overrides,
   };
 }

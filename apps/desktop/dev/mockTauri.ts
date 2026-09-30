@@ -150,6 +150,16 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "cancel_job":
       cancelled.add(args?.jobId as number);
       return r(true);
+    case "stage_open":
+      stageOpen(args?.route as { song_id?: number | null; map_path?: string | null; measure?: boolean });
+      return r(undefined);
+    case "stage_current":
+      return r(null);
+    case "stage_focus":
+    case "stage_show_on":
+      return r(undefined);
+    case "player_load":
+      return r({ state: "playing", position: 0, duration: DURATION, loaded_seconds: DURATION, guide: 0.4, pitch: 0, tempo: 1, stretch_config: "default", song_id: args?.songId ?? null, single_source: false, device: "Mock output", callbacks: 0, stalls: 0, max_gap_ms: 0, stretch_engaged: false, mmcss: "n/a" });
     default:
       return r(undefined);
   }
@@ -160,15 +170,45 @@ export function convertFileSrc(_path: string): string {
   return wavUrl;
 }
 
-// Events: a tiny in-page bus so fake jobs can report progress.
+// Events: an in-page bus (fake jobs report progress on it) bridged across
+// tabs with a BroadcastChannel, so the stage "window" (a popup tab named
+// karascape-player) and the main tab hear each other like two webviews.
 const handlers = new Map<string, Set<(e: { payload: unknown }) => void>>();
-function emit(event: string, payload: unknown) {
+const LABEL = typeof window !== "undefined" && window.name === "karascape-player" ? "player" : "main";
+const bus = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("karascape-mock") : null;
+function deliver(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ payload }));
+}
+bus?.addEventListener("message", (m: MessageEvent<{ event: string; payload: unknown; to?: string }>) => {
+  if (!m.data.to || m.data.to === LABEL) deliver(m.data.event, m.data.payload);
+});
+export async function emit(event: string, payload: unknown) {
+  deliver(event, payload);
+  bus?.postMessage({ event, payload });
+}
+async function emitTo(to: string, event: string, payload: unknown) {
+  if (to === LABEL) deliver(event, payload);
+  else bus?.postMessage({ event, payload, to });
 }
 export async function listen(event: string, handler: (e: { payload: unknown }) => void) {
   if (!handlers.has(event)) handlers.set(event, new Set());
   handlers.get(event)!.add(handler);
   return () => void handlers.get(event)?.delete(handler);
+}
+
+// Stage window stand-in: a named popup tab; reusing the name re-targets it.
+function stageOpen(route: { song_id?: number | null; map_path?: string | null; measure?: boolean }) {
+  const q = new URLSearchParams();
+  if (route.song_id != null) q.set("id", String(route.song_id));
+  if (route.map_path) q.set("map", route.map_path);
+  if (route.measure) q.set("measure", "1");
+  const url = `${location.pathname}${location.search}#/play?${q.toString()}`;
+  const w = window.open(url, "karascape-player", "popup,width=1280,height=720");
+  if (!w) throw new Error("popup blocked");
+  void emitTo("main", "karascape://stage", { kind: "opened", route });
+}
+if (LABEL === "player" && typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => void emitTo("main", "karascape://stage", { kind: "closed" }));
 }
 
 // A fake pipeline run: ~8 s separating, ~4 s aligning, then done.
@@ -224,13 +264,18 @@ export function getCurrentWebview() {
 // title bar's state tracking need these to exist (they no-op here).
 export function getCurrentWindow() {
   return {
-    label: "main",
-    setFullscreen: async () => undefined,
-    isFullscreen: async () => false,
+    label: LABEL,
+    setFullscreen: async (on: boolean) => {
+      if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen().catch(() => undefined);
+      if (!on && document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
+    },
+    isFullscreen: async () => !!document.fullscreenElement,
     isMaximized: async () => false,
     minimize: async () => undefined,
     toggleMaximize: async () => undefined,
-    close: async () => undefined,
+    close: async () => {
+      if (LABEL === "player") window.close();
+    },
     setTitle: async (t: string) => {
       document.title = t;
     },
@@ -240,6 +285,10 @@ export function getCurrentWindow() {
     onCloseRequested: async () => () => undefined,
   };
 }
+export async function availableMonitors() {
+  return [];
+}
+export type Monitor = { name: string | null; position: { x: number; y: number }; size: { width: number; height: number } };
 export async function open(opts?: { filters?: { extensions: string[] }[] }) {
   // Audio pickers get a stand-in file so the Add Song wizard can be driven.
   return opts?.filters?.some((f) => f.extensions.includes("mp3")) ? "C:\\Music\\Night Drive.flac" : null;

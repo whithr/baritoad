@@ -6,10 +6,12 @@
 // settings). The performance player and the stage-theme editor keep their
 // own legacy stylesheet, loaded on demand the first time either opens.
 
-import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { listJobs, measurePlan, onJobEvent } from "./api";
 import { emptyJobsState, reduceJobEvent, seedFromSnapshots, type JobsState } from "./jobEvents";
-import { applyAppearance, loadSettings, saveSettings, type Settings } from "./settings";
+import { applyAppearance, loadSettings, parseSettings, saveSettings, SETTINGS_KEY, type Settings } from "./settings";
+import { publishPrefs, subscribePrefs } from "./prefsSync";
+import { ROLE, onStage, openStage, stageCurrent, type StageRoute } from "./stage";
 import Home from "./views/Home";
 import Bench from "./views/Bench";
 import SettingsView from "./views/Settings";
@@ -101,7 +103,7 @@ export const SettingsContext = createContext<{
 
 export const useSettings = () => useContext(SettingsContext);
 
-/** The legacy stylesheet (player stage + themes editor). Loaded once, lazily. */
+/** The legacy stylesheet (themes editor only, until it moves to the kit). */
 let legacyCssLoaded: Promise<unknown> | null = null;
 function ensureLegacyCss() {
   if (!legacyCssLoaded) legacyCssLoaded = import("./styles.css");
@@ -113,11 +115,26 @@ export default function App() {
   const [jobs, setJobs] = useState<JobsState>(emptyJobsState);
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [legacyReady, setLegacyReady] = useState(false);
+  const stage = ROLE === "player";
 
+  // Settings are owned by the main window (it saves and publishes); the
+  // stage window only follows along.
+  const fromOtherWindow = useRef(false);
   useEffect(() => {
     applyAppearance(settings);
+    if (stage) return;
     saveSettings(settings);
-  }, [settings]);
+    if (fromOtherWindow.current) fromOtherWindow.current = false;
+    else publishPrefs(SETTINGS_KEY, JSON.stringify(settings));
+  }, [settings, stage]);
+  useEffect(
+    () =>
+      subscribePrefs(SETTINGS_KEY, (v) => {
+        fromOtherWindow.current = true;
+        setSettings(parseSettings(v));
+      }),
+    [],
+  );
 
   const update = useCallback((patch: Partial<Settings>) => {
     setSettings((s) => ({ ...s, ...patch }));
@@ -130,14 +147,41 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  const go = useCallback((r: Route) => navigate(r), []);
+
+  // The stage window follows `load` events (a second Sing reuses it), and
+  // asks once at startup in case one was sent before it was listening.
+  useEffect(() => {
+    if (!stage) return;
+    const show = (r: StageRoute | null) => {
+      if (!r || (r.song_id == null && !r.map_path)) return;
+      go({ view: "play", songId: r.song_id ?? undefined, mapPath: r.map_path ?? undefined, measure: r.measure });
+    };
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    onStage((e) => e.kind === "load" && show(e.route))
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
+    void stageCurrent().then((r) => {
+      const cur = parseHash(window.location.hash);
+      if (r && !(cur.view === "play" && cur.songId === (r.song_id ?? undefined) && cur.mapPath === (r.map_path ?? undefined))) show(r);
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [stage, go]);
+
   // One app-lifetime job-event subscription feeding the reducer; views read
   // the reduced state. Seeded from the queue snapshot so a reloaded webview
-  // still shows in-flight jobs.
+  // still shows in-flight jobs. (Main window only.)
   useEffect(() => {
+    if (stage) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     (async () => {
       unlisten = await onJobEvent((e) => setJobs((s) => reduceJobEvent(s, e)));
+      if (disposed) unlisten();
       try {
         const list = await listJobs();
         if (!disposed) {
@@ -151,31 +195,28 @@ export default function App() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
-
-  const go = useCallback((r: Route) => navigate(r), []);
+  }, [stage]);
 
   // Dev measurement harness bootstrap (src-tauri/src/player.rs) — inert for
-  // normal users.
+  // normal users. Measures on the stage, like a real sing; falls back to the
+  // in-window player if the stage can't open.
   useEffect(() => {
+    if (stage) return;
     (async () => {
       try {
         const plan = await measurePlan();
-        if (plan) {
-          go({
-            view: "play",
-            songId: plan.song_id ?? undefined,
-            mapPath: plan.map_path ?? undefined,
-            measure: true,
-          });
+        if (!plan) return;
+        const opened = await openStage({ song_id: plan.song_id, map_path: plan.map_path, measure: true });
+        if (!opened) {
+          go({ view: "play", songId: plan.song_id ?? undefined, mapPath: plan.map_path ?? undefined, measure: true });
         }
       } catch {
         // command missing / failed: nothing to do
       }
     })();
-  }, [go]);
+  }, [go, stage]);
 
-  const needsLegacy = route.view === "play" || route.view === "themes";
+  const needsLegacy = route.view === "themes";
   useEffect(() => {
     if (!needsLegacy || legacyReady) return;
     let alive = true;
@@ -185,12 +226,26 @@ export default function App() {
     };
   }, [needsLegacy, legacyReady]);
 
-  // The performance player is full-bleed and always dark: no app chrome.
-  if (route.view === "play") {
-    if (!legacyReady) return null;
+  // The performance player is full-bleed: its own chrome, no app frame. The
+  // stage window renders nothing else.
+  if (route.view === "play" || stage) {
     return (
       <SettingsContext.Provider value={settingsCtx}>
-        <PlayerView songId={route.songId} mapPath={route.mapPath} measure={route.measure} go={go} />
+        <TipProvider>
+          <MessageBoxProvider>
+            {route.view === "play" ? (
+              <PlayerView
+                key={`${route.songId ?? ""}|${route.mapPath ?? ""}`}
+                songId={route.songId}
+                mapPath={route.mapPath}
+                measure={route.measure}
+                go={go}
+              />
+            ) : (
+              <div style={{ position: "fixed", inset: 0, background: "#000010" }} />
+            )}
+          </MessageBoxProvider>
+        </TipProvider>
       </SettingsContext.Provider>
     );
   }

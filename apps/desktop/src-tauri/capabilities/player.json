@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "player",
+  "description": "Stage window (the TV player): core APIs plus what its self-drawn caption and full-screen toggle need. Moving it between displays and handing focus back go through the app's stage_* commands, so no position/focus permissions here.",
+  "windows": [
+    "player"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-set-title",
+    "core:window:allow-set-fullscreen"
+  ]
+}

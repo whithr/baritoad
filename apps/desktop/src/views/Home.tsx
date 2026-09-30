@@ -58,6 +58,7 @@ import {
   type MenuEntry,
   type TreeNode,
 } from "../win98";
+import { openStage } from "../stage";
 import AddSongWizard from "./AddSongWizard";
 import ProcessingDialog from "./ProcessingDialog";
 
@@ -349,9 +350,13 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     if (!s?.timing_map_path || statusOf(s).kind === "processing") return;
     go({ view: "song", mapPath: s.timing_map_path, title: s.title, songId: s.id });
   };
+  // Sing opens (or reuses) the Stage window; the Library stays here.
+  const singSong = async (songId: number) => {
+    if (!(await openStage({ song_id: songId }))) go({ view: "play", songId });
+  };
   const sing = (s: Song | null = song) => {
     if (!s?.timing_map_path || statusOf(s).kind === "processing") return;
-    go({ view: "play", songId: s.id });
+    void singSong(s.id);
   };
   const addToQueue = async (s: Song | null = song) => {
     if (!s?.timing_map_path) return;
@@ -470,7 +475,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     if (!e) return;
     await queueRemove(e.id).catch(() => undefined);
     queueChanged();
-    go({ view: "play", songId: e.song.id });
+    await singSong(e.song.id);
   };
   const moveQueue = async (delta: number) => {
     if (!qEntry) return;

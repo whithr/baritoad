@@ -8,6 +8,7 @@ mod library;
 mod player;
 mod queue;
 mod review;
+mod stage;
 mod theme;
 
 use std::sync::Arc;
@@ -30,6 +31,10 @@ pub fn run() {
         // Windowed re-aligner (review screen): lazy-loaded wav2vec2 session,
         // CPU EP only (review.rs).
         .manage(review::RealignState::default())
+        // The TV player's own window (stage.rs): created on first Sing, reused
+        // after; its lifecycle unloads the engine and follows the main window.
+        .manage(stage::StageState::default())
+        .on_window_event(|window, event| stage::on_window_event(window, event))
         .setup(move |app| {
             // One worker: pipeline stages are compute-bound (GPU/CPU saturating)
             // — jobs queue FIFO and run strictly one at a time (PLAN.md §5).
@@ -92,6 +97,10 @@ pub fn run() {
             player::player_unload,
             player::measure_plan,
             player::measure_write,
+            stage::stage_open,
+            stage::stage_show_on,
+            stage::stage_focus,
+            stage::stage_current,
         ])
         .run(tauri::generate_context!())
         .expect("error while running karaoke desktop app");

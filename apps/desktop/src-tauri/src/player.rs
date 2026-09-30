@@ -118,6 +118,14 @@ pub struct PlayerHandle {
 }
 
 impl PlayerHandle {
+    /// Unload without waiting for the reply — for window-lifecycle hooks
+    /// (stage.rs), which run on the event loop and must not block it. The
+    /// host ignores the dropped reply channel.
+    pub fn unload_detached(&self) {
+        let (tx, _rx) = channel();
+        let _ = self.send(PlayerCmd::Unload(tx));
+    }
+
     pub fn send(&self, cmd: PlayerCmd) -> Result<(), String> {
         self.tx
             .lock()

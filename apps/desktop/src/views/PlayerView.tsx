@@ -40,7 +40,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { availableMonitors, getCurrentWindow, type Monitor } from "@tauri-apps/api/window";
 import {
   librarySong,
   measurePlan,
@@ -56,6 +56,8 @@ import {
   playerSetTempo,
   playerStatus,
   playerUnload,
+  queueList,
+  queueRemove,
   readCover,
   readThemeImage,
   readTimingMap,
@@ -64,6 +66,7 @@ import {
   type Song,
   type StretchConfigName,
   type TimingMap,
+  type QueueEntry,
 } from "../api";
 import { drawVisualizerFrame } from "../visualizer";
 import {
@@ -73,7 +76,8 @@ import {
   themeById,
   themeCssVars,
   allThemes,
-  DIGITAL_DASH,
+  DEFAULT_THEME,
+  THEME_STORE_KEY,
   type ThemeSpec,
 } from "../themes";
 import { groupByLine } from "../highlight";
@@ -91,16 +95,31 @@ import {
   type LyricFrame,
 } from "../playerView";
 import { fmtTime } from "../format";
-import {
-  IconBack,
-  IconCompress,
-  IconExpand,
-  IconGear,
-  IconPause,
-  IconPlay,
-} from "../icons";
-import { DashSelect, DashSlider } from "../ui";
 import type { Route } from "../App";
+import { publishPrefs, subscribePrefs } from "../prefsSync";
+import { ROLE, loadDisplay, saveDisplay, stageFocus, stageShowOn } from "../stage";
+import {
+  Button,
+  CaptionButton,
+  Checkbox,
+  Dialog,
+  DialogButtons,
+  Glyph,
+  GroupBox,
+  Icon,
+  Lcd,
+  Select,
+  Spinner,
+  StatusBar,
+  StatusPane,
+  TitleBar,
+  Trackbar,
+  Vr,
+  isInOverlay,
+  useMessageBox,
+  useWindowState,
+} from "../win98";
+import "../win98/stage.css";
 
 const SEEK_STEP_S = 5;
 const SEEK_STEP_BIG_S = 30;
@@ -168,11 +187,20 @@ export default function PlayerView(props: {
       else overrides[String(songId)] = id;
       const next = { ...store, songOverrides: overrides };
       saveThemeStore(next);
+      publishPrefs(THEME_STORE_KEY, JSON.stringify(next));
       setTheme(resolveTheme(next, songId));
     } else {
-      setTheme(themeById(store, id) ?? DIGITAL_DASH);
+      setTheme(themeById(store, id) ?? DEFAULT_THEME);
     }
   };
+  // Theme edits made in the other window (Player Themes, a pin) apply live.
+  useEffect(
+    () =>
+      subscribePrefs(THEME_STORE_KEY, () => {
+        setTheme(resolveTheme(loadThemeStore(), songId));
+      }),
+    [songId],
+  );
   const [song, setSong] = useState<Song | null>(null);
 
   // Visualizer envelope: the instrumental's cached peak levels, loaded when
@@ -283,7 +311,9 @@ export default function PlayerView(props: {
     })();
     return () => {
       disposed = true;
-      playerUnload().catch(() => undefined);
+      // In the stage window only Rust unloads (when the window closes): a
+      // late Unload here could silence the next song (stage.rs docs).
+      if (ROLE !== "player") playerUnload().catch(() => undefined);
     };
   }, [songId, mapPath]);
 
@@ -755,6 +785,28 @@ export default function PlayerView(props: {
     playerSetTempo(Math.max(0.8, Math.min(1.2, next))).catch((e) => setError(String(e)));
   }, []);
 
+  // ---- window: full screen, leaving -------------------------------------
+  // Full-screen state is read back from the window (the title bar's maximize
+  // and the OS can change it too), never assumed.
+  useEffect(() => {
+    let disposed = false;
+    const unlisten: (() => void)[] = [];
+    const w = getCurrentWindow();
+    const sync = () =>
+      w
+        .isFullscreen()
+        .then((f) => !disposed && setFullscreen(f))
+        .catch(() => undefined);
+    sync();
+    w.onResized(() => sync())
+      .then((u) => (disposed ? u() : unlisten.push(u)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten.forEach((u) => u());
+    };
+  }, []);
+
   const toggleFullscreen = useCallback(() => {
     const win = getCurrentWindow();
     setFullscreen((f) => {
@@ -764,6 +816,13 @@ export default function PlayerView(props: {
   }, []);
 
   const exit = useCallback(() => {
+    if (ROLE === "player") {
+      // Closing the stage unloads the engine (Rust) and hands focus back.
+      getCurrentWindow()
+        .close()
+        .catch(() => undefined);
+      return;
+    }
     getCurrentWindow()
       .setFullscreen(false)
       .catch(() => undefined);
@@ -772,9 +831,11 @@ export default function PlayerView(props: {
       : { view: "library" });
   }, [go, songId, song]);
 
-  // Leaving the component must never strand the window in fullscreen.
+  // Leaving the in-window player must never strand the main window in full
+  // screen. (The stage window keeps its full screen across songs.)
   useEffect(
     () => () => {
+      if (ROLE === "player") return;
       getCurrentWindow()
         .setFullscreen(false)
         .catch(() => undefined);
@@ -782,10 +843,65 @@ export default function PlayerView(props: {
     [],
   );
 
+  // ---- queue: "Up next" caption + Sing next at the end -------------------
+  const [queue, setQueue] = useState<QueueEntry[]>([]);
+  useEffect(() => {
+    const load = () =>
+      queueList()
+        .then((q) => setQueue(q ?? []))
+        .catch(() => undefined);
+    load();
+    window.addEventListener("focus", load);
+    window.addEventListener("karascape:queue", load);
+    return () => {
+      window.removeEventListener("focus", load);
+      window.removeEventListener("karascape:queue", load);
+    };
+  }, [songId]);
+  const upNext = queue.find((e) => e.song.id !== songId) ?? null;
+
+  const singEntry = useCallback(
+    async (e: QueueEntry) => {
+      await queueRemove(e.id).catch(() => undefined);
+      if (ROLE === "player") window.location.hash = `#/play?id=${e.song.id}`;
+      else go({ view: "play", songId: e.song.id });
+    },
+    [go],
+  );
+
+  // ---- the end of the song ------------------------------------------------
+  const ask = useMessageBox();
+  const finished = status?.state === "finished";
+  const askedEnd = useRef(false);
+  useEffect(() => {
+    if (!finished) {
+      askedEnd.current = false;
+      return;
+    }
+    if (askedEnd.current || props.measure) return;
+    askedEnd.current = true;
+    void ask({
+      kind: "info",
+      title: "Karascape Player",
+      message: "That's the song!",
+      detail: upNext ? `Up next: ${upNext.song.title}${upNext.song.artist ? ` — ${upNext.song.artist}` : ""}` : undefined,
+      buttons: [
+        { id: "again", label: "Sing it &again" },
+        ...(upNext ? [{ id: "next", label: "Sing &next", isDefault: true }] : []),
+        { id: "done", label: "&Done", isDefault: !upNext, cancel: true },
+      ],
+    }).then((r) => {
+      if (r === "again") playerPlay().catch(() => undefined);
+      else if (r === "next" && upNext) void singEntry(upNext);
+      else exit();
+    });
+  }, [finished, ask, upNext, singEntry, exit, props.measure]);
+
   // ---- keyboard (PLAN.md §3: keyboard controls; §4 step 5: guide one
   // keypress away). Media keys: deferred — module docs.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isInOverlay()) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       pokeControls();
@@ -833,6 +949,12 @@ export default function PlayerView(props: {
           e.preventDefault();
           toggleFullscreen();
           break;
+        case "F6":
+          if (ROLE === "player") {
+            e.preventDefault();
+            void stageFocus("main");
+          }
+          break;
         case "Escape":
           if (fullscreen) {
             e.preventDefault();
@@ -875,10 +997,8 @@ export default function PlayerView(props: {
     cueEls.current[i] = el;
   }, []);
 
-  const finished = status?.state === "finished";
-
   // Themed background layer: color = flat paint; image = imported picture
-  // with the theme's blur/dim; cover = the song's art (Digital Dash default).
+  // with the theme's blur/dim; cover = the song's art.
   const bg = theme.background;
   const bgFilter =
     bg.kind === "color"
@@ -886,228 +1006,337 @@ export default function PlayerView(props: {
       : `blur(${bg.blurPx}px) brightness(${Math.max(0, 1 - bg.dim).toFixed(2)})`;
   const bgImage = bg.kind === "image" ? themeBg : bg.kind === "cover" ? cover : null;
 
+  const { active: windowActive } = useWindowState();
+  const guide = status?.guide ?? 0;
+  const guideText = status?.single_source
+    ? "n/a"
+    : guide < 0
+      ? `cut ${Math.round(-guide * 100)}%`
+      : `${Math.round(guide * 100)}%`;
+  const transportWord = status == null ? "Loading" : status.state === "playing" ? "Playing" : status.state === "finished" ? "Finished" : "Paused";
+
   return (
-    <div
-      className={`player-stage${controlsVisible ? "" : " controls-hidden"}`}
-      style={themeCssVars(theme) as CSSProperties}
-      onPointerMove={pokeControls}
-      onClick={pokeControls}
-    >
-      {bg.kind === "color" ? (
-        <div className="pk-backdrop flat" style={{ backgroundColor: bg.color }} aria-hidden />
-      ) : (
-        bgImage && (
-          <div
-            className="pk-backdrop"
-            style={{ backgroundImage: `url(${bgImage})`, filter: bgFilter }}
-            aria-hidden
-          />
-        )
+    <div className="w98" style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "#000010" }}>
+      {ROLE === "player" && !fullscreen && (
+        <StageTitleBar title={`${title} - Karascape Stage`} active={windowActive} onClose={exit} />
       )}
-      <div className="pk-scrim" aria-hidden />
-      {visActive && <canvas className="pk-vis" ref={visCanvasRef} aria-hidden />}
+      <div style={{ position: "relative", flexGrow: 1, minHeight: 0 }}>
+        <div
+          className={`player-stage${controlsVisible ? "" : " controls-hidden"}`}
+          style={themeCssVars(theme) as CSSProperties}
+          onPointerMove={pokeControls}
+          onClick={pokeControls}
+        >
+          {bg.kind === "color" ? (
+            <div className="pk-backdrop flat" style={{ backgroundColor: bg.color }} aria-hidden />
+          ) : (
+            bgImage && (
+              <div
+                className="pk-backdrop"
+                style={{ backgroundImage: `url(${bgImage})`, filter: bgFilter }}
+                aria-hidden
+              />
+            )
+          )}
+          <div className="pk-scrim" aria-hidden />
+          {visActive && <canvas className="pk-vis" ref={visCanvasRef} aria-hidden />}
 
-      <header className="pk-header">
-        <button className="pk-back" onClick={exit} title="Back (Esc)">
-          <IconBack />
-        </button>
-        {cover && <img className="pk-cover" src={cover} alt="" />}
-        <div className="pk-meta">
-          <div className="pk-title">{title}</div>
-          {song?.artist && <div className="pk-artist">{song.artist}</div>}
-        </div>
-        {measureNote && <div className="pk-measure-note">{measureNote}</div>}
-        <button className="pk-fs" onClick={toggleFullscreen} title="Fullscreen (F / F11)">
-          {fullscreen ? <IconCompress /> : <IconExpand />}
-        </button>
-      </header>
-
-      {error && <div className="error-banner pk-error">{error}</div>}
-
-      <div className="pk-viewport" ref={viewportRef}>
-        {map ? (
-          <div className="pk-scroller" ref={scrollerRef}>
-            <LyricStage
-              words={words}
-              lines={lines}
-              gaps={gaps}
-              cues={cues}
-              setWordEl={setWordEl}
-              setLineEl={setLineEl}
-              setGapRowEl={setGapRowEl}
-              setGapFillEl={setGapFillEl}
-              setGapSecsEl={setGapSecsEl}
-              setCueEl={setCueEl}
-            />
-          </div>
-        ) : (
-          !error && <p className="muted pk-loading">Loading…</p>
-        )}
-        {finished && (
-          <div className="pk-finished">
-            <div className="pk-finished-title">That's the song!</div>
-            {/* Queue auto-advance is milestone 4 — this stays a paused-at-end
-                state on purpose. */}
-            <div className="actions">
-              <button className="primary big" onClick={() => playerPlay().catch(() => undefined)}>
-                Sing it again
-              </button>
-              <button className="big" onClick={exit}>
-                Done
-              </button>
+          <div className="pk-caption left w-window" style={{ width: 320 }}>
+            <TitleBar title="Now singing" active />
+            <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 8px 6px" }}>
+              <div className="w-sunken" style={{ width: 44, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#008080" }}>
+                {cover ? <img src={cover} alt="" style={{ width: 40, height: 40, objectFit: "cover" }} /> : <Icon name="disc" size={32} />}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</b>
+                {song?.artist && <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{song.artist}</span>}
+                {measureNote && <span className="w-muted">{measureNote}</span>}
+              </div>
             </div>
           </div>
-        )}
+
+          {upNext && (
+            <div className="pk-caption right w-window" style={{ width: 260 }}>
+              <TitleBar title="Up next" active={false} />
+              <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{upNext.song.title}</b>
+                {upNext.song.artist && <span>{upNext.song.artist}</span>}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="pk-caption left w-window" style={{ top: 110, maxWidth: 520 }} role="alert">
+              <TitleBar title="Karascape Player" active />
+              <div style={{ display: "flex", gap: 10, alignItems: "center", padding: 10, userSelect: "text" }}>
+                <Icon name="error" size={32} />
+                <span>{error}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="pk-viewport" ref={viewportRef}>
+            {map ? (
+              <div className="pk-scroller" ref={scrollerRef}>
+                <LyricStage
+                  words={words}
+                  lines={lines}
+                  gaps={gaps}
+                  cues={cues}
+                  setWordEl={setWordEl}
+                  setLineEl={setLineEl}
+                  setGapRowEl={setGapRowEl}
+                  setGapFillEl={setGapFillEl}
+                  setGapSecsEl={setGapSecsEl}
+                  setCueEl={setCueEl}
+                />
+              </div>
+            ) : (
+              !error && <p className="pk-loading">Loading…</p>
+            )}
+          </div>
+
+          <div className="pk-dock w-window" onPointerMove={pokeControls}>
+            <TitleBar title="Karascape Player" icon={<Icon name="app" />} active>
+              <CaptionButton glyph="close" label={ROLE === "player" ? "Close the stage (Esc)" : "Back (Esc)"} onClick={exit} />
+            </TitleBar>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 6px 4px" }}>
+              <Button size="sq" onClick={togglePlay} disabled={!status} aria-label={status?.state === "playing" ? "Pause" : "Play"} tip="Play / pause (Space)">
+                <Glyph name={status?.state === "playing" ? "pause" : "play"} />
+              </Button>
+              <Button size="sq" onClick={() => seekBy(-SEEK_STEP_S)} disabled={!status} aria-label="Back 5 seconds" tip="Back 5 s (←)">
+                <Glyph name="prev" />
+              </Button>
+              <Button size="sq" onClick={() => seekBy(SEEK_STEP_S)} disabled={!status} aria-label="Forward 5 seconds" tip="Forward 5 s (→)">
+                <Glyph name="next" />
+              </Button>
+              <Lcd label="Position">
+                <span className="pk-clock" ref={timeRef} style={{ fontSize: 16 }} />
+              </Lcd>
+              <div
+                className="pk-timebar"
+                onClick={barClick}
+                title="Click to seek · ←/→ ±5 s (Shift ±30 s)"
+                role="slider"
+                aria-label="Playback position"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(status?.duration ?? 0)}
+                aria-valuenow={Math.round(status?.position ?? 0)}
+                tabIndex={0}
+              >
+                {/* Streaming-load progress (throttled status re-render, never
+                    the rAF path); gone once fully loaded. */}
+                {status != null && status.duration > 0 && status.loaded_seconds < status.duration && (
+                  <div
+                    className="pk-timebar-loaded"
+                    style={{ width: `${Math.min(100, (status.loaded_seconds / status.duration) * 100).toFixed(1)}%` }}
+                  />
+                )}
+                <div className="pk-timebar-fill" ref={fillRef} />
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px 8px" }}>
+              <span title="Blend the original vocal back in; below 0 cuts leftover vocal harder (↑/↓)">Vocal guide</span>
+              <Trackbar
+                value={Math.round(guide * 100)}
+                onChange={(v) => playerSetGuide(v / 100).catch(() => undefined)}
+                min={-50}
+                max={100}
+                step={5}
+                ticks={7}
+                width={170}
+                ariaLabel="Vocal guide level"
+                valueText={guideText}
+                disabled={!status || status.single_source}
+              />
+              <span style={{ width: 62 }}>{guideText}</span>
+              <Vr style={{ height: 22 }} />
+              <label htmlFor="pk-key">Key</label>
+              <Spinner
+                id="pk-key"
+                value={Math.round(status?.pitch ?? 0)}
+                onChange={(v) => playerSetPitch(Math.max(-6, Math.min(6, Math.round(v)))).catch(() => undefined)}
+                min={-6}
+                max={6}
+                step={1}
+                ariaLabel="Key"
+                format={{ signDisplay: "exceptZero" }}
+                width={64}
+                disabled={!status}
+              />
+              <Vr style={{ height: 22 }} />
+              <label htmlFor="pk-tempo">Tempo</label>
+              <Spinner
+                id="pk-tempo"
+                value={status?.tempo ?? 1}
+                onChange={(v) => playerSetTempo(Math.max(0.8, Math.min(1.2, Math.round(v * 100) / 100))).catch(() => undefined)}
+                min={0.8}
+                max={1.2}
+                step={TEMPO_STEP}
+                ariaLabel="Tempo"
+                format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+                width={72}
+                disabled={!status}
+              />
+              <span>×</span>
+              <span className="w-grow" />
+              <Button onClick={() => setAdvancedOpen(true)} disabled={!status}>
+                &Options…
+              </Button>
+              <Button onClick={toggleFullscreen}>{fullscreen ? "Exit full screen" : "&Full screen"}</Button>
+            </div>
+            <StatusBar>
+              <StatusPane grow>
+                Space play/pause · ←→ seek · ↑↓ guide · − + key · [ ] tempo · F full screen
+                {ROLE === "player" ? " · F6 Karascape" : ""} · Esc {ROLE === "player" ? "close" : "back"}
+              </StatusPane>
+              <StatusPane width={96}>{transportWord}</StatusPane>
+            </StatusBar>
+          </div>
+        </div>
       </div>
 
-      <div className="pk-controls">
-        <div
-          className="pk-timebar"
-          onClick={barClick}
-          title="Click to seek · ←/→ ±5 s (Shift ±30 s)"
-          role="slider"
-          aria-label="Playback position"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(status?.duration ?? 0)}
-          aria-valuenow={Math.round(status?.position ?? 0)}
-          tabIndex={0}
-        >
-          {/* Streaming-load progress: the loaded region as a lighter track
-              under the fill. Driven by the throttled status re-render (~10 Hz
-              while filling), never the rAF path; gone once fully loaded. */}
-          {status != null &&
-            status.duration > 0 &&
-            status.loaded_seconds < status.duration && (
-              <div
-                className="pk-timebar-loaded"
-                style={{
-                  width: `${Math.min(100, (status.loaded_seconds / status.duration) * 100).toFixed(1)}%`,
-                }}
-              />
-            )}
-          <div className="pk-timebar-fill" ref={fillRef} />
-        </div>
-        <div className="pk-controls-row">
-          <button
-            className="pk-play primary"
-            onClick={togglePlay}
-            disabled={!status}
-            title="Play/pause (Space)"
-          >
-            {status?.state === "playing" ? <IconPause size={20} /> : <IconPlay size={20} />}
-          </button>
-          {/* transport annunciator — re-renders only on play/pause state
-              changes (throttled status), never on the rAF path */}
-          <span
-            className={`pk-transport-word seg14${status?.state === "playing" ? " live" : ""}`}
-            aria-hidden
-          >
-            {status == null ? "LOAD" : status.state === "playing" ? "PLAY" : "PAUS"}
-          </span>
-          <span className="pk-clock seg" ref={timeRef} />
-          <div
-            className="pk-guide"
-            title="Vocal guide — blend the original vocal back in; below 0 cuts leftover vocal harder (↑/↓)"
-          >
-            <span className="label">Guide</span>
-            <DashSlider
-              ariaLabel="Vocal guide level"
-              min={-50}
-              max={100}
-              step={5}
-              value={Math.round((status?.guide ?? 0) * 100)}
-              disabled={status?.single_source ?? false}
-              onChange={(v) => playerSetGuide(v / 100).catch(() => undefined)}
-            />
-            <span className="pk-guide-val">
-              {status?.single_source
-                ? "n/a"
-                : (status?.guide ?? 0) < 0
-                  ? `cut ${Math.round(-(status?.guide ?? 0) * 100)}%`
-                  : `${Math.round((status?.guide ?? 0) * 100)}%`}
-            </span>
-          </div>
-          <div className="pk-stepper" title="Key change, ±6 semitones (− / +)">
-            <button onClick={() => nudgePitch(-1)} disabled={!status} aria-label="Key down">−</button>
-            <span>
-              <span className="label">Key</span>{" "}
-              <span className="seg">
-                {status && status.pitch > 0 ? "+" : ""}
-                {Math.round(status?.pitch ?? 0)}
-              </span>
-            </span>
-            <button onClick={() => nudgePitch(1)} disabled={!status} aria-label="Key up">+</button>
-          </div>
-          <div className="pk-stepper" title="Tempo, 0.80–1.20x ([ / ])">
-            <button onClick={() => nudgeTempo(-TEMPO_STEP)} disabled={!status} aria-label="Tempo down">−</button>
-            <span>
-              <span className="seg">{(status?.tempo ?? 1).toFixed(2)}</span>×
-            </span>
-            <button onClick={() => nudgeTempo(TEMPO_STEP)} disabled={!status} aria-label="Tempo up">+</button>
-          </div>
-          <span className="spacer" />
-          <div className="pk-advanced-wrap">
-            <button
-              onClick={() => setAdvancedOpen((v) => !v)}
-              disabled={!status}
-              title="Advanced"
-              className="with-icon"
-            >
-              <IconGear />
-            </button>
-            {advancedOpen && status && (
-              <div className="pk-advanced">
-                <div className="pk-advanced-row">
-                  <span>Theme</span>
-                  <DashSelect
-                    ariaLabel="Theme for this song"
-                    value={theme.id}
-                    onChange={pinTheme}
-                    options={allThemes(loadThemeStore()).map((t) => ({
-                      value: t.id,
-                      label: t.name,
-                    }))}
-                  />
-                </div>
-                <div className="pk-advanced-row">
-                  <span>Stretch quality</span>
-                  <DashSelect
-                    ariaLabel="Stretch quality"
-                    value={status.stretch_config}
-                    onChange={(v) =>
-                      playerSetStretchConfig(v as StretchConfigName).catch(() => undefined)
-                    }
-                    options={[
-                      { value: "default", label: "Default (smoothest)" },
-                      { value: "low_latency", label: "Low latency (faster response)" },
-                    ]}
-                  />
-                </div>
-                <div className="pk-diag">
-                  <div>device: {status.device ?? "—"}</div>
-                  <div>
-                    audio: {status.stalls} stalls · max gap {status.max_gap_ms.toFixed(1)} ms ·
-                    mmcss {status.mmcss}
-                  </div>
-                  <div>
-                    stretch: {status.stretch_engaged ? "engaged (−3 dB net, limited)" : "bypassed"}
-                  </div>
-                  <div>
-                    transport jitter: max {clockRef.current.maxAbsErrorMs.toFixed(1)} ms ·{" "}
-                    {clockRef.current.corrections} corrections · {clockRef.current.snaps} snaps
-                  </div>
-                  <div>renderer: DOM (canvas switch pending WebKitGTK numbers)</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="pk-hints muted small">
-          Space play/pause · ←/→ seek · ↑/↓ vocal guide · −/+ key · [ ] tempo · F fullscreen · Esc
-          back
-        </div>
-      </div>
+      {status && (
+        <PlayerOptions
+          open={advancedOpen}
+          onClose={() => setAdvancedOpen(false)}
+          status={status}
+          themeId={theme.id}
+          onTheme={pinTheme}
+          jitter={clockRef.current}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The stage window's own caption (frameless window; shown when not full
+// screen). Drag to move it to the TV; double-click to maximize.
+// ---------------------------------------------------------------------------
+
+function StageTitleBar(props: { title: string; active: boolean; onClose: () => void }) {
+  const w = () => getCurrentWindow();
+  return (
+    <div className="w-window" style={{ padding: 3, flexShrink: 0 }}>
+      <TitleBar title={props.title} icon={<Icon name="tv" />} active={props.active} drag>
+        <CaptionButton glyph="min" label="Minimize" onClick={() => void w().minimize().catch(() => undefined)} />
+        <CaptionButton glyph="max" label="Maximize" onClick={() => void w().toggleMaximize().catch(() => undefined)} />
+        <CaptionButton glyph="close" label="Close" onClick={props.onClose} />
+      </TitleBar>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Player Options: the stage theme for this song, which display the stage
+// lives on, stretch quality, and diagnostics.
+// ---------------------------------------------------------------------------
+
+function PlayerOptions(props: {
+  open: boolean;
+  onClose: () => void;
+  status: PlayerStatus;
+  themeId: string;
+  onTheme: (id: string) => void;
+  jitter: InterpClock;
+}) {
+  const { status } = props;
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [display, setDisplay] = useState(() => loadDisplay());
+  useEffect(() => {
+    if (!props.open || ROLE !== "player") return;
+    availableMonitors()
+      .then((m) => setMonitors(m ?? []))
+      .catch(() => setMonitors([]));
+  }, [props.open]);
+  const keyOf = (m: Monitor) => `${m.position.x},${m.position.y}`;
+  const current = display ? `${display.x},${display.y}` : "";
+  const showOn = (key: string, fullscreen: boolean) => {
+    const m = monitors.find((x) => keyOf(x) === key);
+    if (!m) return;
+    const d = { name: m.name, x: m.position.x, y: m.position.y, fullscreen };
+    setDisplay(d);
+    saveDisplay(d);
+    stageShowOn(d).catch(() => undefined);
+  };
+  return (
+    <Dialog open={props.open} onClose={props.onClose} title="Player Options" width={460}>
+      <div className="w-dialog-body" style={{ gap: 4 }}>
+        <GroupBox label="Stage">
+          <div style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
+            <label htmlFor="po-theme">Theme for this song</label>
+            <Select
+              id="po-theme"
+              value={props.themeId}
+              onChange={props.onTheme}
+              options={allThemes(loadThemeStore()).map((t) => ({ value: t.id, label: t.name }))}
+            />
+          </div>
+        </GroupBox>
+        {ROLE === "player" && (
+          <GroupBox label="Display">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
+                <label htmlFor="po-display">Show on</label>
+                <Select
+                  id="po-display"
+                  value={current}
+                  onChange={(k) => showOn(k, display?.fullscreen ?? true)}
+                  options={[
+                    ...(current && !monitors.some((m) => keyOf(m) === current) ? [{ value: current, label: "Saved display (not connected)" }] : []),
+                    ...(current ? [] : [{ value: "", label: "Where I left it" }]),
+                    ...monitors.map((m, i) => ({
+                      value: keyOf(m),
+                      label: `${m.name ?? `Display ${i + 1}`} — ${m.size.width}×${m.size.height}`,
+                    })),
+                  ]}
+                />
+              </div>
+              <Checkbox
+                checked={display?.fullscreen ?? false}
+                onChange={(v) => display && showOn(current, v)}
+                disabled={!display}
+                label="Open &full screen on that display"
+              />
+            </div>
+          </GroupBox>
+        )}
+        <GroupBox label="Sound">
+          <div style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
+            <label htmlFor="po-stretch">Stretch quality</label>
+            <Select
+              id="po-stretch"
+              value={status.stretch_config}
+              onChange={(v) => playerSetStretchConfig(v as StretchConfigName).catch(() => undefined)}
+              options={[
+                { value: "default", label: "Default (smoothest)" },
+                { value: "low_latency", label: "Low latency (faster response)" },
+              ]}
+            />
+          </div>
+        </GroupBox>
+        <GroupBox label="Diagnostics">
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, lineHeight: "16px", userSelect: "text" }}>
+            <div>Device: {status.device ?? "—"}</div>
+            <div>
+              Audio: {status.stalls} stalls · max gap {status.max_gap_ms.toFixed(1)} ms · MMCSS {status.mmcss}
+            </div>
+            <div>Stretch: {status.stretch_engaged ? "engaged (−3 dB net, limited)" : "bypassed"}</div>
+            <div>
+              Transport jitter: max {props.jitter.maxAbsErrorMs.toFixed(1)} ms · {props.jitter.corrections} corrections ·{" "}
+              {props.jitter.snaps} snaps
+            </div>
+            <div>Renderer: DOM</div>
+          </div>
+        </GroupBox>
+      </div>
+      <DialogButtons>
+        <Button isDefault onClick={props.onClose}>
+          Close
+        </Button>
+      </DialogButtons>
+    </Dialog>
   );
 }
 
@@ -1141,11 +1370,11 @@ const LyricStage = memo(function LyricStage(props: {
               // readout for long instrumental gaps. Resting rows preview the
               // full wait dimly; the rAF loop drives the counting one.
               <div className="pk-gap" aria-hidden ref={(el) => props.setGapRowEl(gi, el)}>
-                <span className="pk-gap-word seg14">WAIT</span>
+                <span className="pk-gap-word">Wait</span>
                 <div className="pk-gap-meter">
                   <div className="pk-gap-meter-fill" ref={(el) => props.setGapFillEl(gi, el)} />
                 </div>
-                <span className="pk-gap-secs seg" ref={(el) => props.setGapSecsEl(gi, el)}>
+                <span className="pk-gap-secs" ref={(el) => props.setGapSecsEl(gi, el)}>
                   {Math.ceil(props.gaps[gi].end - props.gaps[gi].start)}
                 </span>
               </div>
