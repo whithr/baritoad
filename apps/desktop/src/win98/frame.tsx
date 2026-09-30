@@ -86,6 +86,32 @@ export function useWindowState() {
   return { maximized, active };
 }
 
+// ------------------------------------------------------------ close guards
+
+/** Resolves true when it's fine to close (e.g. after "Save changes?"). */
+export type CloseGuard = () => Promise<boolean> | boolean;
+
+const closeGuards = new Set<CloseGuard>();
+
+/** Ask every mounted guard; the first "no" keeps the window open. */
+export async function canClose(): Promise<boolean> {
+  for (const g of [...closeGuards]) {
+    if (!(await g())) return false;
+  }
+  return true;
+}
+
+/** Register a guard while the component is mounted (pass null for none). */
+export function useCloseGuard(guard: CloseGuard | null) {
+  useEffect(() => {
+    if (!guard) return;
+    closeGuards.add(guard);
+    return () => {
+      closeGuards.delete(guard);
+    };
+  }, [guard]);
+}
+
 /** A top-level app window: title bar with min/max/close, then content. */
 export function AppFrame(props: {
   title: string;
@@ -102,6 +128,23 @@ export function AppFrame(props: {
       .setTitle(props.title)
       .catch(() => undefined);
   }, [props.title]);
+
+  // Alt+F4, the caption X and the taskbar all arrive as close-requested;
+  // guards (unsaved Bench edits) get a say before the window goes.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onCloseRequested(async (e) => {
+        if (!(await canClose())) e.preventDefault();
+      })
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   const w = () => getCurrentWindow();
   return (

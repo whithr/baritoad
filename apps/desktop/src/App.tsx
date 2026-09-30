@@ -15,7 +15,11 @@ import Bench from "./views/Bench";
 import SettingsView from "./views/Settings";
 import PlayerView from "./views/PlayerView";
 import ThemesView from "./views/ThemesView";
-import { MessageBoxProvider, TipProvider } from "./win98";
+import { AppFrame, Icon, MessageBoxProvider, TipProvider } from "./win98";
+
+// hw.css pins .hw to the viewport; inside the 98 frame it becomes the client
+// area instead (until each view moves onto the kit).
+const LEGACY_IN_FRAME = { position: "relative", inset: "auto", flexGrow: 1, minHeight: 0 } as const;
 
 // Dev-only parts bin (#/kit); dead code in production builds.
 const KitView = import.meta.env.DEV ? lazy(() => import("./views/KitView")) : null;
@@ -205,9 +209,21 @@ export default function App() {
     );
   }
 
+  const legacyTitle =
+    route.view === "song"
+      ? `${route.title ?? "Song"} - Karascape Bench`
+      : route.view === "settings"
+        ? "Karascape - Settings"
+        : route.view === "themes"
+          ? "Karascape - Player Themes"
+          : "Karascape - Library";
+
   return (
     <SettingsContext.Provider value={settingsCtx}>
-      <div className="hw">
+      <TipProvider>
+        <MessageBoxProvider>
+          <AppFrame title={legacyTitle} icon={<Icon name="app" />}>
+      <div className="hw" style={LEGACY_IN_FRAME}>
         {(route.view === "home" || route.view === "library") && <Home go={go} jobs={jobs} />}
         {route.view === "song" && (
           <Bench
@@ -222,6 +238,9 @@ export default function App() {
         {route.view === "settings" && <SettingsView go={go} />}
         {route.view === "themes" && (legacyReady ? <LegacyThemes go={go} /> : null)}
       </div>
+          </AppFrame>
+        </MessageBoxProvider>
+      </TipProvider>
     </SettingsContext.Provider>
   );
 }

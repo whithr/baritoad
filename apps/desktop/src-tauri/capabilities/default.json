@@ -1,10 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core APIs (events, window) plus the native file-open dialog and the player's fullscreen toggle. No shell, no fs, no http — the webview talks to karaoke-core only through the app's own commands.",
-  "windows": ["main"],
+  "description": "Main window: core APIs (events, window) plus the native file-open dialog. The window is frameless (Karascape 98 draws its own title bar), so it may move, minimize, maximize, close and retitle itself. No shell, no fs, no http — the webview talks to karaoke-core only through the app's own commands.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-set-title",
     "core:window:allow-set-fullscreen",
     "dialog:default"
   ]
