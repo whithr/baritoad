@@ -70,7 +70,15 @@ impl OrtModel {
                         ort::ep::DirectML::default().build().error_on_failure()
                     ])?;
             }
-            EpKind::Cpu => {}
+            EpKind::Cpu => {
+                // Without the arena a CPU segment peaks at 2.8 GB instead of
+                // 5.3 GB for ~10% more time (htdemucs, 6 threads, measured
+                // 2026-09-30) — the CPU path is the gentle-on-the-machine
+                // one ("separate on the processor", parity baselines).
+                builder = builder.with_execution_providers([
+                    ort::ep::CPU::default().with_arena_allocator(false).build()
+                ])?;
+            }
         }
         let session = builder
             .commit_from_file(model_path)

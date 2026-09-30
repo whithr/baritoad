@@ -31,6 +31,7 @@ describe("parseSettings", () => {
         uiScale: "huge",
         benchView: "focus",
         shiftScope: "sideways",
+        separateOn: "cpu",
       }),
     );
     expect(s).toEqual({
@@ -39,7 +40,13 @@ describe("parseSettings", () => {
       uiScale: "normal",
       benchView: "focus",
       shiftScope: "line",
+      separateOn: "cpu",
     });
+  });
+
+  it("separates on the graphics card unless the processor was chosen", () => {
+    expect(parseSettings(null).separateOn).toBe("gpu");
+    expect(parseSettings(JSON.stringify({ separateOn: "npu" })).separateOn).toBe("gpu");
   });
 
   it("rejects a non-boolean pixelFont", () => {

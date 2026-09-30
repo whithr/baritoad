@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cleanLyricsPreview, generateSong, probeAudio, type CleanPreview, type ProbeResult } from "../api";
+import { useSettings } from "../App";
 import { fmtDuration } from "../libraryState";
 import { Checkbox, FieldLabel, GroupBox, Icon, TextArea, TextField, Wizard } from "../win98";
 
@@ -22,6 +23,7 @@ export default function AddSongWizard(props: {
   const [lyrics, setLyrics] = useState("");
   const [preview, setPreview] = useState<CleanPreview | null>(null);
   const [hq, setHq] = useState(false);
+  const { settings } = useSettings();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const debounce = useRef(0);
@@ -78,6 +80,7 @@ export default function AddSongWizard(props: {
         title: title.trim() === "" ? undefined : title.trim(),
         artist: artist.trim() === "" ? undefined : artist.trim(),
         hq_separation: hq || undefined,
+        cpu_separation: settings.separateOn === "cpu" || undefined,
       });
       props.onStarted(snap.id, snap.title || title);
     } catch (e) {

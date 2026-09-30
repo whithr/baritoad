@@ -212,15 +212,32 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
             </>
           )}
           {tab === "processing" && (
-            <GroupBox label="On this computer">
-              <div style={{ display: "flex", gap: 12, lineHeight: "18px" }}>
-                <Icon name="lock" size={32} />
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div>Vocal separation and word timing run on this computer. Karascape never uploads your audio.</div>
-                  <div>Separation uses DirectML when it passes the parity check, otherwise the CPU; alignment always runs on the CPU.</div>
+            <>
+              <GroupBox label="Separate vocals on">
+                <RadioGroup
+                  ariaLabel="Separate vocals on"
+                  column
+                  value={draft.separateOn}
+                  onChange={(v) => change({ separateOn: v })}
+                  options={[
+                    { value: "gpu", label: "&Graphics card — fastest" },
+                    { value: "cpu", label: "&Processor only — slower, keeps the graphics card free" },
+                  ]}
+                />
+              </GroupBox>
+              <GroupBox label="On this computer">
+                <div style={{ display: "flex", gap: 12, lineHeight: "18px" }}>
+                  <Icon name="lock" size={32} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div>Vocal separation and word timing run on this computer. Karascape never uploads your audio.</div>
+                    <div>
+                      On the graphics card, separation uses DirectML when it passes a quality check, otherwise the processor. Word timing runs on
+                      the processor. Imports run at low priority so the rest of the computer stays responsive.
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </GroupBox>
+              </GroupBox>
+            </>
           )}
         </Tabs>
       </div>

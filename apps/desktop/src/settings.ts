@@ -16,6 +16,9 @@ export interface Settings {
   benchView: "text" | "lanes" | "focus";
   /** Last shift scope, remembered across songs (the bench's default). */
   shiftScope: "word" | "line" | "tail";
+  /** Where song import separates vocals: the graphics card (DirectML, falls
+   *  back to the CPU on its own) or the processor only, leaving the GPU free. */
+  separateOn: "gpu" | "cpu";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +27,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiScale: "normal",
   benchView: "lanes",
   shiftScope: "line",
+  separateOn: "gpu",
 };
 
 export const SETTINGS_KEY = "karascape.settings.v1";
@@ -32,6 +36,7 @@ const SCHEMES: Scheme[] = ["classic", "night"];
 const SCALES: UiScale[] = ["normal", "large"];
 const VIEWS: Settings["benchView"][] = ["text", "lanes", "focus"];
 const SCOPES: Settings["shiftScope"][] = ["word", "line", "tail"];
+const SEPARATE_ON: Settings["separateOn"][] = ["gpu", "cpu"];
 
 const pick = <T,>(allowed: readonly T[], v: unknown, fallback: T): T =>
   allowed.includes(v as T) ? (v as T) : fallback;
@@ -50,6 +55,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
       uiScale: pick(SCALES, v.uiScale, DEFAULT_SETTINGS.uiScale),
       benchView: pick(VIEWS, v.benchView, DEFAULT_SETTINGS.benchView),
       shiftScope: pick(SCOPES, v.shiftScope, DEFAULT_SETTINGS.shiftScope),
+      separateOn: pick(SEPARATE_ON, v.separateOn, DEFAULT_SETTINGS.separateOn),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

@@ -48,6 +48,10 @@ pub struct GenerateSongRequest {
     /// slower, cleaner stems). See the preset note in [`generate_song`].
     #[serde(default)]
     pub hq_separation: bool,
+    /// Separate on the CPU only (Properties → Processing): slower, leaves
+    /// the graphics card free.
+    #[serde(default)]
+    pub cpu_separation: bool,
 }
 
 fn parse_format(s: &str) -> Result<Format, String> {
@@ -118,7 +122,10 @@ pub async fn generate_song(
         }
         req.exports = formats;
     }
-    // req.ep stays EpChoice::Auto (module docs: DML separation, CPU alignment).
+    // EpChoice::Auto: DML separation, CPU alignment (module docs).
+    if request.cpu_separation {
+        req.ep = separation::EpChoice::Cpu;
+    }
 
     if request.hq_separation {
         // ~3x standard cost either way, always ONE resident session (the
