@@ -5,6 +5,7 @@ import {
   filterSongs,
   fmtDuration,
   moveItem,
+  sortBy,
   sortSongs,
   type SongLike,
 } from "./libraryState";
@@ -135,5 +136,30 @@ describe("fmtDuration", () => {
     expect(fmtDuration(null)).toBeNull();
     expect(fmtDuration(undefined)).toBeNull();
     expect(fmtDuration(0)).toBeNull();
+  });
+});
+
+describe("sortBy (list view columns)", () => {
+  const rows = [
+    { id: 1, t: "banana", n: 3 as number | null },
+    { id: 2, t: "Apple", n: null },
+    { id: 3, t: "cherry", n: 1 },
+    { id: 4, t: "apple", n: 3 },
+  ];
+
+  it("sorts strings case-insensitively and keeps ties stable", () => {
+    expect(sortBy(rows, (r) => r.t, "asc").map((r) => r.id)).toEqual([2, 4, 1, 3]);
+    expect(sortBy(rows, (r) => r.t, "desc").map((r) => r.id)).toEqual([3, 1, 2, 4]);
+  });
+
+  it("sorts numbers and puts nulls last in both directions", () => {
+    expect(sortBy(rows, (r) => r.n, "asc").map((r) => r.id)).toEqual([3, 1, 4, 2]);
+    expect(sortBy(rows, (r) => r.n, "desc").map((r) => r.id)).toEqual([1, 4, 3, 2]);
+  });
+
+  it("does not mutate its input", () => {
+    const before = rows.map((r) => r.id);
+    sortBy(rows, (r) => r.n, "asc");
+    expect(rows.map((r) => r.id)).toEqual(before);
   });
 });

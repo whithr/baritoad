@@ -152,12 +152,33 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
     let altAlone = false;
     const onDown = (e: KeyboardEvent) => {
       altAlone = e.key === "Alt" && !e.repeat;
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
-        const idx = menusRef.current.findIndex((m) => accessKeyOf(m.label) === e.key.toLowerCase());
-        if (idx >= 0) {
+      // A menu is open but focus hasn't reached its items yet (it moves on
+      // the next frame): its access keys still work.
+      const cur = openRef.current;
+      if (
+        cur !== null &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        e.key.length === 1 &&
+        !(document.activeElement as HTMLElement | null)?.closest(".w-menu")
+      ) {
+        if (runAccess(menusRef.current[cur]?.items ?? [], e.key, () => setOpen(null))) {
           e.preventDefault();
           e.stopPropagation();
-          setOpen(idx);
+        }
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
+        const idx = menusRef.current.findIndex((m) => accessKeyOf(m.label) === e.key.toLowerCase());
+        const trigger = idx >= 0 ? triggers.current[idx] : null;
+        if (trigger) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Open it the way the keyboard does (ArrowDown on the focused
+          // trigger) so focus lands on the first item and access keys work.
+          trigger.focus();
+          trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
         }
       } else if (e.key === "F10" && !e.shiftKey && !e.ctrlKey) {
         e.preventDefault();
@@ -202,9 +223,12 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
             <Menu.Positioner side="bottom" align="start" sideOffset={1} style={{ zIndex: 1000 }}>
               <Menu.Popup
                 className="w-popup w-menu"
-                onKeyDown={(e) => {
+                onKeyDownCapture={(e) => {
                   if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
-                  if (runAccess(m.items, e.key, () => setOpen(null))) e.preventDefault();
+                  if (runAccess(m.items, e.key, () => setOpen(null))) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
                 }}
               >
                 <MenuItems items={m.items} />
@@ -245,9 +269,12 @@ export function ContextMenu(props: {
         <BaseContextMenu.Positioner style={{ zIndex: 1000 }}>
           <BaseContextMenu.Popup
             className="w-popup w-menu"
-            onKeyDown={(e) => {
+            onKeyDownCapture={(e) => {
               if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
-              if (runAccess(props.items, e.key, () => setOpen(false))) e.preventDefault();
+              if (runAccess(props.items, e.key, () => setOpen(false))) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
             }}
           >
             <MenuItems items={props.items} />
@@ -279,9 +306,12 @@ export function DropdownButton(props: {
         <Menu.Positioner side="bottom" align="start" sideOffset={1} style={{ zIndex: 1000 }}>
           <Menu.Popup
             className="w-popup w-menu"
-            onKeyDown={(e) => {
+            onKeyDownCapture={(e) => {
               if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
-              if (runAccess(props.items, e.key, () => setOpen(false))) e.preventDefault();
+              if (runAccess(props.items, e.key, () => setOpen(false))) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
             }}
           >
             <MenuItems items={props.items} />

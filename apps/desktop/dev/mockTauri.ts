@@ -145,6 +145,11 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return r("hash");
     case "measure_plan":
       return r(null);
+    case "generate_song":
+      return r(fakeJob(args?.request as { audio_path: string; title?: string; artist?: string }));
+    case "cancel_job":
+      cancelled.add(args?.jobId as number);
+      return r(true);
     default:
       return r(undefined);
   }
@@ -155,8 +160,60 @@ export function convertFileSrc(_path: string): string {
   return wavUrl;
 }
 
-export async function listen(_event: string, _handler: (e: unknown) => void) {
-  return () => undefined;
+// Events: a tiny in-page bus so fake jobs can report progress.
+const handlers = new Map<string, Set<(e: { payload: unknown }) => void>>();
+function emit(event: string, payload: unknown) {
+  handlers.get(event)?.forEach((h) => h({ payload }));
+}
+export async function listen(event: string, handler: (e: { payload: unknown }) => void) {
+  if (!handlers.has(event)) handlers.set(event, new Set());
+  handlers.get(event)!.add(handler);
+  return () => void handlers.get(event)?.delete(handler);
+}
+
+// A fake pipeline run: ~8 s separating, ~4 s aligning, then done.
+let nextJob = 100;
+const cancelled = new Set<number>();
+function fakeJob(req: { audio_path: string; title?: string; artist?: string }) {
+  const id = nextJob++;
+  const snap = {
+    id,
+    audio: req.audio_path,
+    title: req.title ?? "New Song",
+    artist: req.artist,
+    out_dir: "C:/jobs/new",
+    status: "queued",
+    cancel_requested: false,
+    queued_unix: 0,
+  };
+  const life = (over: Record<string, unknown>) => emit("karaoke://job", { kind: "lifecycle", job: { ...snap, ...over } });
+  const pipe = (event: Record<string, unknown>) => emit("karaoke://job", { kind: "pipeline", job_id: id, event });
+  const steps: [number, () => void][] = [
+    [300, () => life({ status: "running" })],
+    [400, () => pipe({ type: "stage_started", stage: "separate" })],
+  ];
+  for (let i = 1; i <= 8; i++) {
+    steps.push([1000, () => pipe({ type: "stage_progress", stage: "separate", fraction: i / 8, message: `segment ${i} of 8` })]);
+  }
+  steps.push([200, () => pipe({ type: "stage_completed", stage: "separate", seconds: 8 })]);
+  steps.push([200, () => pipe({ type: "stage_started", stage: "align" })]);
+  for (let i = 1; i <= 4; i++) steps.push([1000, () => pipe({ type: "stage_progress", stage: "align", fraction: i / 4 })]);
+  steps.push([300, () => life({ status: "completed", map_path: "C:/jobs/turning-tide/map.json", library_song_id: 1 })]);
+  let t = 0;
+  for (const [dt, fn] of steps) {
+    t += dt;
+    setTimeout(() => {
+      if (!cancelled.has(id)) fn();
+    }, t);
+  }
+  const watch = window.setInterval(() => {
+    if (cancelled.has(id)) {
+      window.clearInterval(watch);
+      life({ status: "cancelled" });
+    }
+  }, 250);
+  window.setTimeout(() => window.clearInterval(watch), t + 500);
+  return snap;
 }
 export type UnlistenFn = () => void;
 
@@ -183,6 +240,7 @@ export function getCurrentWindow() {
     onCloseRequested: async () => () => undefined,
   };
 }
-export async function open() {
-  return null;
+export async function open(opts?: { filters?: { extensions: string[] }[] }) {
+  // Audio pickers get a stand-in file so the Add Song wizard can be driven.
+  return opts?.filters?.some((f) => f.extensions.includes("mp3")) ? "C:\\Music\\Night Drive.flac" : null;
 }

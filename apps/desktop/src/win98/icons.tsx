@@ -341,7 +341,8 @@ const ICONS: Record<string, { crisp: boolean; body: ReactNode }> = {
 
 export type IconName = keyof typeof ICONS;
 
-export function Icon(props: { name: IconName; size?: 16 | 32 }) {
+/** Pixel icons are drawn on a 16-px grid; use multiples of 16 to keep them crisp. */
+export function Icon(props: { name: IconName; size?: number }) {
   const i = ICONS[props.name];
   const s = props.size ?? 16;
   return (

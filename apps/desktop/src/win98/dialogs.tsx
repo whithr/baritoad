@@ -18,6 +18,7 @@ import {
 import { Button } from "./controls";
 import { CaptionButton, TitleBar } from "./frame";
 import { Icon } from "./icons";
+import { AccessLabel } from "./label";
 
 // ------------------------------------------------------------------ dialog
 
@@ -139,6 +140,74 @@ const MessageContext = createContext<Ask>(async () => "cancel");
 
 export const useMessageBox = () => useContext(MessageContext);
 
+// ------------------------------------------------------------ input box
+
+export interface PromptOptions {
+  title: string;
+  label: string;
+  value?: string;
+  okLabel?: string;
+}
+
+type Prompt = (o: PromptOptions) => Promise<string | null>;
+
+const PromptContext = createContext<Prompt>(async () => null);
+
+/** `await prompt({...})` → the entered text, or null on Cancel. */
+export const usePrompt = () => useContext(PromptContext);
+
+function PromptHost(props: { children: ReactNode }) {
+  const [cur, setCur] = useState<{ o: PromptOptions; resolve: (v: string | null) => void } | null>(null);
+  const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const prompt = useCallback<Prompt>(
+    (o) =>
+      new Promise<string | null>((resolve) => {
+        setText(o.value ?? "");
+        setCur({ o, resolve });
+      }),
+    [],
+  );
+  const done = (v: string | null) => {
+    cur?.resolve(v);
+    setCur(null);
+  };
+  const ok = text.trim().length > 0;
+  return (
+    <PromptContext.Provider value={prompt}>
+      {props.children}
+      <Dialog open={!!cur} onClose={() => done(null)} title={cur?.o.title ?? ""} width={380} initialFocus={inputRef}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ok) done(text.trim());
+          }}
+        >
+          <div className="w-dialog-body">
+            <label className="w-label" htmlFor="w-prompt-input">
+              {cur && <AccessLabel text={cur.o.label} />}
+            </label>
+            <input
+              id="w-prompt-input"
+              ref={inputRef}
+              className="w-field"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+          </div>
+          <div className="w-dialog-buttons">
+            <Button type="submit" isDefault disabled={!ok}>
+              {cur?.o.okLabel ?? "OK"}
+            </Button>
+            <Button onClick={() => done(null)}>Cancel</Button>
+          </div>
+        </form>
+      </Dialog>
+    </PromptContext.Provider>
+  );
+}
+
 const KIND_ICON = { info: "info", question: "question", warning: "warn", error: "error" } as const;
 
 export function MessageBoxProvider(props: { children: ReactNode; appName?: string }) {
@@ -162,7 +231,7 @@ export function MessageBoxProvider(props: { children: ReactNode; appName?: strin
   const value = useMemo(() => ask, [ask]);
   return (
     <MessageContext.Provider value={value}>
-      {props.children}
+      <PromptHost>{props.children}</PromptHost>
       <AlertDialog.Root
         open={!!current}
         onOpenChange={(o) => {

@@ -243,7 +243,7 @@ export function TreeView(props: {
       aria-activedescendant={idx >= 0 ? nodeId(props.selected) : undefined}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      style={props.style}
+      style={props.contextMenu ? { flexGrow: 1, minHeight: 0 } : props.style}
     >
       {renderNodes(props.nodes, 1)}
     </div>

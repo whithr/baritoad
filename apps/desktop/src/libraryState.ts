@@ -107,3 +107,26 @@ export function fmtDuration(s?: number | null): string | null {
   const sec = Math.round(s - m * 60);
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
+
+export type SortDir = "asc" | "desc";
+
+/** Stable column sort for the library list view. `key` returns the cell's
+ *  sort value; nulls always sort last whichever way the column points, so
+ *  "never sung" songs never crowd the top of Last sung. Strings compare
+ *  case-insensitively. */
+export function sortBy<T>(rows: T[], key: (row: T) => string | number | null | undefined, dir: SortDir): T[] {
+  const sign = dir === "asc" ? 1 : -1;
+  return rows
+    .map((row, i) => ({ row, i, v: key(row) }))
+    .sort((a, b) => {
+      const an = a.v == null;
+      const bn = b.v == null;
+      if (an || bn) return an === bn ? a.i - b.i : an ? 1 : -1;
+      const c =
+        typeof a.v === "string" && typeof b.v === "string"
+          ? a.v.localeCompare(b.v, undefined, { sensitivity: "base" })
+          : (a.v as number) - (b.v as number);
+      return c !== 0 ? c * sign : a.i - b.i;
+    })
+    .map((x) => x.row);
+}

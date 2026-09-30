@@ -214,31 +214,34 @@ export default function App() {
       ? `${route.title ?? "Song"} - Karascape Bench`
       : route.view === "settings"
         ? "Karascape - Settings"
-        : route.view === "themes"
-          ? "Karascape - Player Themes"
-          : "Karascape - Library";
+        : "Karascape - Player Themes";
+
+  const onKit = route.view === "home" || route.view === "library";
 
   return (
     <SettingsContext.Provider value={settingsCtx}>
       <TipProvider>
         <MessageBoxProvider>
-          <AppFrame title={legacyTitle} icon={<Icon name="app" />}>
-      <div className="hw" style={LEGACY_IN_FRAME}>
-        {(route.view === "home" || route.view === "library") && <Home go={go} jobs={jobs} />}
-        {route.view === "song" && (
-          <Bench
-            key={route.mapPath}
-            mapPath={route.mapPath}
-            title={route.title}
-            songId={route.songId}
-            startAt={route.at}
-            go={go}
-          />
-        )}
-        {route.view === "settings" && <SettingsView go={go} />}
-        {route.view === "themes" && (legacyReady ? <LegacyThemes go={go} /> : null)}
-      </div>
-          </AppFrame>
+          {onKit ? (
+            <Home go={go} jobs={jobs} />
+          ) : (
+            <AppFrame title={legacyTitle} icon={<Icon name="app" />}>
+              <div className="hw" style={LEGACY_IN_FRAME}>
+                {route.view === "song" && (
+                  <Bench
+                    key={route.mapPath}
+                    mapPath={route.mapPath}
+                    title={route.title}
+                    songId={route.songId}
+                    startAt={route.at}
+                    go={go}
+                  />
+                )}
+                {route.view === "settings" && <SettingsView go={go} />}
+                {route.view === "themes" && (legacyReady ? <LegacyThemes go={go} /> : null)}
+              </div>
+            </AppFrame>
+          )}
         </MessageBoxProvider>
       </TipProvider>
     </SettingsContext.Provider>
