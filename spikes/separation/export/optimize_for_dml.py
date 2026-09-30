@@ -1,5 +1,6 @@
 """Post-process an exported htdemucs ONNX for DirectML: fold the exporter's
-shape bookkeeping (onnxsim, static input shape) and rewrite the forward-STFT
+shape bookkeeping (onnxsim, static input shape) and, for exports made before
+stft_onnx.py switched to a MatMul STFT (2026-09-30), rewrite the forward-STFT
 Conv1d as frame-gather + one MatMul.
 
 Why: ConvSTFT (stft_onnx.py) is a Conv1d with a 4096-tap kernel at stride
@@ -49,7 +50,8 @@ def stft_conv_to_matmul(m):
             assert list(a.get("dilations", [1])) == [1]
             hit = (i, n)
             break
-    assert hit, "forward-STFT Conv (kernel 4096, stride 1024) not found"
+    if hit is None:
+        return m, False  # a current export: stft_onnx.py already emits the MatMul
     idx, conv = hit
     x_name, w_name = conv.input
     y_name = conv.output[0]
@@ -91,17 +93,18 @@ def stft_conv_to_matmul(m):
         del g.initializer[:]
         g.initializer.extend(keep)
     g.initializer.extend(new_inits)
-    return m
+    return m, True
 
 
 def main():
     src, dst = sys.argv[1], sys.argv[2]
     m = onnx.load(src)
     before = len(m.graph.node)
-    m = stft_conv_to_matmul(simplify(m))
+    m, rewrote = stft_conv_to_matmul(simplify(m))
     onnx.checker.check_model(m)
     onnx.save(m, dst)
-    print(f"{src}: {before} -> {len(m.graph.node)} nodes, STFT Conv -> MatMul; wrote {dst}")
+    what = "STFT Conv -> MatMul" if rewrote else "STFT already a MatMul"
+    print(f"{src}: {before} -> {len(m.graph.node)} nodes, {what}; wrote {dst}")
 
 
 if __name__ == "__main__":

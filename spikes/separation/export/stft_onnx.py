@@ -2,8 +2,13 @@
 
 torch.stft/istft do not export to ONNX (istft has no ONNX op at all, and the
 STFT op that exists in opset 17 is unsupported on the DirectML EP), so we
-express both as Conv1d / ConvTranspose1d with fixed DFT-matrix weights. All
-shapes are static: htdemucs processes fixed 7.8 s segments.
+express both with fixed DFT-matrix weights. All shapes are static: htdemucs
+processes fixed 7.8 s segments.
+
+The forward STFT is frame-gather + one MatMul, not Conv1d: DirectML runs a
+4096-tap Conv1d as one ~260 ms dispatch per segment that stalls the whole
+desktop (optimize_for_dml.py docstring has the measurements). The kernel is
+4 x the hop, so each frame is 4 consecutive hop-sized blocks.
 
 Layout conventions match htdemucs exactly:
   - ConvSTFT(x: (B, C, L)) -> (B, C*2, 2048, T)   # CaC layout [c0_re, c0_im, c1_re, c1_im]
@@ -46,17 +51,20 @@ class ConvSTFT(nn.Module):
         window = torch.hann_window(NFFT, periodic=True)
         re, im = _dft_basis(NFFT, window)
         # drop the last freq bin (htdemucs keeps 2048 of 2049), block layout [re | im]
-        weight = torch.cat([re[:-1], im[:-1]], dim=0).unsqueeze(1)  # (4096, 1, 4096)
-        self.register_buffer("weight", weight)
+        weight = torch.cat([re[:-1], im[:-1]], dim=0)  # (4096 out, 4096 taps)
+        self.register_buffer("weight_t", weight.t().contiguous())  # (taps, out)
 
     def forward(self, x):  # (B, C, L)
         B, C, L = x.shape
         # outer pad from _spec (reflect), then torch.stft center pad (reflect)
         x = F.pad(x, (self.pad, self.pad_right), mode="reflect")
         x = F.pad(x, (NFFT // 2, NFFT // 2), mode="reflect")
-        x = x.reshape(B * C, 1, x.shape[-1])
-        z = F.conv1d(x, self.weight, stride=HOP)  # (B*C, 4096, le+4)
-        z = z[..., 2: 2 + self.le]  # matches z[..., 2:2+le]
+        n = x.shape[-1]  # (le + 7) * HOP: both pads are whole hops
+        blocks = x.reshape(B * C, n // HOP, HOP)
+        taps = NFFT // HOP
+        # frame t = blocks t..t+3; htdemucs keeps frames 2..2+le
+        frames = torch.cat([blocks[:, 2 + j: 2 + j + self.le] for j in range(taps)], dim=-1)  # (B*C, le, NFFT)
+        z = (frames @ self.weight_t).transpose(1, 2)  # (B*C, 4096, le)
         z = z.reshape(B, C, 2, NFFT // 2, self.le)  # [re | im] block -> dim 2
         z = z.reshape(B, C * 2, NFFT // 2, self.le)  # [c0_re, c0_im, c1_re, c1_im]
         return z
