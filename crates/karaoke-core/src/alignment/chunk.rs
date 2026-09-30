@@ -70,11 +70,79 @@ pub fn plan_chunks(audio: &[f32], sr: usize) -> Vec<Chunk> {
     chunks
 }
 
+/// A frame is "singing" when it is within this many dB of the song's loud
+/// vocal level ([`voice_level_db`]).
+const VOICED_BELOW_PEAK_DB: f64 = 30.0;
+/// A chunk with fewer singing frames than this is skipped by whisper.
+const MIN_VOICED_FRACTION: f64 = 0.03;
+
+fn frame_db(audio: &[f32], sr: usize) -> Vec<f64> {
+    let frame = (RMS_FRAME_S * sr as f64) as usize;
+    audio
+        .chunks_exact(frame.max(1))
+        .map(|f| {
+            let ms = f.iter().map(|&v| (v as f64) * (v as f64)).sum::<f64>() / f.len() as f64;
+            10.0 * (ms + 1e-12).log10()
+        })
+        .collect()
+}
+
+/// The vocal stem's loud level: the 95th percentile of 100 ms frame RMS (dB).
+/// Relative to the song, so a quiet master isn't mistaken for silence.
+pub fn voice_level_db(audio: &[f32], sr: usize) -> f64 {
+    let mut db = frame_db(audio, sr);
+    if db.is_empty() {
+        return -120.0;
+    }
+    db.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    db[((db.len() - 1) as f64 * 0.95) as usize]
+}
+
+/// True when almost nothing in `chunk` is sung (an intro, an instrumental
+/// break): whisper gains nothing there and tends to invent words on
+/// near-silence ("Thank you."), which would become bogus lyrics.
+pub fn is_silent(audio: &[f32], chunk: &Chunk, sr: usize, level_db: f64) -> bool {
+    let db = frame_db(&audio[chunk.start..chunk.start + chunk.len], sr);
+    if db.is_empty() {
+        return true;
+    }
+    let voiced = db.iter().filter(|&&d| d > level_db - VOICED_BELOW_PEAK_DB).count();
+    (voiced as f64) < MIN_VOICED_FRACTION * db.len() as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const SR: usize = 16_000;
+
+    fn tone(secs: f64, amp: f32) -> Vec<f32> {
+        (0..(secs * SR as f64) as usize)
+            .map(|i| amp * (i as f32 * 2.0 * std::f32::consts::PI * 220.0 / SR as f32).sin())
+            .collect()
+    }
+
+    #[test]
+    fn silence_is_relative_to_the_song() {
+        // a quiet master: singing at -40 dBFS, a break of bleed at -80 dBFS
+        let mut audio = tone(20.0, 0.01);
+        audio.extend(tone(20.0, 0.0001));
+        audio.extend(tone(20.0, 0.01));
+        let level = voice_level_db(&audio, SR);
+        let chunk = |s: usize| Chunk { start: s * 20 * SR, len: 20 * SR };
+        assert!(!is_silent(&audio, &chunk(0), SR, level));
+        assert!(is_silent(&audio, &chunk(1), SR, level));
+        assert!(!is_silent(&audio, &chunk(2), SR, level));
+    }
+
+    #[test]
+    fn a_short_phrase_keeps_its_chunk() {
+        // 2 s of singing in a 25 s chunk (8%) is enough to transcribe
+        let mut audio = tone(23.0, 0.0001);
+        audio.extend(tone(2.0, 0.1));
+        let level = voice_level_db(&tone(10.0, 0.1), SR);
+        assert!(!is_silent(&audio, &Chunk { start: 0, len: 25 * SR }, SR, level));
+    }
 
     #[test]
     fn short_audio_is_one_chunk() {

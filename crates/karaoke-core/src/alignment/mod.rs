@@ -240,16 +240,25 @@ impl Aligner {
         } else {
             Vec::new()
         };
+        // Chunks with next to no singing are skipped (chunk::is_silent).
+        let level_db = chunk::voice_level_db(vocals16k, SAMPLE_RATE as usize);
+        let voiced: Vec<chunk::Chunk> = chunks
+            .iter()
+            .copied()
+            .filter(|c| !chunk::is_silent(vocals16k, c, SAMPLE_RATE as usize, level_db))
+            .collect();
         let t0 = Instant::now();
         let chunk_transcripts = if run_whisper {
             progress(
                 Some(0.0),
                 &format!(
-                    "whisper: transcribing {} chunk(s) (silence-aware boundaries)",
-                    chunks.len()
+                    "whisper: transcribing {} of {} chunk(s) ({} without singing skipped)",
+                    voiced.len(),
+                    chunks.len(),
+                    chunks.len() - voiced.len()
                 ),
             );
-            self.whisper()?.transcribe_chunks(vocals16k, &chunks, &mut |done, total| {
+            self.whisper()?.transcribe_chunks(vocals16k, &voiced, &mut |done, total| {
                 progress(
                     Some(whisper_weight * done as f64 / total.max(1) as f64),
                     &format!("whisper: chunk {done}/{total}"),
