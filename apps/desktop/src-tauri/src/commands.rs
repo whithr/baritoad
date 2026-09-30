@@ -54,6 +54,9 @@ pub struct GenerateSongRequest {
     pub cpu_only: bool,
 }
 
+/// Where `generate_song` persists pasted lyrics, inside the job's out dir.
+const PASTED_LYRICS: &str = "pasted.lyrics.txt";
+
 fn parse_format(s: &str) -> Result<Format, String> {
     match s {
         "lrc" => Ok(Format::Lrc),
@@ -83,7 +86,7 @@ pub async fn generate_song(
     // manifest, so edited lyrics re-run cleanup+align+export and reuse stems).
     let lyrics_path = match request.lyrics_text.as_deref().map(str::trim) {
         Some(text) if !text.is_empty() => {
-            let p = out_dir.join("pasted.lyrics.txt");
+            let p = out_dir.join(PASTED_LYRICS);
             std::fs::write(&p, text).map_err(|e| format!("cannot write lyrics: {e}"))?;
             Some(p)
         }
@@ -144,6 +147,28 @@ pub async fn generate_song(
     }
 
     Ok(queue.enqueue(&app, req, title, artist, out_dir))
+}
+
+/// The lyrics the job in `out_dir` last ran with — what the wizard's
+/// "Process again…" pre-fills, so a retry never silently drops pasted lyrics
+/// and transcribes instead. The manifest is authoritative (its `lyrics` is
+/// None when that run transcribed); a job that failed before its manifest was
+/// written falls back to the file `generate_song` persisted.
+#[tauri::command]
+pub async fn job_lyrics(out_dir: String) -> Result<Option<String>, String> {
+    let out_dir = PathBuf::from(out_dir);
+    let path = match manifest::JobManifest::load(&manifest::JobManifest::manifest_path(&out_dir)) {
+        Ok(man) => match man.lyrics {
+            Some(lyrics) => lyrics.path,
+            None => return Ok(None),
+        },
+        Err(_) => out_dir.join(PASTED_LYRICS),
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("cannot read lyrics {}: {e}", path.display())),
+    }
 }
 
 #[tauri::command]

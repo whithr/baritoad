@@ -7,8 +7,11 @@ import {
   moveItem,
   sortBy,
   sortSongs,
+  statusFor,
   type SongLike,
 } from "./libraryState";
+import type { JobSnapshot, JobStatus, Song } from "./api";
+import { seedFromSnapshots } from "./jobEvents";
 
 const song = (over: Partial<SongLike> & { id: number }): SongLike => ({
   title: `Song ${over.id}`,
@@ -161,5 +164,62 @@ describe("sortBy (list view columns)", () => {
     const before = rows.map((r) => r.id);
     sortBy(rows, (r) => r.n, "asc");
     expect(rows.map((r) => r.id)).toEqual(before);
+  });
+});
+
+describe("statusFor (library Status column)", () => {
+  const lib = (over: Partial<Song> = {}): Song => ({
+    id: 7,
+    title: "Harvest Moon",
+    audio_path: "C:/music/moon.mp3",
+    audio_hash: "h",
+    job_dir: "C:/music/moon-karaoke",
+    timing_map_path: "C:/music/moon-karaoke/moon.map.json",
+    language_tag: "en",
+    date_added: 1,
+    play_count: 0,
+    reviewed_at: 5,
+    ...over,
+  });
+  let nextId = 1;
+  const job = (status: JobStatus, over: Partial<JobSnapshot> = {}): JobSnapshot => ({
+    id: nextId++,
+    audio: "C:/music/moon.mp3",
+    title: "Harvest Moon",
+    out_dir: "C:/music/moon-karaoke",
+    status,
+    cancel_requested: false,
+    queued_unix: 0,
+    ...over,
+  });
+  const kind = (song: Song, ...jobs: JobSnapshot[]) => statusFor(song, seedFromSnapshots(jobs)).kind;
+
+  it("reads the song's own state when no job touches it", () => {
+    expect(kind(lib())).toBe("ready");
+    expect(kind(lib({ reviewed_at: null }))).toBe("review");
+    expect(kind(lib({ timing_map_path: null }))).toBe("needs-timings");
+    expect(kind(lib(), job("failed", { audio: "C:/music/other.mp3" }))).toBe("ready");
+  });
+
+  it("shows a queued or running job as processing, over any failure", () => {
+    expect(kind(lib(), job("running"))).toBe("processing");
+    expect(kind(lib(), job("failed"), job("queued"))).toBe("processing");
+  });
+
+  it("shows the latest failure, even over existing timing", () => {
+    expect(kind(lib(), job("failed"))).toBe("failed");
+    expect(kind(lib({ timing_map_path: null }), job("failed"))).toBe("failed");
+  });
+
+  it("clears a failure once a later run completes", () => {
+    expect(kind(lib({ reviewed_at: null }), job("failed"), job("completed", { library_song_id: 7 }))).toBe("review");
+  });
+
+  it("keeps a failure standing when the retry was cancelled", () => {
+    expect(kind(lib(), job("failed"), job("cancelled"))).toBe("failed");
+  });
+
+  it("matches a completed run by library row even when it ran from a new path", () => {
+    expect(kind(lib(), job("failed"), job("completed", { audio: "D:/moved/moon.mp3", library_song_id: 7 }))).toBe("ready");
   });
 });

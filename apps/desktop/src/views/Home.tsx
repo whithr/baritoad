@@ -33,8 +33,8 @@ import {
   type Song,
 } from "../api";
 import type { Route } from "../App";
-import { progressHeadline, type JobProgress, type JobsState } from "../jobEvents";
-import { filterSongs, fmtDuration, sortBy, type SortDir } from "../libraryState";
+import { progressHeadline, type JobsState } from "../jobEvents";
+import { filterSongs, fmtDuration, sortBy, statusFor, type SongStatus, type SortDir } from "../libraryState";
 import {
   AppFrame,
   Button,
@@ -60,7 +60,7 @@ import {
   type TreeNode,
 } from "../win98";
 import { openStage } from "../stage";
-import AddSongWizard from "./AddSongWizard";
+import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ProcessingDialog from "./ProcessingDialog";
 
@@ -72,27 +72,6 @@ const EXPORTS: [string, string][] = [
   ["ass", "&ASS subtitles"],
   ["ultrastar", "&UltraStar .txt"],
 ];
-
-type SongStatus =
-  | { kind: "processing"; p: JobProgress }
-  | { kind: "failed"; p: JobProgress }
-  | { kind: "needs-timings" }
-  | { kind: "review" }
-  | { kind: "ready" };
-
-function statusFor(song: Song, jobs: JobsState): SongStatus {
-  for (const id of jobs.order) {
-    const p = jobs.jobs[id];
-    if (!p) continue;
-    const mine = p.job.library_song_id === song.id || p.job.audio === song.audio_path;
-    if (!mine) continue;
-    if (p.job.status === "queued" || p.job.status === "running") return { kind: "processing", p };
-    if (p.job.status === "failed") return { kind: "failed", p };
-  }
-  if (!song.timing_map_path) return { kind: "needs-timings" };
-  if (song.reviewed_at == null) return { kind: "review" };
-  return { kind: "ready" };
-}
 
 const STATUS_RANK: Record<SongStatus["kind"], number> = {
   processing: 0,
@@ -165,7 +144,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const [inColls, setInColls] = useState<number[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [queueSel, setQueueSel] = useState<number | null>(null);
-  const [wizardPath, setWizardPath] = useState<string | null>(null);
+  const [wizard, setWizard] = useState<WizardTarget | null>(null);
   const [procJob, setProcJob] = useState<number | null>(null);
   const [procOpen, setProcOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -304,19 +283,30 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             </>
           ),
           detail: p.failure ?? p.job.error ?? "The pipeline stopped without saying why.",
+          buttons: [
+            { id: "again", label: "&Process again…" },
+            { id: "ok", label: "OK", isDefault: true, cancel: true },
+          ],
+        }).then((r) => {
+          if (r !== "again") return;
+          const known = allSongs.find((s) => s.audio_path === p.job.audio);
+          setWizard({
+            path: p.job.audio,
+            again: { title: p.job.title, artist: p.job.artist, outDir: p.job.out_dir, hasTiming: !!known?.timing_map_path },
+          });
         });
       } else if (p.job.status === "cancelled") {
         announced.current.add(id);
         if (procJob === id) setProcOpen(false);
       }
     }
-  }, [jobs, ask, go, procJob]);
+  }, [jobs, ask, go, procJob, allSongs]);
 
   // ----------------------------------------------------------- actions
 
   const addSong = useCallback(async () => {
     const picked = await open({ multiple: false, filters: [{ name: "Audio", extensions: AUDIO_EXTS }] });
-    if (typeof picked === "string") setWizardPath(picked);
+    if (typeof picked === "string") setWizard({ path: picked });
   }, []);
 
   // A native drop lands on the webview, not the DOM.
@@ -330,7 +320,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         else if (event.payload.type === "drop") {
           setDragOver(false);
           const audio = event.payload.paths.find(isAudioPath) ?? event.payload.paths[0];
-          if (audio) setWizardPath(audio);
+          if (audio) setWizard({ path: audio });
         }
       })
       .then((u) => (disposed ? u() : (unlisten = u)))
@@ -354,12 +344,25 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     if (!s?.timing_map_path || statusOf(s).kind === "processing") return;
     void singSong(s.id);
   };
+  // Process again: the Add Song wizard, reopened on the song's own file and
+  // job folder (see AddSongWizard) — how a failed song, or one that still
+  // needs lyrics, gets another run.
+  const canProcessAgain = !!song && st?.kind !== "processing";
+  const processAgain = (s: Song | null = song) => {
+    if (!s || statusOf(s).kind === "processing") return;
+    setWizard({
+      path: s.audio_path,
+      again: { title: s.title, artist: s.artist, outDir: s.job_dir, hasTiming: !!s.timing_map_path },
+    });
+  };
   // Enter / double-click: the song's next step — sing it once it's ready,
-  // check its timing while it still needs checking.
+  // check its timing while it still needs checking, process it again when it
+  // failed or has no timing yet.
   const activate = (s: Song) => {
     const k = statusOf(s).kind;
     if (k === "ready") sing(s);
     else if (k === "review") openSong(s);
+    else if (k === "failed" || k === "needs-timings") processAgain(s);
   };
   const addToQueue = async (s: Song | null = song) => {
     if (!s?.timing_map_path) return;
@@ -518,6 +521,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     { label: "Check &timing", accel: "Ctrl+T", keys: "ctrl+t", run: () => openSong(), disabled: !canOpen },
     { label: "Add to &Up next", accel: "Q", run: () => void addToQueue(), disabled: !song?.timing_map_path },
     { label: "&Mark as checked", run: () => void markChecked(), disabled: st?.kind !== "review" },
+    { label: "&Process again…", run: () => processAgain(), disabled: !canProcessAgain },
     "-",
     {
       label: "Add to &collection",
@@ -610,7 +614,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           <span>↑ ↓</span>
           <span>Move through songs</span>
           <span>Enter</span>
-          <span>Sing it (or check the timing, if it needs checking)</span>
+          <span>The song's next step: sing it, check its timing, or process it again</span>
           <span>F5</span>
           <span>Sing</span>
           <span>Ctrl+T</span>
@@ -918,11 +922,11 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       </StatusBar>
 
       <AddSongWizard
-        path={wizardPath}
-        onClose={() => setWizardPath(null)}
+        target={wizard}
+        onClose={() => setWizard(null)}
         onStarted={(jobId) => {
           watched.current.add(jobId);
-          setWizardPath(null);
+          setWizard(null);
           setProcJob(jobId);
           setProcOpen(true);
         }}

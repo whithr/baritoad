@@ -4,6 +4,36 @@
 // fetches the selected collection once and filters/sorts client-side so
 // keystrokes in the search box never round-trip to the backend.
 
+import type { Song } from "./api";
+import type { JobProgress, JobsState } from "./jobEvents";
+
+export type SongStatus =
+  | { kind: "processing"; p: JobProgress }
+  | { kind: "failed"; p: JobProgress }
+  | { kind: "needs-timings" }
+  | { kind: "review" }
+  | { kind: "ready" };
+
+/** A library song's status: any queued/running job for it wins; otherwise
+ *  its latest finished job decides — a retry that completed clears an older
+ *  failure, while a cancelled retry leaves it standing (it changed nothing).
+ *  Jobs match by library row, or by audio path for runs that haven't
+ *  registered yet. */
+export function statusFor(song: Song, jobs: JobsState): SongStatus {
+  let last: JobProgress | undefined;
+  for (const id of jobs.order) {
+    const p = jobs.jobs[id];
+    if (!p) continue;
+    if (p.job.library_song_id !== song.id && p.job.audio !== song.audio_path) continue;
+    if (p.job.status === "queued" || p.job.status === "running") return { kind: "processing", p };
+    if (p.job.status !== "cancelled") last = p;
+  }
+  if (last?.job.status === "failed") return { kind: "failed", p: last };
+  if (!song.timing_map_path) return { kind: "needs-timings" };
+  if (song.reviewed_at == null) return { kind: "review" };
+  return { kind: "ready" };
+}
+
 export interface SongLike {
   id: number;
   title: string;

@@ -207,7 +207,11 @@ Separator · icons.
   next group (Sing next + Remove; move/clear on its right-click menu) + status
   bar. Toolbar: Add song… | Sing · Up next · Check timing, then Find.
   Enter / double-click is the song's next step: Sing when Ready, Check timing
-  when it needs checking. The "Add a song" drop box shows only while the
+  when it needs checking, **Process again…** when it failed or needs lyrics
+  (Song menu + right-click, and the failure message box — no toolbar button):
+  the Add Song wizard reopened on the song's file with its details and last
+  lyrics filled in, resuming in its job folder so the row updates in place.
+  The "Add a song" drop box shows only while the
   library is empty; otherwise a dragged file gets a dithered "Let go" overlay.
   Add Song is a two-page wizard (details → lyrics + Finish); processing is a
   modeless dialog with the step list and block progress bar.

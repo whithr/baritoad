@@ -116,13 +116,23 @@ const SONGS = [
   { id: 3, title: "Dogs", artist: "Pink Floyd", audio_path: "C:/music/dogs.mp3", audio_hash: "c", job_dir: "j3", timing_map_path: null, duration_s: 1020, language_tag: "en", date_added: 3, play_count: 0, reviewed_at: null },
   { id: 4, title: "Falling Out of Love", artist: null, audio_path: "C:/music/fool.mp3", audio_hash: "d", job_dir: "j4", timing_map_path: "C:/jobs/fool/map.json", duration_s: 233, language_tag: "en", date_added: 4, play_count: 1, reviewed_at: 5 },
   { id: 5, title: "Back On My BS", artist: "Pip", audio_path: "C:/music/bs.mp3", audio_hash: "e", job_dir: "j5", timing_map_path: "C:/jobs/bs/map.json", duration_s: 201, language_tag: "en", date_added: 5, play_count: 0, reviewed_at: 9 },
+  { id: 6, title: "Harvest Moon", artist: "Neil Young", audio_path: "C:/music/moon.mp3", audio_hash: "f", job_dir: "j6", timing_map_path: null, duration_s: 303, language_tag: "en", date_added: 6, play_count: 0, reviewed_at: null },
 ];
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const r = (v: unknown) => v as T;
   switch (cmd) {
     case "list_jobs":
-      return r({ active: [{ id: 41, audio: "C:/music/dogs.mp3", title: "Dogs", out_dir: "j3", status: "running", cancel_requested: false, queued_unix: 0 }], registry: [] });
+      return r({
+        active: [
+          { id: 40, audio: "C:/music/fool.mp3", title: "Falling Out of Love", out_dir: "j4", status: "failed", error: "align: the vocals track is silent", cancel_requested: false, queued_unix: 0 },
+          { id: 41, audio: "C:/music/dogs.mp3", title: "Dogs", out_dir: "j3", status: "running", cancel_requested: false, queued_unix: 0 },
+        ],
+        registry: [],
+      });
+    case "job_lyrics":
+      // The failed job ran with pasted lyrics; the rest transcribed.
+      return r(args?.outDir === "j4" ? LYRICS.join("\n") : null);
     case "library_songs":
       return r(SONGS);
     case "library_collections":
@@ -211,17 +221,20 @@ if (LABEL === "player" && typeof window !== "undefined") {
   window.addEventListener("pagehide", () => void emitTo("main", "karascape://stage", { kind: "closed" }));
 }
 
-// A fake pipeline run: ~8 s separating, ~4 s aligning, then done.
+// A fake pipeline run: ~8 s separating, ~4 s aligning, then done — or, when
+// the title mentions "fail", a failure right after separating (drives the
+// failure message box).
 let nextJob = 100;
 const cancelled = new Set<number>();
-function fakeJob(req: { audio_path: string; title?: string; artist?: string }) {
+function fakeJob(req: { audio_path: string; title?: string; artist?: string; out_dir?: string }) {
   const id = nextJob++;
+  const fails = /fail/i.test(req.title ?? "");
   const snap = {
     id,
     audio: req.audio_path,
     title: req.title ?? "New Song",
     artist: req.artist,
-    out_dir: "C:/jobs/new",
+    out_dir: req.out_dir ?? "C:/jobs/new",
     status: "queued",
     cancel_requested: false,
     queued_unix: 0,
@@ -237,8 +250,13 @@ function fakeJob(req: { audio_path: string; title?: string; artist?: string }) {
   }
   steps.push([200, () => pipe({ type: "stage_completed", stage: "separate", seconds: 8 })]);
   steps.push([200, () => pipe({ type: "stage_started", stage: "align" })]);
-  for (let i = 1; i <= 4; i++) steps.push([1000, () => pipe({ type: "stage_progress", stage: "align", fraction: i / 4 })]);
-  steps.push([300, () => life({ status: "completed", map_path: "C:/jobs/turning-tide/map.json", library_song_id: 1 })]);
+  if (fails) {
+    steps.push([500, () => pipe({ type: "stage_failed", stage: "align", message: "align: no words found in the vocals" })]);
+    steps.push([100, () => life({ status: "failed", error: "align: no words found in the vocals" })]);
+  } else {
+    for (let i = 1; i <= 4; i++) steps.push([1000, () => pipe({ type: "stage_progress", stage: "align", fraction: i / 4 })]);
+    steps.push([300, () => life({ status: "completed", map_path: "C:/jobs/turning-tide/map.json", library_song_id: 1 })]);
+  }
   let t = 0;
   for (const [dt, fn] of steps) {
     t += dt;

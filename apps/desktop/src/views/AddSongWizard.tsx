@@ -2,21 +2,42 @@
 // the job (no separate summary page — the golden path is drop, Next, paste,
 // Finish). The audio file is already chosen (File › Add Song… opens the file
 // dialog first; a drop on the window skips straight here).
+//
+// Song › Process again… reuses it for a song (or failed job) that needs
+// another run: same pages, pre-filled with the song's details and the lyrics
+// its last run used, running in the song's own job folder so finished steps
+// are reused and the library row updates in place (rows are keyed by the
+// audio's hash — a second run never adds a copy).
 
 import { useEffect, useRef, useState } from "react";
-import { cleanLyricsPreview, generateSong, probeAudio, type CleanPreview, type ProbeResult } from "../api";
+import { cleanLyricsPreview, generateSong, jobLyrics, probeAudio, type CleanPreview, type ProbeResult } from "../api";
 import { useSettings } from "../App";
 import { fmtDuration } from "../libraryState";
 import { Checkbox, FieldLabel, Icon, TextArea, TextField, Wizard } from "../win98";
 
 const PAGES = ["details", "lyrics"] as const;
 
+/** What the wizard processes: a new audio file, or a song processed again. */
+export interface WizardTarget {
+  path: string;
+  again?: {
+    title: string;
+    artist?: string | null;
+    /** The job folder the last run used — resuming there reuses its work. */
+    outDir: string;
+    /** The song has timing that a new run replaces. */
+    hasTiming: boolean;
+  };
+}
+
 export default function AddSongWizard(props: {
-  path: string | null;
+  target: WizardTarget | null;
   onClose: () => void;
   onStarted: (jobId: number, title: string) => void;
 }) {
-  const { path } = props;
+  const { target } = props;
+  const path = target?.path ?? null;
+  const again = target?.again;
   const [page, setPage] = useState(0);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [title, setTitle] = useState("");
@@ -31,28 +52,44 @@ export default function AddSongWizard(props: {
 
   // fresh wizard per file
   useEffect(() => {
-    if (!path) return;
+    if (!target) return;
+    const again = target.again;
     setPage(0);
     setProbe(null);
-    setTitle("");
-    setArtist("");
+    setTitle(again?.title ?? "");
+    setArtist(again?.artist ?? "");
     setLyrics("");
     setPreview(null);
     setHq(false);
     setError(null);
     let alive = true;
-    probeAudio(path)
+    probeAudio(target.path)
       .then((p) => {
         if (!alive) return;
         setProbe(p);
+        // A song processed again keeps the details the user gave it.
+        if (again) return;
         setTitle(p.title);
         setArtist(p.artist ?? "");
       })
-      .catch((e) => alive && setError(String(e)));
+      .catch((e) => {
+        if (!alive) return;
+        const msg = String(e);
+        setError(
+          again && msg.includes("file not found")
+            ? "Karascape can't find this song's audio file. If you moved it, add it from its new place with File › Add Song — the library updates this song instead of adding a copy."
+            : msg,
+        );
+      });
+    if (again) {
+      jobLyrics(again.outDir)
+        .then((text) => alive && text && setLyrics((cur) => (cur === "" ? text : cur)))
+        .catch(() => undefined);
+    }
     return () => {
       alive = false;
     };
-  }, [path]);
+  }, [target]);
 
   useEffect(() => {
     window.clearTimeout(debounce.current);
@@ -80,6 +117,7 @@ export default function AddSongWizard(props: {
         lyrics_text: lyrics.trim() === "" ? undefined : lyrics,
         title: title.trim() === "" ? undefined : title.trim(),
         artist: artist.trim() === "" ? undefined : artist.trim(),
+        out_dir: again?.outDir,
         hq_separation: hq || undefined,
         cpu_only: settings.importOn === "cpu" || undefined,
       });
@@ -99,7 +137,7 @@ export default function AddSongWizard(props: {
   return (
     <Wizard
       open={!!path}
-      title="Add a Song"
+      title={again ? "Process Again" : "Add a Song"}
       art={<WizardArt />}
       onBack={page > 0 ? () => setPage((p) => p - 1) : undefined}
       onNext={next}
@@ -110,11 +148,23 @@ export default function AddSongWizard(props: {
     >
       {which === "details" && (
         <>
-          <div style={{ fontWeight: 700 }}>Tell Karascape about this song</div>
-          <p style={{ margin: 0, lineHeight: "18px" }}>
-            Karascape pulls the vocals away from the music and lines each word up with the singing. The title and
-            artist help you find it later.
-          </p>
+          {again ? (
+            <>
+              <div style={{ fontWeight: 700 }}>Process this song again</div>
+              <p style={{ margin: 0, lineHeight: "18px" }}>
+                Karascape keeps whatever already finished — usually the separated vocals — and redoes the rest. Check
+                the details, then paste or fix the lyrics on the next page.
+              </p>
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700 }}>Tell Karascape about this song</div>
+              <p style={{ margin: 0, lineHeight: "18px" }}>
+                Karascape pulls the vocals away from the music and lines each word up with the singing. The title and
+                artist help you find it later.
+              </p>
+            </>
+          )}
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             <div className="w-sunken" style={{ width: 72, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {probe?.cover_data_url ? (
@@ -134,6 +184,12 @@ export default function AddSongWizard(props: {
               <span>{probe ? (fmtDuration(probe.duration_s) ?? "unknown") : "Reading the file…"}</span>
             </div>
           </div>
+          {again?.hasTiming && (
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", lineHeight: "18px" }}>
+              <Icon name="warn" />
+              <span>This replaces the song's current timing, and any fixes you saved, so it will need checking again.</span>
+            </div>
+          )}
         </>
       )}
       {which === "lyrics" && (

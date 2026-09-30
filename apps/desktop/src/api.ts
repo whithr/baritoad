@@ -100,6 +100,10 @@ export interface GenerateSongRequest {
 export const generateSong = (request: GenerateSongRequest) =>
   invoke<JobSnapshot>("generate_song", { request });
 
+/** The lyrics the job in `outDir` last ran with; null when it transcribed
+ *  (or never got as far as saving them). */
+export const jobLyrics = (outDir: string) => invoke<string | null>("job_lyrics", { outDir });
+
 export const cancelJob = (jobId: number) => invoke<JobSnapshot>("cancel_job", { jobId });
 
 export const listJobs = () => invoke<JobsList>("list_jobs");

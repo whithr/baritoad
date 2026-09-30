@@ -63,6 +63,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::generate_song,
+            commands::job_lyrics,
             commands::cancel_job,
             commands::list_jobs,
             commands::read_timing_map,
