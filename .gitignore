@@ -3,6 +3,9 @@ target/
 node_modules/
 dist/
 build/
+# The desktop app uses pnpm (pnpm-lock.yaml); a stray `npm install` lockfile
+# must not come back alongside it.
+package-lock.json
 
 # Audio & video — test songs are copyrighted, never commit them (CLAUDE.md hard rule)
 # The whole testdata tree is excluded, not just audio extensions: pipeline

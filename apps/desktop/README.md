@@ -30,7 +30,7 @@ is **source-available**, not open source (PLAN.md §1, §8).
   `highlight`, `levels`, `playerClock`/`playerView`, `jobEvents`,
   `settings`.
 - `dev/mockTauri.ts` + `vite.mock.config.ts` — browser-only harness
-  (`npx vite --config vite.mock.config.ts`) that runs the real UI over a
+  (`pnpm exec vite --config vite.mock.config.ts`) that runs the real UI over a
   fake Tauri layer for layout work and screenshots; never part of a build.
 - `src-tauri/` — the Rust shell crate (`karaoke-desktop`, a workspace member).
   It links `karaoke-core` directly — the pipeline runs in-process on a worker
@@ -41,7 +41,9 @@ is **source-available**, not open source (PLAN.md §1, §8).
 Prereqs:
 
 - Rust toolchain (the workspace builds with stable; MSVC target)
-- Node.js ≥ 20 and npm
+- Node.js ≥ 20 and pnpm (the version pinned in `package.json`'s
+  `packageManager` field; `pnpm-lock.yaml` is the only lockfile — don't
+  `npm install`)
 - WebView2 runtime (preinstalled on Windows 10/11)
 - Model weights in `%LOCALAPPDATA%\karaoke\models` (htdemucs.onnx,
   whisper-small/, wav2vec2/) — see MODEL_LICENSES.md for provenance; weights
@@ -51,19 +53,19 @@ Then:
 
 ```
 cd apps/desktop
-npm install
-npm run tauri dev
+pnpm install
+pnpm tauri dev
 ```
 
-`npm run tauri dev` starts Vite on port 1420 and opens the app window with
+`pnpm tauri dev` starts Vite on port 1420 and opens the app window with
 hot reload. The first Rust build is slow (ort + tauri); later ones are
 incremental.
 
 Other commands:
 
-- `npm test` — vitest (progress-event reducer, wizard preview helpers)
-- `npm run build` — typecheck (tsc) + production frontend bundle
-- `npm run tauri build -- --debug` — debug executable at
+- `pnpm test` — vitest (progress-event reducer, wizard preview helpers)
+- `pnpm build` — typecheck (tsc) + production frontend bundle
+- `pnpm tauri build --debug` — debug executable at
   `target/debug/karaoke-desktop.exe` (bundle/installer targets are disabled in
   `tauri.conf.json` for now)
 - `cargo test -p karaoke-desktop` — Rust-side unit tests

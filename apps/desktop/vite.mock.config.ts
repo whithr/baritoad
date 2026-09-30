@@ -1,5 +1,5 @@
 // Browser-only harness: the real UI over dev/mockTauri.ts. Never used by
-// `npm run build` / `tauri dev` (those use vite.config.ts).
+// `pnpm build` / `tauri dev` (those use vite.config.ts).
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
