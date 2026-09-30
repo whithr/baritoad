@@ -27,7 +27,7 @@ pub mod mel;
 pub mod w2v;
 pub mod whisper;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::error::{Error, Result};
@@ -67,8 +67,15 @@ pub struct AlignConfig {
     /// gate catches silent-garbage EPs. Flip the default only after the
     /// bounded path survives a TDR soak on the affected hardware.
     pub w2v_try_dml: bool,
-    /// Intra-op threads for the CPU sessions.
+    /// Intra-op threads for the CPU sessions (default leaves cores free for
+    /// the UI and player — [`crate::compute::inference_threads`]).
     pub threads: usize,
+    /// Also run whisper over pasted lyrics to compute each word's `anchored`
+    /// flag. Diagnostic only: the CTC trellis never reads anchors, and
+    /// nothing downstream reads the flag, so the default skips whisper —
+    /// on a pasted-lyrics song it was ~70% of align wall time (White
+    /// America: 73.9 s of 107.9 s). Auto-transcription always runs whisper.
+    pub whisper_anchors: bool,
     /// An anchored word whose CTC midpoint lands further than this outside
     /// whisper's chunk window loses its anchor (evidence disagrees).
     pub anchor_tolerance_s: f64,
@@ -81,9 +88,8 @@ impl Default for AlignConfig {
             whisper_int8: false,
             w2v_try_dml: false, // TDR risk — see field docs
 
-            threads: std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4),
+            threads: crate::compute::inference_threads(),
+            whisper_anchors: false,
             anchor_tolerance_s: 10.0,
         }
     }
@@ -119,7 +125,9 @@ pub struct AlignOutput {
 /// The alignment stage. Loads its ONNX sessions once; `align` may be called
 /// repeatedly (batch jobs reuse sessions — Phase 1 hardening list).
 pub struct Aligner {
-    whisper: whisper::Whisper,
+    /// Loaded on first use: the pasted-lyrics path never needs it.
+    whisper: Option<whisper::Whisper>,
+    whisper_dir: PathBuf,
     w2v: w2v::W2v,
     pub cfg: AlignConfig,
 }
@@ -139,12 +147,30 @@ impl Aligner {
             }
         }
         let mut notes = Vec::new();
-        let whisper = whisper::Whisper::load(&whisper_dir, cfg.whisper_int8, cfg.threads)?;
         let (w2v, note) = w2v::W2v::load(&w2v_dir, cfg.threads, cfg.w2v_try_dml)?;
         if let Some(n) = note {
             notes.push(n);
         }
-        Ok((Self { whisper, w2v, cfg }, notes))
+        Ok((
+            Self {
+                whisper: None,
+                whisper_dir,
+                w2v,
+                cfg,
+            },
+            notes,
+        ))
+    }
+
+    fn whisper(&mut self) -> Result<&mut whisper::Whisper> {
+        if self.whisper.is_none() {
+            self.whisper = Some(whisper::Whisper::load(
+                &self.whisper_dir,
+                self.cfg.whisper_int8,
+                self.cfg.threads,
+            )?);
+        }
+        Ok(self.whisper.as_mut().expect("just loaded"))
     }
 
     /// Align pasted lyrics (raw text) to a 16 kHz mono vocal stem.
@@ -202,29 +228,36 @@ impl Aligner {
         let duration_s = vocals16k.len() as f64 / SAMPLE_RATE as f64;
 
         // ---- stage 1: whisper rough pass over silence-aware chunks ----
+        // Only auto-transcription needs it; pasted lyrics skip it unless the
+        // diagnostic anchors were asked for (AlignConfig::whisper_anchors).
+        let run_whisper = pasted.is_none() || self.cfg.whisper_anchors;
         // Whisper vs wav2vec2 share of align wall time on CPU (measured:
         // whisper 14.4-19.4 s vs w2v 15.1-15.5 s per 3-3.6 min song). Only
         // shapes the progress fraction — never affects results.
-        const WHISPER_PROGRESS_WEIGHT: f64 = 0.55;
-        let chunks = chunk::plan_chunks(vocals16k, SAMPLE_RATE as usize);
-        progress(
-            Some(0.0),
-            &format!(
-                "whisper: transcribing {} chunk(s) (silence-aware boundaries)",
-                chunks.len()
-            ),
-        );
+        let whisper_weight: f64 = if run_whisper { 0.55 } else { 0.0 };
+        let chunks = if run_whisper {
+            chunk::plan_chunks(vocals16k, SAMPLE_RATE as usize)
+        } else {
+            Vec::new()
+        };
         let t0 = Instant::now();
-        let chunk_transcripts = self.whisper.transcribe_chunks(
-            vocals16k,
-            &chunks,
-            &mut |done, total| {
+        let chunk_transcripts = if run_whisper {
+            progress(
+                Some(0.0),
+                &format!(
+                    "whisper: transcribing {} chunk(s) (silence-aware boundaries)",
+                    chunks.len()
+                ),
+            );
+            self.whisper()?.transcribe_chunks(vocals16k, &chunks, &mut |done, total| {
                 progress(
-                    Some(WHISPER_PROGRESS_WEIGHT * done as f64 / total.max(1) as f64),
+                    Some(whisper_weight * done as f64 / total.max(1) as f64),
                     &format!("whisper: chunk {done}/{total}"),
                 );
-            },
-        )?;
+            })?
+        } else {
+            Vec::new()
+        };
         let whisper_s = t0.elapsed().as_secs_f64();
         let transcript = chunk_transcripts
             .iter()
@@ -250,10 +283,12 @@ impl Aligner {
                 transcript_meta.push((ci, w.to_string()));
             }
         }
-        progress(
-            None,
-            &format!("whisper: {} words in {whisper_s:.1}s", transcript_words.len()),
-        );
+        if run_whisper {
+            progress(
+                None,
+                &format!("whisper: {} words in {whisper_s:.1}s", transcript_words.len()),
+            );
+        }
 
         // ---- resolve the lyric source ----
         // Pasted lyrics are ground truth: whisper output is only matched
@@ -269,7 +304,11 @@ impl Aligner {
             Some(words) => {
                 lyric_source = LyricSource::Pasted;
                 lyric_words = words.to_vec();
-                anchors = anchor::anchor_lyrics(&lyric_words, &transcript_words);
+                anchors = if run_whisper {
+                    anchor::anchor_lyrics(&lyric_words, &transcript_words)
+                } else {
+                    vec![None; lyric_words.len()]
+                };
             }
             None => {
                 lyric_source = LyricSource::Transcribed;
@@ -323,8 +362,7 @@ impl Aligner {
         progress(None, &format!("wav2vec2 emissions ({w2v_ep})"));
         let t1 = Instant::now();
         let em = self.w2v.emissions(vocals16k, &mut |done, total| {
-            let frac = WHISPER_PROGRESS_WEIGHT
-                + (1.0 - WHISPER_PROGRESS_WEIGHT) * done as f64 / total.max(1) as f64;
+            let frac = whisper_weight + (1.0 - whisper_weight) * done as f64 / total.max(1) as f64;
             progress(Some(frac), &format!("wav2vec2: chunk {done}/{total} ({w2v_ep})"));
         })?;
         let w2v_s = t1.elapsed().as_secs_f64();

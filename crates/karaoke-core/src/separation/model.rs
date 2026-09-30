@@ -58,7 +58,7 @@ impl OrtModel {
                 model_path.display()
             )));
         }
-        let mut builder = ort::session::Session::builder()?
+        let mut builder = crate::compute::session_builder(crate::compute::inference_threads())?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?;
         match ep {
             EpKind::DirectML => {

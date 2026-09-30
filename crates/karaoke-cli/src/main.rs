@@ -372,6 +372,12 @@ struct AlignArgs {
     #[arg(long)]
     int8: bool,
 
+    /// Also run whisper over pasted lyrics to report per-word anchors
+    /// (diagnostic; the alignment itself never uses them, so it is off by
+    /// default and the anchored % reads 0 without it)
+    #[arg(long)]
+    whisper_anchors: bool,
+
     /// Onset-bias correction in seconds (default: the spike-measured -0.055)
     #[arg(long, allow_hyphen_values = true)]
     onset_bias: Option<f64>,
@@ -824,6 +830,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
         // DML for wav2vec2 is explicit-opt-in only (TDR risk — see
         // karaoke_core::alignment::w2v module docs)
         w2v_try_dml: matches!(args.ep, EpArg::Dml),
+        whisper_anchors: args.whisper_anchors,
         onset_bias_s: args
             .onset_bias
             .unwrap_or(karaoke_core::alignment::CTC_ONSET_BIAS_S),

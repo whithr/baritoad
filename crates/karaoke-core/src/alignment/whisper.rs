@@ -118,8 +118,7 @@ pub struct Whisper {
 }
 
 pub fn cpu_session(path: &Path, threads: usize) -> Result<Session> {
-    Session::builder()?
-        .with_intra_threads(threads)?
+    crate::compute::session_builder(threads)?
         .commit_from_file(path)
         .map_err(|e| Error::Model(format!("load {}: {e}", path.display())))
 }

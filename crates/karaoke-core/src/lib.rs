@@ -41,6 +41,7 @@
 pub mod accuracy;
 pub mod alignment;
 pub mod audio;
+pub mod compute;
 pub mod error;
 pub mod formats;
 pub mod library;

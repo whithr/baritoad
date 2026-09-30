@@ -83,7 +83,7 @@ pub struct Emissions {
 
 fn build_session(dir: &Path, threads: usize, ep: W2vEp) -> Result<Session> {
     let path = dir.join(MODEL_FILE);
-    let mut b = Session::builder()?.with_intra_threads(threads)?;
+    let mut b = crate::compute::session_builder(threads)?;
     if ep == W2vEp::DirectML {
         b = b.with_execution_providers([ort::ep::DirectML::default().build().error_on_failure()])?;
     }

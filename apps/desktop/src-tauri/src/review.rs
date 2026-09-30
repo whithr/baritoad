@@ -222,11 +222,11 @@ pub async fn realign_selection(
         if guard.is_none() {
             // Model root is the same directory the pipeline uses
             // (%LOCALAPPDATA%/karaoke/models); only wav2vec2/ loads.
-            let threads = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4);
             *guard = Some(
-                WindowAligner::load(&separation::default_model_dir(), threads)
+                WindowAligner::load(
+                    &separation::default_model_dir(),
+                    karaoke_core::compute::inference_threads(),
+                )
                     .map_err(|e| e.to_string())?,
             );
         }

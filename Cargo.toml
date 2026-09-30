@@ -52,6 +52,13 @@ opt-level = 3
 [profile.dev.package."*"]
 opt-level = 2
 
+# karaoke-core's own hot loops (separation overlap-add, stem writes, the CTC
+# trellis) ran unoptimized in the debug desktop build: a 5:57 import spent
+# 175 s of a 260 s separate stage outside model inference, and the trellis
+# took 5.3 s vs 0.18 s in release (job manifests, 2026-09-30, RTX 2080 box).
+[profile.dev.package.karaoke-core]
+opt-level = 2
+
 # The stretch engine's C++ (Signalsmith via cc) and its Rust glue run inside
 # the real-time audio callback — keep them optimized in dev too (cc compiles
 # with the profile's opt level).
