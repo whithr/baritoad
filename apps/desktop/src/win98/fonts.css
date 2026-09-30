@@ -1,0 +1,21 @@
+/* Karascape 98 faces — all self-hosted, all loaded at startup.
+   Pixel Operator: CC0 1.0 (assets/fonts/PIXEL-OPERATOR-LICENSE-CC0.txt) —
+   chrome only. Barlow + DSEG7 (OFL) come from the shared fonts.css. */
+
+@import "../assets/fonts/fonts.css";
+
+@font-face {
+  font-family: "Pixel Operator";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("../assets/fonts/pixel-operator-regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Pixel Operator";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("../assets/fonts/pixel-operator-bold.ttf") format("truetype");
+}

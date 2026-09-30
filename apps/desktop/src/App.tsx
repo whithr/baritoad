@@ -6,21 +6,26 @@
 // settings). The performance player and the stage-theme editor keep their
 // own legacy stylesheet, loaded on demand the first time either opens.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { listJobs, measurePlan, onJobEvent } from "./api";
 import { emptyJobsState, reduceJobEvent, seedFromSnapshots, type JobsState } from "./jobEvents";
-import { applyTheme, loadSettings, saveSettings, type Settings } from "./settings";
+import { applyAppearance, loadSettings, saveSettings, type Settings } from "./settings";
 import Home from "./views/Home";
 import Bench from "./views/Bench";
 import SettingsView from "./views/Settings";
 import PlayerView from "./views/PlayerView";
 import ThemesView from "./views/ThemesView";
+import { MessageBoxProvider, TipProvider } from "./win98";
+
+// Dev-only parts bin (#/kit); dead code in production builds.
+const KitView = import.meta.env.DEV ? lazy(() => import("./views/KitView")) : null;
 
 export type Route =
   | { view: "home" }
   | { view: "library" }
   | { view: "settings" }
   | { view: "themes" }
+  | { view: "kit" }
   | { view: "song"; mapPath: string; title?: string; songId?: number; at?: number }
   | { view: "play"; songId?: number; mapPath?: string; measure?: boolean };
 
@@ -28,6 +33,7 @@ function parseHash(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
   if (path === "settings") return { view: "settings" };
   if (path === "themes") return { view: "themes" };
+  if (path === "kit" && import.meta.env.DEV) return { view: "kit" };
   if (path === "song") {
     const params = new URLSearchParams(query ?? "");
     const mapPath = params.get("map") ?? "";
@@ -61,6 +67,9 @@ export function navigate(route: Route) {
       break;
     case "themes":
       window.location.hash = "#/themes";
+      break;
+    case "kit":
+      window.location.hash = "#/kit";
       break;
     case "song": {
       const q = new URLSearchParams({ map: route.mapPath });
@@ -102,7 +111,7 @@ export default function App() {
   const [legacyReady, setLegacyReady] = useState(false);
 
   useEffect(() => {
-    applyTheme(settings.theme);
+    applyAppearance(settings);
     saveSettings(settings);
   }, [settings]);
 
@@ -178,6 +187,20 @@ export default function App() {
     return (
       <SettingsContext.Provider value={settingsCtx}>
         <PlayerView songId={route.songId} mapPath={route.mapPath} measure={route.measure} go={go} />
+      </SettingsContext.Provider>
+    );
+  }
+
+  if (route.view === "kit" && KitView) {
+    return (
+      <SettingsContext.Provider value={settingsCtx}>
+        <TipProvider>
+          <MessageBoxProvider>
+            <Suspense fallback={null}>
+              <KitView />
+            </Suspense>
+          </MessageBoxProvider>
+        </TipProvider>
       </SettingsContext.Provider>
     );
   }

@@ -163,8 +163,25 @@ export type UnlistenFn = () => void;
 export function getCurrentWebview() {
   return { onDragDropEvent: async () => () => undefined };
 }
+// Browser stand-in for the frameless window: the caption buttons and the
+// title bar's state tracking need these to exist (they no-op here).
 export function getCurrentWindow() {
-  return { setFullscreen: async () => undefined, isFullscreen: async () => false };
+  return {
+    label: "main",
+    setFullscreen: async () => undefined,
+    isFullscreen: async () => false,
+    isMaximized: async () => false,
+    minimize: async () => undefined,
+    toggleMaximize: async () => undefined,
+    close: async () => undefined,
+    setTitle: async (t: string) => {
+      document.title = t;
+    },
+    startDragging: async () => undefined,
+    onResized: async () => () => undefined,
+    onFocusChanged: async () => () => undefined,
+    onCloseRequested: async () => () => undefined,
+  };
 }
 export async function open() {
   return null;

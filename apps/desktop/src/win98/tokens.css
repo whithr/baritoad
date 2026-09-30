@@ -1,0 +1,121 @@
+/* Karascape 98 tokens (DESIGN.md). Classic on :root; Night overrides the
+   same names. Bevels are stacked inset box-shadows built from the face ramp,
+   so a scheme only has to swap five colours for every control to follow. */
+
+:root {
+  /* ---- face ramp ---- */
+  --w-face: #c0c0c0;
+  --w-light: #dfdfdf;
+  --w-hi: #ffffff;
+  --w-shadow: #808080;
+  --w-dark: #0a0a0a;
+
+  /* ---- surfaces + text ---- */
+  --w-window: #ffffff; /* fields, lists, wells */
+  --w-text: #000000;
+  --w-text-dim: #404040;
+  --w-text-dis: #808080;
+  --w-dither: #ffffff; /* the second colour of the 2-px toggled dither */
+
+  /* ---- title bars + selection ---- */
+  --w-title-a: #000080;
+  --w-title-b: #1084d0;
+  --w-title-off-a: #808080;
+  --w-title-off-b: #b5b5b5;
+  --w-title-text: #ffffff;
+  --w-title-off-text: #dfdfdf;
+  --w-sel: #000080;
+  --w-sel-text: #ffffff;
+  --w-focus: #000000; /* dotted focus rectangle */
+
+  /* ---- misc chrome ---- */
+  --w-desktop: #008080;
+  --w-tip: #ffffe1;
+  --w-lcd: #000000;
+  --w-lcd-ink: #00ff40;
+  --w-lcd-ink-dim: #00b030;
+  --w-lcd-ghost: #0a2a12;
+
+  /* ---- signals (always paired with an icon or text) ---- */
+  --w-ok: #008000;
+  --w-check: #ffff00;
+  --w-error: #ff0000;
+  --w-progress: #000080;
+
+  /* ---- bench ---- */
+  --w-wave: #808080;
+  --w-wave-active: #000080;
+  --w-wave-played: #404040;
+  --w-playhead: #ff0000;
+  --w-loop: rgba(0, 0, 128, 0.12);
+
+  /* ---- type ---- */
+  --w-font-pixel: "Pixel Operator", Tahoma, "Microsoft Sans Serif", Barlow, sans-serif;
+  --w-font-smooth: Tahoma, "Microsoft Sans Serif", "Segoe UI", Barlow, sans-serif;
+  --w-font-ui: var(--w-font-pixel);
+  --w-font-lyric: Barlow, "Segoe UI", system-ui, sans-serif;
+  --w-font-lcd: "DSEG7 Classic", ui-monospace, monospace;
+  --w-fs: 16px; /* Pixel Operator's native grid: 100 units = 1 px at 16 px */
+
+  /* ---- bevels ---- */
+  --w-raised: inset -1px -1px var(--w-dark), inset 1px 1px var(--w-light),
+    inset -2px -2px var(--w-shadow), inset 2px 2px var(--w-hi);
+  --w-raised-soft: inset -1px -1px var(--w-dark), inset 1px 1px var(--w-hi),
+    inset -2px -2px var(--w-shadow), inset 2px 2px var(--w-light);
+  --w-sunken: inset -1px -1px var(--w-hi), inset 1px 1px var(--w-shadow),
+    inset -2px -2px var(--w-light), inset 2px 2px var(--w-dark);
+  --w-pressed: inset -1px -1px var(--w-hi), inset 1px 1px var(--w-dark),
+    inset -2px -2px var(--w-light), inset 2px 2px var(--w-shadow);
+  --w-default: inset -2px -2px var(--w-dark), inset 1px 1px var(--w-dark),
+    inset 2px 2px var(--w-hi), inset -3px -3px var(--w-shadow), inset 3px 3px var(--w-light);
+  --w-etched: inset -1px -1px var(--w-hi), inset 1px 1px var(--w-shadow),
+    inset -2px -2px var(--w-shadow), inset 2px 2px var(--w-hi);
+  --w-thin-sunken: inset -1px -1px var(--w-hi), inset 1px 1px var(--w-shadow);
+  --w-thin-raised: inset -1px -1px var(--w-shadow), inset 1px 1px var(--w-hi);
+}
+
+/* Night — charcoal chrome, same geometry. Title bars stay blue so the active
+   window still reads at a glance. */
+:root[data-scheme="night"] {
+  --w-face: #34343f;
+  --w-light: #4a4a58;
+  --w-hi: #6c6c80;
+  --w-shadow: #1c1c24;
+  --w-dark: #000000;
+
+  --w-window: #16161c;
+  --w-text: #e6e6f0;
+  --w-text-dim: #b4b4c4;
+  --w-text-dis: #74748a;
+  --w-dither: #4a4a58;
+
+  --w-title-a: #1e1e5a;
+  --w-title-b: #4a4aa8;
+  --w-title-off-a: #2a2a34;
+  --w-title-off-b: #464652;
+  --w-title-text: #ffffff;
+  --w-title-off-text: #9a9aac;
+  --w-sel: #4a4aa8;
+  --w-sel-text: #ffffff;
+  --w-focus: #e6e6f0;
+
+  --w-desktop: #0a2a2a;
+  --w-tip: #2e2e22;
+
+  --w-ok: #3ccf5a;
+  --w-check: #ffe14a;
+  --w-error: #ff5a4a;
+  --w-progress: #6a6ae0;
+
+  --w-wave: #74748a;
+  --w-wave-active: #8a8aff;
+  --w-wave-played: #b4b4c4;
+  --w-playhead: #ff5a4a;
+  --w-loop: rgba(138, 138, 255, 0.16);
+}
+
+/* Smooth chrome when the pixel face would blur (Properties › Pixel font). */
+:root[data-pixel-font="off"] {
+  --w-font-ui: var(--w-font-smooth);
+  --w-fs: 13px;
+}

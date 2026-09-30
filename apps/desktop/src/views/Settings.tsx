@@ -22,11 +22,11 @@ export default function SettingsView(props: { go: (r: Route) => void }) {
             </div>
             <Seg
               ariaLabel="Theme"
-              value={settings.theme}
-              onChange={(v) => update({ theme: v })}
+              value={settings.scheme}
+              onChange={(v) => update({ scheme: v })}
               options={[
-                { value: "light", label: "Light" },
-                { value: "dark", label: "Dark" },
+                { value: "classic", label: "Classic" },
+                { value: "night", label: "Night" },
               ]}
             />
           </div>

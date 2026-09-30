@@ -1,12 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { applyTheme, loadSettings } from "./settings";
+import { applyAppearance, loadSettings } from "./settings";
+import "./win98/base.css";
 import "./hw.css";
 
-// Theme before first paint so the window never flashes the wrong ground.
-applyTheme(loadSettings().theme);
-document.documentElement.classList.add("hw-root");
+// Appearance before first paint so the window never flashes the wrong scheme.
+applyAppearance(loadSettings());
+document.documentElement.classList.add("w98-root", "hw-root");
 document.body.classList.add("hw-body");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

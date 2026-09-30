@@ -2,11 +2,16 @@
 // Persisted in localStorage (the webview's own store; nothing leaves the
 // machine). The player's stage themes are a separate store (themes.ts).
 
-export type AppTheme = "light" | "dark";
+/** Chrome colour scheme (DESIGN.md). The TV stage follows its own theme. */
+export type Scheme = "classic" | "night";
+export type UiScale = "normal" | "large";
 
 export interface Settings {
-  /** App chrome theme. The TV player is always dark and ignores this. */
-  theme: AppTheme;
+  scheme: Scheme;
+  /** Pixel Operator for chrome; off = the smooth stack (fractional-DPI screens). */
+  pixelFont: boolean;
+  /** Large = 125 % chrome. Lyrics have their own couch-sized type. */
+  uiScale: UiScale;
   /** Where the bench opens a song: remembered view zoom level. */
   benchView: "text" | "lanes" | "focus";
   /** Last shift scope, remembered across songs (the bench's default). */
@@ -14,31 +19,37 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: "dark",
+  scheme: "classic",
+  pixelFont: true,
+  uiScale: "normal",
   benchView: "lanes",
   shiftScope: "line",
 };
 
 export const SETTINGS_KEY = "karascape.settings.v1";
 
-const THEMES: AppTheme[] = ["light", "dark"];
+const SCHEMES: Scheme[] = ["classic", "night"];
+const SCALES: UiScale[] = ["normal", "large"];
 const VIEWS: Settings["benchView"][] = ["text", "lanes", "focus"];
 const SCOPES: Settings["shiftScope"][] = ["word", "line", "tail"];
 
+const pick = <T,>(allowed: readonly T[], v: unknown, fallback: T): T =>
+  allowed.includes(v as T) ? (v as T) : fallback;
+
 /** Parse a stored settings blob; unknown or malformed fields fall back to
- *  defaults so an old/corrupt blob never breaks startup. */
+ *  defaults so an old/corrupt blob never breaks startup. Blobs from before
+ *  Karascape 98 carry `theme: light|dark`, which maps to classic/night. */
 export function parseSettings(raw: string | null | undefined): Settings {
   if (!raw) return { ...DEFAULT_SETTINGS };
   try {
-    const v = JSON.parse(raw) as Partial<Record<keyof Settings, unknown>>;
+    const v = JSON.parse(raw) as Partial<Record<keyof Settings | "theme", unknown>>;
+    const legacy = v.theme === "dark" ? "night" : v.theme === "light" ? "classic" : undefined;
     return {
-      theme: THEMES.includes(v.theme as AppTheme) ? (v.theme as AppTheme) : DEFAULT_SETTINGS.theme,
-      benchView: VIEWS.includes(v.benchView as Settings["benchView"])
-        ? (v.benchView as Settings["benchView"])
-        : DEFAULT_SETTINGS.benchView,
-      shiftScope: SCOPES.includes(v.shiftScope as Settings["shiftScope"])
-        ? (v.shiftScope as Settings["shiftScope"])
-        : DEFAULT_SETTINGS.shiftScope,
+      scheme: pick(SCHEMES, v.scheme ?? legacy, DEFAULT_SETTINGS.scheme),
+      pixelFont: typeof v.pixelFont === "boolean" ? v.pixelFont : DEFAULT_SETTINGS.pixelFont,
+      uiScale: pick(SCALES, v.uiScale, DEFAULT_SETTINGS.uiScale),
+      benchView: pick(VIEWS, v.benchView, DEFAULT_SETTINGS.benchView),
+      shiftScope: pick(SCOPES, v.shiftScope, DEFAULT_SETTINGS.shiftScope),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -65,8 +76,13 @@ export function saveSettings(s: Settings): void {
   }
 }
 
-/** Stamp the theme on the document so CSS tokens switch (hw.css). */
-export function applyTheme(theme: AppTheme): void {
+/** Stamp the appearance on the document so the CSS tokens switch. */
+export function applyAppearance(s: Pick<Settings, "scheme" | "pixelFont" | "uiScale">): void {
   if (typeof document === "undefined") return;
-  document.documentElement.dataset.theme = theme;
+  const d = document.documentElement.dataset;
+  d.scheme = s.scheme;
+  d.pixelFont = s.pixelFont ? "on" : "off";
+  d.uiScale = s.uiScale;
+  // hw.css (views not yet on the 98 kit) keys off data-theme
+  d.theme = s.scheme === "night" ? "dark" : "light";
 }

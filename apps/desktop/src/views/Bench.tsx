@@ -883,7 +883,7 @@ function Overview(props: {
     if (!c || !levels || duration <= 0 || width === 0) return;
     const samples = envelopeSamples(levels.peaks, levels.bins_per_second, 0, duration, Math.max(50, Math.floor(width / 2)));
     drawEnvelope(c, samples, cssVar("--hw-vocal"));
-  }, [levels, duration, width, settings.theme]);
+  }, [levels, duration, width, settings.scheme]);
   const pct = (t: number) => (duration > 0 ? `${(t / duration) * 100}%` : "0%");
   const t0 = fmtClock(0, false);
   const t1 = fmtClock(duration, false);
@@ -968,7 +968,7 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
     }
     const samples = envelopeSamples(levels.peaks, levels.bins_per_second, lane.start, lane.end, Math.max(40, Math.floor(width / 3)));
     drawEnvelope(c, samples, cssVar("--hw-vocal"));
-  }, [levels, lane.start, lane.end, width, settings.theme]);
+  }, [levels, lane.start, lane.end, width, settings.scheme]);
 
   const focused = size === "focus" || size === "big";
   const height = dims.wave + dims.key + dims.gap * 2 + (focused ? 4 : 0);
