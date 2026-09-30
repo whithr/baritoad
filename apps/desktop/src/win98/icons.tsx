@@ -47,6 +47,11 @@ const GLYPHS: Record<string, { w: number; h: number; body: ReactNode }> = {
     body: <path d="M6 0h1v1H6zM5 1h2v1H5zM0 2h1v1H0zM4 2h3v1H4zM0 3h2v1H0zM3 3h3v1H3zM0 4h5v1H0zM1 5h3v1H1zM2 6h1v1H2z" />,
   },
   bullet: { w: 6, h: 6, body: <path d="M1 0h4v1H1zM0 1h6v4H0zM1 5h4v1H1z" /> },
+  speaker: {
+    w: 9,
+    h: 9,
+    body: <path d="M0 3h2v3H0zM2 2h1v5H2zM3 1h1v7H3zM4 0h1v9H4zM6 2h1v1H6zM6 6h1v1H6zM7 3h1v3H7z" />,
+  },
   ear: {
     w: 8,
     h: 10,

@@ -1,0 +1,532 @@
+/* Karascape 98 — the Bench (timing editor). Lanes are sunken tracks with the
+   vocal waveform above raised word chips; lyric text is Barlow (DESIGN.md:
+   lyrics never pixel). Geometry (lane heights, chip positions) is computed
+   in Bench.tsx; this file only paints it. */
+
+.b-body {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.b-scroll {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--w-window);
+  box-shadow: var(--w-sunken);
+  padding: 2px;
+}
+
+/* ------------------------------------------------------------ overview */
+
+.b-overview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.b-overview-t {
+  width: 38px;
+  text-align: right;
+}
+
+.b-overview-t.end {
+  text-align: left;
+}
+
+.b-ov-strip {
+  position: relative;
+  flex-grow: 1;
+  height: 36px;
+  background: var(--w-window);
+  box-shadow: var(--w-sunken);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.b-ov-strip canvas {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+}
+
+.b-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: rgba(0, 0, 0, 0.07);
+  pointer-events: none;
+}
+
+:root[data-scheme="night"] .b-played {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.b-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--w-playhead);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.b-loop {
+  position: absolute;
+  top: 0;
+  background: var(--w-loop);
+  border-left: 1px solid var(--w-sel);
+  border-right: 1px solid var(--w-sel);
+  pointer-events: none;
+}
+
+.b-doubt-mark {
+  position: absolute;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3px;
+  background: var(--w-check);
+  border: 1px solid #000;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- lanes */
+
+.b-lane {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  border-bottom: 1px solid var(--w-light);
+  padding: 2px 0;
+}
+
+.b-lane.focus {
+  outline: 1px dotted var(--w-focus);
+  outline-offset: -1px;
+}
+
+.b-num {
+  width: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 4px 0 2px;
+  background: var(--w-face);
+  box-shadow: var(--w-raised-soft);
+  font-weight: 700;
+}
+
+.b-lane.focus .b-num {
+  background: var(--w-sel);
+  color: var(--w-sel-text);
+  box-shadow: none;
+}
+
+.b-strip {
+  position: relative;
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.b-wave {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.b-wave canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.b-tick {
+  position: absolute;
+  width: 0;
+  border-left: 1px dotted var(--w-sel);
+  pointer-events: none;
+}
+
+.b-tick.sel {
+  border-left-style: solid;
+}
+
+.b-tick.doubt {
+  border-left: 1px solid #808000;
+}
+
+.b-lane-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--w-playhead);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.b-lane-head::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--w-playhead);
+}
+
+.b-loop-label {
+  position: absolute;
+  top: 3px;
+  padding: 2px 5px;
+  background: var(--w-tip);
+  color: var(--w-text);
+  border: 1px solid var(--w-dark);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.b-readout {
+  position: absolute;
+  right: 6px;
+  top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.b-readout .w-lcd {
+  height: 22px;
+  padding: 0 6px;
+}
+
+.b-ear {
+  width: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ------------------------------------------------------------ word chips */
+
+.b-word {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  font-family: var(--w-font-lyric);
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+  color: var(--w-text);
+  background: var(--w-face);
+  box-shadow: var(--w-raised-soft);
+  cursor: grab;
+}
+
+.b-word.sung {
+  box-shadow: var(--w-thin-sunken);
+  color: var(--w-text-dim);
+}
+
+.b-word.now {
+  background: var(--w-check);
+  color: #000;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.b-word.sel {
+  background: var(--w-sel);
+  color: var(--w-sel-text);
+  box-shadow: inset -1px -1px var(--w-dark), inset 1px 1px var(--w-hi);
+  outline: 1px dotted var(--w-check);
+  outline-offset: -4px;
+}
+
+.b-word.in-scope:not(.sel) {
+  outline: 1px dotted var(--w-sel);
+  outline-offset: -3px;
+}
+
+.b-word.unsung {
+  font-style: italic;
+  opacity: 0.55;
+}
+
+.b-word.dragging {
+  cursor: grabbing;
+  z-index: 4;
+}
+
+.b-word.dragging.stretch {
+  cursor: ew-resize;
+}
+
+.b-word-end {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  cursor: ew-resize;
+}
+
+.b-word:hover .b-word-end::before,
+.b-word.stretch .b-word-end::before {
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: 25%;
+  bottom: 25%;
+  width: 2px;
+  background: var(--w-shadow);
+}
+
+.b-word.sel:hover .b-word-end::before,
+.b-word.sel.stretch .b-word-end::before {
+  background: var(--w-sel-text);
+}
+
+.b-word .b-doubt {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  width: 6px;
+  height: 6px;
+  background: var(--w-check);
+  border: 1px solid #000;
+}
+
+.b-word input {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: none;
+  padding: 0 2px;
+  text-align: center;
+  font: inherit;
+  background: var(--w-window);
+  color: var(--w-text);
+  box-shadow: var(--w-sunken);
+  user-select: text;
+}
+
+.b-ghost {
+  position: absolute;
+  border: 1px dotted var(--w-sel);
+  pointer-events: none;
+}
+
+.b-puck {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin-left: -4px;
+  background: var(--w-check);
+  border: 1px solid #000;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ------------------------------------------------------------ focus view */
+
+.b-tv {
+  height: 150px;
+  flex: none;
+  background: #000;
+  box-shadow: var(--w-sunken);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+  font-family: var(--w-font-lyric);
+  -webkit-font-smoothing: antialiased;
+}
+
+.b-tv-corner {
+  position: absolute;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #808080;
+  font-family: var(--w-font-ui);
+  -webkit-font-smoothing: none;
+}
+
+.b-tv-corner.l {
+  left: 10px;
+}
+
+.b-tv-corner.r {
+  right: 10px;
+}
+
+.b-tv .ctx {
+  font-size: 16px;
+  font-style: italic;
+  color: #8a8a8a;
+}
+
+.b-tv .cur {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 34px;
+  font-weight: 700;
+  color: #c8c8c8;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0 24px;
+}
+
+.b-tv .cur span {
+  font-style: italic;
+}
+
+.b-tv .cur .sung,
+.b-tv .cur .now {
+  color: #00ffff;
+  font-style: normal;
+}
+
+.b-tv .cur .now {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+
+.b-focus-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* ------------------------------------------------------------- text view */
+
+.b-text {
+  display: flex;
+  gap: 12px;
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.b-text-col {
+  flex-grow: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--w-window);
+  box-shadow: var(--w-sunken);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.b-text-side {
+  width: 300px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  line-height: 18px;
+  overflow-y: auto;
+}
+
+.b-stanza-gap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--w-text-dim);
+  flex: none;
+}
+
+.b-stanza-gap i {
+  flex-grow: 1;
+  border-top: 1px dotted var(--w-shadow);
+}
+
+.b-trow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  padding: 0 8px 0 4px;
+  flex: none;
+}
+
+.b-trow.sel {
+  background: var(--w-sel);
+  color: var(--w-sel-text);
+}
+
+.b-trow .num {
+  width: 24px;
+  text-align: right;
+  color: var(--w-text-dim);
+}
+
+.b-trow .tm {
+  width: 62px;
+  color: var(--w-text-dim);
+}
+
+.b-trow.sel .num,
+.b-trow.sel .tm {
+  color: var(--w-sel-text);
+}
+
+.b-trow .txt {
+  flex-grow: 1;
+  min-width: 0;
+  font-family: var(--w-font-lyric);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.b-trow .txt input {
+  width: 100%;
+  height: 24px;
+  font: inherit;
+  padding: 2px 5px;
+  border: 0;
+  outline: none;
+  background: var(--w-window);
+  color: var(--w-text);
+  box-shadow: var(--w-sunken);
+  user-select: text;
+}
+
+.b-doubt-sq {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: var(--w-check);
+  border: 1px solid #000;
+}

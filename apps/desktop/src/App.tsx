@@ -209,34 +209,26 @@ export default function App() {
     );
   }
 
-  const legacyTitle =
-    route.view === "song"
-      ? `${route.title ?? "Song"} - Karascape Bench`
-      : route.view === "settings"
-        ? "Karascape - Settings"
-        : "Karascape - Player Themes";
-
-  const onKit = route.view === "home" || route.view === "library";
+  const legacyTitle = route.view === "settings" ? "Karascape - Settings" : "Karascape - Player Themes";
 
   return (
     <SettingsContext.Provider value={settingsCtx}>
       <TipProvider>
         <MessageBoxProvider>
-          {onKit ? (
+          {route.view === "home" || route.view === "library" ? (
             <Home go={go} jobs={jobs} />
+          ) : route.view === "song" ? (
+            <Bench
+              key={route.mapPath}
+              mapPath={route.mapPath}
+              title={route.title}
+              songId={route.songId}
+              startAt={route.at}
+              go={go}
+            />
           ) : (
             <AppFrame title={legacyTitle} icon={<Icon name="app" />}>
               <div className="hw" style={LEGACY_IN_FRAME}>
-                {route.view === "song" && (
-                  <Bench
-                    key={route.mapPath}
-                    mapPath={route.mapPath}
-                    title={route.title}
-                    songId={route.songId}
-                    startAt={route.at}
-                    go={go}
-                  />
-                )}
                 {route.view === "settings" && <SettingsView go={go} />}
                 {route.view === "themes" && (legacyReady ? <LegacyThemes go={go} /> : null)}
               </div>

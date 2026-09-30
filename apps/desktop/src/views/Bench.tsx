@@ -1,12 +1,14 @@
 // The bench: one song, lyrics on the audio. Three zoom levels of the same
 // surface — Text (structure, no audio), Lanes (the default: one lane per
-// line, words as keycaps under the vocal waveform), Focus (one line blown
+// line, words as chips under the vocal waveform), Focus (one line blown
 // up, neighbours as thin strips, TV preview on top). Selection, scope,
 // playhead and keys carry across all three.
 //
 // State is the tested editorState reducer (undo/redo/dirty, timing-map
 // invariants); playback is the review-screen <audio> hook (original-song
 // time — PLAN.md §5); waveforms are the vocal stem's peak envelope.
+// Chrome is Karascape 98: every command sits in the menu bar; the toolbar,
+// right-click menu and keys are shortcuts to it.
 
 import {
   useCallback,
@@ -37,7 +39,6 @@ import {
 import type { Route } from "../App";
 import { useSettings } from "../App";
 import {
-  BENCH_VIEWS,
   doubtfulIndices,
   envelopeSamples,
   focusRange,
@@ -63,8 +64,71 @@ import {
 } from "../editorState";
 import { sungThroughIndexAt, wordIndexAt } from "../highlight";
 import { shiftRange, type ShiftScope } from "../previewEditor";
+import { fmtTime } from "../format";
 import { useAudio, type AudioController } from "../useAudio";
-import { Chip, Divider, Icon, Kb, Key, Knob, Label, Lcd, Led, Legend, Seg, fmtClock } from "../hw/ui";
+import {
+  AppFrame,
+  Button,
+  ContextMenu,
+  DropdownButton,
+  Glyph,
+  GroupBox,
+  Hr,
+  Icon,
+  Lcd,
+  LcdText,
+  MenuBar,
+  ProgressBar,
+  RadioGroup,
+  StatusBar,
+  StatusPane,
+  Tabs,
+  ToolButton,
+  Toolbar,
+  Trackbar,
+  Vr,
+  isInOverlay,
+  useAccelerators,
+  useCloseGuard,
+  useMessageBox,
+  type MenuDef,
+  type MenuEntry,
+} from "../win98";
+import "../win98/bench.css";
+
+/** mm:ss and a tenths suffix for the LCD readouts. */
+function fmtClock(s: number, tenths = true): { main: string; frac: string } {
+  const t = Math.max(0, s);
+  const m = Math.floor(t / 60);
+  const sec = Math.floor(t % 60);
+  const frac = Math.floor((t - Math.floor(t)) * 10);
+  return {
+    main: `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`,
+    frac: tenths ? `.${frac}` : "",
+  };
+}
+
+const EXPORTS: [string, string][] = [
+  ["lrc", "&LRC lyrics"],
+  ["ass", "&ASS subtitles"],
+  ["ultrastar", "&UltraStar .txt"],
+];
+
+// Word chips are lyric text (Barlow 600): measure it rather than guess a
+// per-glyph width, so a short sung span still gets a readable chip.
+const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
+const measured = new Map<string, number>();
+function textWidth(text: string, px: number): number {
+  const key = `${px}|${text}`;
+  const hit = measured.get(key);
+  if (hit != null) return hit;
+  if (!measureCtx) return text.length * px * 0.6;
+  measureCtx.font = `600 ${px}px Barlow, "Segoe UI", sans-serif`;
+  const w = measureCtx.measureText(text).width;
+  if (measured.size > 4000) measured.clear();
+  measured.set(key, w);
+  return w;
+}
 
 const LOOP_PRE_S = 0.5;
 const LOOP_POST_S = 0.3;
@@ -77,7 +141,6 @@ const LINE_LOOP_PAD_S = 0.3;
 const REALIGN_PAD_S = 1.0;
 const VOCAL_GUIDE_KEY = "karascape.bench.vocalGuide";
 
-const SCOPE_LABEL: Record<ShiftScope, string> = { word: "Word", line: "Line", tail: "From here" };
 
 interface Props {
   mapPath: string;
@@ -153,33 +216,39 @@ export default function Bench(props: Props) {
     };
   }, [mapPath, songId]);
 
-  if (error) {
+
+  if (error || !map || !sources) {
+    const title = props.title ?? "Song";
     return (
-      <div className="bench">
-        <div className="hw-topbar">
-          <Key icon="back" onClick={() => props.go({ view: "home" })} aria-label="Back to library" />
-          <span className="hw-title">{props.title ?? "Song"}</span>
+      <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
+        <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <GroupBox label={error ? "Couldn't open this song" : "Opening"} style={{ width: 420 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, lineHeight: "18px" }}>
+              {error ? (
+                <div style={{ display: "flex", gap: 12 }}>
+                  <Icon name="error" size={32} />
+                  <div style={{ userSelect: "text" }}>{error}</div>
+                </div>
+              ) : (
+                <>
+                  <div>Loading {title}…</div>
+                  <ProgressBar value={null} label="Loading" />
+                </>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <Button isDefault={!!error} onClick={() => props.go({ view: "home" })}>
+                  Back to &Library
+                </Button>
+              </div>
+            </div>
+          </GroupBox>
         </div>
-        <div className="hw-banner error" style={{ margin: 16 }}>
-          {error}
-        </div>
-      </div>
-    );
-  }
-  if (!map || !sources) {
-    return (
-      <div className="bench">
-        <div className="hw-topbar">
-          <Key icon="back" onClick={() => props.go({ view: "home" })} aria-label="Back to library" />
-          <span className="hw-title">{props.title ?? "Song"}</span>
-          <Led on />
-          <Label>Loading</Label>
-        </div>
-      </div>
+      </AppFrame>
     );
   }
   return <BenchEditor {...props} map={map} song={song} sources={sources} levels={levels} />;
 }
+
 
 function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources: PlaybackSources; levels: VocalLevels | null }) {
   const { mapPath, songId, go, map, song, sources, levels } = props;
@@ -482,6 +551,11 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   // ---- keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Menus and dialogs own the keyboard while open; arrows belong to a
+      // focused tab strip, radio group or trackbar.
+      if (isInOverlay()) return;
+      const t0 = e.target instanceof Element ? e.target : null;
+      if (e.key.startsWith("Arrow") && t0?.closest('[role="tablist"], [role="radiogroup"], [role="slider"], [role="spinbutton"]')) return;
       const t = e.target as HTMLElement | null;
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
       const mod = e.ctrlKey || e.metaKey;
@@ -607,16 +681,223 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     return () => window.removeEventListener("keydown", onKey);
   }, [audio, duration, editing, hearLine, hearWord, lanes, nudge, playLane, save, selLane, select, selected, view, words]);
 
-  // Unsaved changes: warn on leave.
-  const exit = useCallback(() => {
-    if (dirty && !window.confirm("Leave without saving your timing changes?")) return;
-    go({ view: "home" });
-  }, [dirty, go]);
+  // ---- leaving: 98-style "Save changes?" on every way out (Close, the
+  // Library button, Alt+F4 / caption X via the window's close guard)
+  const ask = useMessageBox();
+  const [reviewed, setReviewed] = useState(song?.reviewed_at != null);
+  const title = song?.title ?? props.title ?? "Untitled";
+  const saveAndCheck = useCallback(async () => {
+    await save();
+    if (songId != null) setReviewed(true);
+  }, [save, songId]);
+  const confirmLeave = useCallback(async (): Promise<boolean> => {
+    if (!dirty) return true;
+    const r = await ask({
+      kind: "warning",
+      title: "Karascape Bench",
+      message: (
+        <>
+          Save changes to <b>{title}</b>?
+        </>
+      ),
+      detail: "Your timing edits haven't been saved yet.",
+      buttons: [
+        { id: "yes", label: "&Yes", isDefault: true },
+        { id: "no", label: "&No" },
+        { id: "cancel", label: "Cancel", cancel: true },
+      ],
+    });
+    if (r === "cancel") return false;
+    if (r === "yes") await save();
+    return true;
+  }, [dirty, ask, save, title]);
+  useCloseGuard(dirty ? confirmLeave : null);
+
+  const exit = useCallback(async () => {
+    if (await confirmLeave()) go({ view: "home" });
+  }, [confirmLeave, go]);
 
   const singOnTv = useCallback(async () => {
     if (dirty) await save();
     go({ view: "play", songId, mapPath });
   }, [dirty, save, go, songId, mapPath]);
+
+  const markChecked = useCallback(async () => {
+    if (songId == null) return;
+    try {
+      await songSetReviewed(songId, true);
+      setReviewed(true);
+      setNotice("Marked as checked");
+      window.setTimeout(() => setNotice(null), 2000);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [songId]);
+
+  // ---- commands (menus, right-click, accelerators)
+  const hasSel = selected != null;
+  const selWord = hasSel ? words[selected] : null;
+  const onLanes = view !== "text";
+  const togglePlay = () => {
+    stopAt.current = null;
+    audio.toggle();
+  };
+  const toggleLoop = () => {
+    setLineLoop((v) => !v);
+    if (!audio.playing) audio.play();
+  };
+  const exportItems: MenuEntry[] = EXPORTS.map(([f, label]) => ({ label, run: () => void doExport(f) }));
+  const wordCommands = {
+    hear: { label: "&Hear word", accel: "Enter", run: () => hasSel && hearWord(selected), disabled: !hasSel },
+    edit: { label: "&Edit word", accel: "F2", run: () => hasSel && setEditing(selected), disabled: !hasSel || !onLanes },
+    unsung: {
+      label: "Toggle un&sung",
+      accel: "U",
+      run: () => hasSel && dispatch({ type: "toggle-unsung", index: selected }),
+      disabled: !hasSel,
+    },
+    del: {
+      label: "&Delete word",
+      accel: "Del",
+      run: () => hasSel && dispatch({ type: "delete-word", index: selected }),
+      disabled: !hasSel || !onLanes,
+    },
+    hearLine: { label: "Hear &line", run: () => selLane >= 0 && hearLine(selLane), disabled: selLane < 0 },
+    realign: {
+      label: "&Re-align line",
+      run: () => selLane >= 0 && void realignLane(selLane),
+      disabled: selLane < 0 || !sources.vocals,
+    },
+  };
+  const menus: MenuDef[] = [
+    {
+      label: "&File",
+      items: [
+        { label: "&Save", accel: "Ctrl+S", run: () => void saveAndCheck(), disabled: saving },
+        { label: "&Export", items: exportItems },
+        "-",
+        { label: "Sing on &TV", accel: "F5", keys: "f5", run: () => void singOnTv() },
+        "-",
+        { label: "&Close", accel: "Ctrl+W", keys: "ctrl+w", run: () => void exit() },
+      ],
+    },
+    {
+      label: "&Edit",
+      items: [
+        { label: "&Undo", accel: "Ctrl+Z", run: () => dispatch({ type: "undo" }), disabled: state.past.length === 0 },
+        { label: "&Redo", accel: "Ctrl+Y", run: () => dispatch({ type: "redo" }), disabled: state.future.length === 0 },
+        "-",
+        wordCommands.edit,
+        wordCommands.del,
+        wordCommands.unsung,
+      ],
+    },
+    {
+      label: "&View",
+      items: [
+        { label: "&Text", accel: "−", checked: view === "text", radio: true, run: () => setView("text") },
+        { label: "&Lanes", checked: view === "lanes", radio: true, run: () => setView("lanes") },
+        { label: "&Focus", accel: "+", checked: view === "focus", radio: true, run: () => setView("focus") },
+      ],
+    },
+    {
+      label: "&Play",
+      items: [
+        { label: audio.playing ? "&Pause" : "&Play", accel: "Space", run: togglePlay },
+        {
+          label: "&Hear selection",
+          accel: "Enter",
+          run: () => (hasSel ? hearWord(selected) : playLane >= 0 && hearLine(playLane)),
+          disabled: !hasSel && playLane < 0,
+        },
+        wordCommands.hearLine,
+        { label: "&Loop line", accel: "L", checked: lineLoop, run: toggleLoop },
+        "-",
+        { label: "&Back 5 seconds", accel: hasSel ? undefined : "←", run: () => audio.seek(Math.max(0, audio.time - 5)) },
+        { label: "&Forward 5 seconds", accel: hasSel ? undefined : "→", run: () => audio.seek(Math.min(duration, audio.time + 5)) },
+      ],
+    },
+    {
+      label: "&Timing",
+      items: [
+        {
+          label: "&Scope",
+          items: [
+            { label: "&Word", accel: "1", checked: scope === "word", radio: true, run: () => setScope("word") },
+            { label: "&Line", accel: "2", checked: scope === "line", radio: true, run: () => setScope("line") },
+            { label: "From &here on", accel: "3", checked: scope === "tail", radio: true, run: () => setScope("tail") },
+          ],
+        },
+        { label: "Nudge &earlier", accel: "←", run: () => nudge(-1, false), disabled: !hasSel || !onLanes },
+        { label: "Nudge &later", accel: "→", run: () => nudge(1, false), disabled: !hasSel || !onLanes },
+        { label: "Nudge earlier by 100 ms", accel: "Shift+←", run: () => nudge(-1, true), disabled: !hasSel || !onLanes },
+        { label: "Nudge later by 100 ms", accel: "Shift+→", run: () => nudge(1, true), disabled: !hasSel || !onLanes },
+        "-",
+        {
+          label: "&Next word to check",
+          accel: "N",
+          run: () => {
+            const i = nextDoubtful(words, selected);
+            if (i != null) select(i);
+          },
+          disabled: doubts.length === 0,
+        },
+        wordCommands.realign,
+        { label: "Re&flow lines to fit the TV", run: () => dispatch({ type: "reflow-lines" }) },
+        "-",
+        { label: "&Mark as checked", run: () => void markChecked(), disabled: songId == null || (reviewed && !dirty) },
+      ],
+    },
+    {
+      label: "&Help",
+      items: [{ label: "&Keyboard Shortcuts", accel: "F1", keys: "f1", run: () => void showKeys() }],
+    },
+  ];
+  useAccelerators(menus);
+  const wordMenu: MenuEntry[] = [
+    wordCommands.hear,
+    wordCommands.edit,
+    wordCommands.unsung,
+    wordCommands.del,
+    "-",
+    wordCommands.hearLine,
+    wordCommands.realign,
+  ];
+
+  const showKeys = () =>
+    ask({
+      kind: "info",
+      title: "Keyboard Shortcuts",
+      message: "Bench",
+      detail: (
+        <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: "2px 12px" }}>
+          {(
+            [
+              ["Space", "Play / pause"],
+              ["↑ ↓", "Previous / next line"],
+              ["Tab", "Next word (Shift+Tab back)"],
+              ["← →", "Nudge 10 ms (Shift: 100 ms); seek 5 s with nothing selected"],
+              ["1 2 3", "Scope: word / line / from here on"],
+              ["Enter", "Hear the selected word"],
+              ["L", "Loop the line"],
+              ["N", "Next word to check"],
+              ["F2", "Edit the word"],
+              ["U", "Toggle unsung"],
+              ["Del", "Delete the word"],
+              ["− +", "Text / Lanes / Focus"],
+              ["Ctrl+Z / Ctrl+Y", "Undo / redo"],
+              ["Ctrl+S", "Save"],
+              ["F5", "Sing on TV"],
+            ] as [string, string][]
+          ).map(([k, v]) => (
+            <div key={k} style={{ display: "contents" }}>
+              <span>{k}</span>
+              <span>{v}</span>
+            </div>
+          ))}
+        </div>
+      ),
+    });
 
   // ---- render
   const clock = fmtClock(audio.time);
@@ -648,177 +929,192 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     select,
   };
 
-  return (
-    <div className="bench">
-      <div className="hw-topbar">
-        <Key icon="back" onClick={exit} aria-label="Back to library" />
-        <div style={{ display: "flex", flexDirection: "column", gap: 1, marginLeft: 2 }}>
-          <span className="hw-title">{song?.title ?? props.title ?? "Untitled"}</span>
-          <Label>
-            {song?.artist ?? ""}
-            {song?.artist && duration ? " · " : ""}
-            {duration ? total.main : ""}
-          </Label>
-        </div>
-        <div style={{ width: 6 }} />
-        <Lcd style={{ width: 134 }}>
-          <span>
-            {clock.main}
-            <span className="dim">{clock.frac}</span>
-          </span>
-          <span className="dim">/ {total.main}</span>
-        </Lcd>
-        <span className="hw-grow" />
-        <Key icon="prev" onClick={() => audio.seek(Math.max(0, audio.time - 5))} aria-label="Back 5 seconds" />
-        <Key icon={audio.playing ? "pause" : "play"} on onClick={() => { stopAt.current = null; audio.toggle(); }} aria-label="Play / pause" style={{ width: 38 }} />
-        <Key icon="next" onClick={() => audio.seek(Math.min(duration, audio.time + 5))} aria-label="Forward 5 seconds" />
-        <div style={{ width: 6 }} />
-        <Key icon="loop" on={lineLoop} onClick={() => setLineLoop((v) => !v)} title="Loop the selected line (L)">
-          Loop
-        </Key>
-        <div style={{ width: 10 }} />
-        <Knob value={guide} onChange={setGuide} label="Vocal guide" readout={`${Math.round(guide * 100)}%`} />
-        <div style={{ width: 10 }} />
-        <ExportKey onExport={doExport} />
-        <Key accent icon="tv" onClick={singOnTv}>
-          Sing on TV
-        </Key>
-      </div>
+  const hints =
+    view === "text"
+      ? "↑↓ Line · Enter Break / play · Backspace Join up · Space Play · N Next to check · + Lanes"
+      : "Space Play · ↑↓ Line · Tab Word · 1 2 3 Scope · ←→ Nudge · Enter Hear · L Loop · N Next to check · F2 Edit";
 
-      <div className="hw-subbar">
-        <Label>View</Label>
-        <Kb>−</Kb>
-        <Seg
-          ariaLabel="View"
-          value={view}
-          onChange={setView}
-          options={BENCH_VIEWS.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }))}
-        />
-        <Kb>+</Kb>
-        <Divider />
-        <Label>Shift</Label>
-        {(["word", "line", "tail"] as ShiftScope[]).map((s, i) => (
-          <Chip key={s} on={scope === s} k={String(i + 1)} onClick={() => setScope(s)}>
-            {SCOPE_LABEL[s]}
-          </Chip>
-        ))}
-        <Divider />
-        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--hw-muted)" }}>
-          <Kb>←</Kb>
-          <Kb>→</Kb>
-          <span>10 ms</span>
-          <span style={{ margin: "0 6px" }}>·</span>
-          <Kb>⇧</Kb>
-          <span>100 ms</span>
-        </span>
-        <span className="hw-grow" />
-        {busy && (
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Led on />
-            <Label>{busy}</Label>
-          </span>
-        )}
-        {notice && <Label style={{ color: "var(--hw-ink)" }}>{notice}</Label>}
-        {selLane >= 0 && <Label>Line {String(selLane + 1).padStart(2, "0")}</Label>}
-        <Lcd style={{ width: 92 }} title="Shift being applied">
-          {deltaS != null ? (
-            <>
-              <span className="hot">{(deltaS >= 0 ? "+" : "−") + Math.abs(deltaS).toFixed(3)}</span>
-              <span className="dim">s</span>
-            </>
-          ) : (
-            <span className="dim">{range ? `${range.last - range.first + 1} move` : "—"}</span>
-          )}
-        </Lcd>
-        <div style={{ width: 6 }} />
-        <Key icon="undo" onClick={() => dispatch({ type: "undo" })} disabled={state.past.length === 0} aria-label="Undo" />
-        <Key icon="redo" onClick={() => dispatch({ type: "redo" })} disabled={state.future.length === 0} aria-label="Redo" />
-        <div style={{ width: 6 }} />
-        <Key onClick={save} disabled={!dirty || saving} style={{ width: 78 }}>
-          <Led on={dirty} color="yellow" />
+  return (
+    <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
+      <MenuBar menus={menus} />
+      <Hr />
+      <Toolbar label="Bench">
+        <ToolButton icon={<Glyph name="left" />} onClick={() => void exit()} tip="Back to the Library (Ctrl+W)">
+          Library
+        </ToolButton>
+        <ToolButton icon={<Icon name="floppy" />} onClick={() => void saveAndCheck()} disabled={!dirty || saving} tip="Save (Ctrl+S)">
           Save
-        </Key>
-      </div>
+        </ToolButton>
+        <Vr />
+        <Lcd label="Playback position" style={{ margin: "0 4px" }}>
+          <LcdText value={`${clock.main}${clock.frac}`} size={19} />
+          <span className="w-lcd-sep">/</span>
+          <LcdText value={total.main} size={13} dim />
+        </Lcd>
+        <Button size="sq" onClick={() => audio.seek(Math.max(0, audio.time - 5))} aria-label="Back 5 seconds" tip="Back 5 seconds">
+          <Glyph name="prev" />
+        </Button>
+        <Button size="sq" onClick={togglePlay} aria-label={audio.playing ? "Pause" : "Play"} tip="Play / pause (Space)">
+          <Glyph name={audio.playing ? "pause" : "play"} />
+        </Button>
+        <Button size="sq" onClick={() => audio.seek(Math.min(duration, audio.time + 5))} aria-label="Forward 5 seconds" tip="Forward 5 seconds">
+          <Glyph name="next" />
+        </Button>
+        <Button size="tall" slim on={lineLoop} onClick={() => setLineLoop((v) => !v)} tip="Loop the selected line (L)">
+          Loop line
+        </Button>
+        <Vr />
+        <span style={{ whiteSpace: "nowrap" }}>Vocal guide</span>
+        <Trackbar
+          value={guide}
+          onChange={setGuide}
+          min={0}
+          max={1}
+          step={0.05}
+          ariaLabel="Vocal guide"
+          ticks={6}
+          width={130}
+          valueText={`${Math.round(guide * 100)}%`}
+        />
+        <span style={{ width: 36 }}>{Math.round(guide * 100)}%</span>
+        <span className="w-grow" />
+        <DropdownButton className="w-btn tall" items={exportItems} ariaLabel="Export">
+          <Icon name="floppy" />
+          Export
+        </DropdownButton>
+        <Button isDefault size="tall" icon={<Icon name="tv" />} onClick={() => void singOnTv()} tip="Sing on the TV (F5)">
+          Sing on TV
+        </Button>
+      </Toolbar>
+      <Hr />
 
       {error && (
-        <div className="hw-banner error" style={{ margin: "8px 16px 0" }}>
-          {error}
-          <span className="hw-grow" />
-          <Key small onClick={() => setError(null)}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 4px 0" }} role="alert">
+          <Icon name="error" />
+          <span className="w-grow" style={{ userSelect: "text" }}>
+            {error}
+          </span>
+          <Button slim onClick={() => setError(null)}>
             Dismiss
-          </Key>
+          </Button>
         </div>
       )}
 
-      <div className="bench-body">
-        {view === "lanes" && (
-          <>
-            <Overview levels={levels} duration={duration} time={audio.time} words={words} doubts={doubts} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
-            <div className="bench-scroll">
-              {lanes.map((l, k) => (
-                <Lane key={l.line ?? `run-${l.indices[0]}`} lane={l} index={k} size={k === selLane ? "focus" : "normal"} {...laneProps} />
-              ))}
-              {lanes.length === 0 && <div className="hw-banner">No timed words in this map yet.</div>}
+      <div style={{ flexGrow: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "8px 2px 2px" }}>
+        <Tabs
+          ariaLabel="Bench view"
+          value={view}
+          onChange={setView}
+          tabs={[
+            { value: "text", label: "Text" },
+            { value: "lanes", label: "Lanes" },
+            { value: "focus", label: "Focus" },
+          ]}
+          className="w-grow"
+          panelStyle={{ flexGrow: 1, display: "flex", flexDirection: "column", padding: 8, minHeight: 0 }}
+          aside={
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 5 }}>
+              <span>Shift:</span>
+              <RadioGroup
+                ariaLabel="Shift scope"
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "word", label: "Word" },
+                  { value: "line", label: "Line" },
+                  { value: "tail", label: "From here on" },
+                ]}
+              />
+              <Vr style={{ height: 22 }} />
+              <Button slim onClick={() => nudge(-1, false)} disabled={!hasSel || !onLanes} tip="Nudge earlier (←)">
+                « 10 ms
+              </Button>
+              <Button slim onClick={() => nudge(1, false)} disabled={!hasSel || !onLanes} tip="Nudge later (→)">
+                10 ms »
+              </Button>
+              <Vr style={{ height: 22 }} />
+              <Button slim onClick={() => dispatch({ type: "undo" })} disabled={state.past.length === 0} tip="Undo (Ctrl+Z)">
+                Undo
+              </Button>
+              <Button slim onClick={() => dispatch({ type: "redo" })} disabled={state.future.length === 0} tip="Redo (Ctrl+Y)">
+                Redo
+              </Button>
             </div>
-          </>
-        )}
-        {view === "focus" && (
-          <FocusView lanes={lanes} selLane={selLane >= 0 ? selLane : Math.max(0, playLane)} laneProps={laneProps} onSelectLane={(k) => select(lanes[k].indices[0])} onHearLine={hearLine} onRealign={realignLane} lineLoop={lineLoop} setLineLoop={setLineLoop} audio={audio}>
-            <Overview levels={levels} duration={duration} time={audio.time} words={words} doubts={doubts} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
-          </FocusView>
-        )}
-        {view === "text" && (
-          <TextView lanes={lanes} words={words} selLane={selLane} dispatch={dispatch} select={select} onHearLine={hearLine} onRealign={realignLane} onZoom={() => setView("lanes")} />
-        )}
-      </div>
-
-      <div className="hw-footer">
-        <Legend
-          items={
-            view === "text"
-              ? [["↑↓", "line"], ["↵", "break / play"], ["⌫", "join up"], ["SPC", "play"], ["N", "next doubt"], ["Z", "undo"], ["+", "zoom to lanes"]]
-              : [["SPC", "play"], ["↑↓", "line"], ["TAB", "word"], ["1 2 3", "scope"], ["←→", "nudge 10 ms"], ["⇧←→", "100 ms"], ["↵", "hear"], ["L", "loop line"], ["N", "next doubt"], ["F2", "edit"], ["Z", "undo"], ["− +", "view"]]
           }
-        />
-        <span className="hw-grow" />
-        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--hw-muted)", whiteSpace: "nowrap" }}>
-          <Led on={dirty} color="yellow" />
-          {dirty ? `${state.past.length} change${state.past.length === 1 ? "" : "s"} since save` : "saved"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- export
-
-function ExportKey(props: { onExport: (format: string) => void }) {
-  const [openMenu, setOpenMenu] = useState(false);
-  return (
-    <span style={{ position: "relative" }}>
-      <Key onClick={() => setOpenMenu((v) => !v)} aria-haspopup="menu" aria-expanded={openMenu}>
-        Export
-        <Icon name="down" />
-      </Key>
-      {openMenu && (
-        <div
-          role="menu"
-          className="hw-card"
-          style={{ position: "absolute", right: 0, top: 30, zIndex: 10, minWidth: 150, gap: 4, padding: 6 }}
-          onMouseLeave={() => setOpenMenu(false)}
         >
-          {[
-            ["lrc", "LRC"],
-            ["ass", "ASS (subtitles)"],
-            ["ultrastar", "UltraStar .txt"],
-          ].map(([f, label]) => (
-            <Key key={f} small onClick={() => { setOpenMenu(false); props.onExport(f); }} style={{ justifyContent: "flex-start" }}>
-              {label}
-            </Key>
-          ))}
-        </div>
-      )}
-    </span>
+          <div className="b-body">
+            {view === "lanes" && (
+              <>
+                <Overview levels={levels} duration={duration} time={audio.time} words={words} doubts={doubts} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
+                <ContextMenu items={wordMenu} className="b-scroll">
+                  {lanes.map((l, k) => (
+                    <Lane key={l.line ?? `run-${l.indices[0]}`} lane={l} index={k} size={k === selLane ? "focus" : "normal"} {...laneProps} />
+                  ))}
+                  {lanes.length === 0 && <div className="w-list-empty">No timed words in this map yet.</div>}
+                </ContextMenu>
+              </>
+            )}
+            {view === "focus" && (
+              <FocusView
+                lanes={lanes}
+                selLane={selLane >= 0 ? selLane : Math.max(0, playLane)}
+                laneProps={laneProps}
+                onSelectLane={(k) => select(lanes[k].indices[0])}
+                onHearLine={hearLine}
+                onRealign={realignLane}
+                lineLoop={lineLoop}
+                setLineLoop={setLineLoop}
+                audio={audio}
+                wordMenu={wordMenu}
+              >
+                <Overview levels={levels} duration={duration} time={audio.time} words={words} doubts={doubts} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
+              </FocusView>
+            )}
+            {view === "text" && (
+              <TextView lanes={lanes} words={words} selLane={selLane} dispatch={dispatch} select={select} onHearLine={hearLine} onRealign={realignLane} onZoom={() => setView("lanes")} />
+            )}
+          </div>
+        </Tabs>
+      </div>
+
+      <StatusBar>
+        <StatusPane width={120}>{selLane >= 0 ? `Line ${selLane + 1} of ${lanes.length}` : `${lanes.length} lines`}</StatusPane>
+        <StatusPane width={250}>
+          {deltaS != null
+            ? `Shifting ${deltaS >= 0 ? "+" : "−"}${Math.abs(deltaS).toFixed(3)} s${range ? ` · ${range.last - range.first + 1} moving` : ""}`
+            : selWord
+              ? `“${selWord.word}” ${fmtTime(selWord.start)} – ${fmtTime(Math.max(selWord.end, selWord.start))}`
+              : "No word selected"}
+        </StatusPane>
+        <StatusPane width={170}>
+          <span className="b-doubt-sq" />
+          {doubts.length} word{doubts.length === 1 ? "" : "s"} to check
+        </StatusPane>
+        <StatusPane grow>
+          {busy ? (
+            <>
+              <Icon name="working" />
+              {busy}
+            </>
+          ) : (
+            (notice ?? hints)
+          )}
+        </StatusPane>
+        <StatusPane width={150}>
+          {dirty ? (
+            <>
+              <Icon name="warn" />
+              {state.past.length} change{state.past.length === 1 ? "" : "s"}
+            </>
+          ) : (
+            <>
+              <Icon name="ready" />
+              Saved
+            </>
+          )}
+        </StatusPane>
+      </StatusBar>
+    </AppFrame>
   );
 }
 
@@ -861,7 +1157,7 @@ function drawEnvelope(canvas: HTMLCanvasElement, samples: Float32Array, color: s
 }
 
 function cssVar(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#808080";
 }
 
 function Overview(props: {
@@ -882,31 +1178,30 @@ function Overview(props: {
     const c = canvasRef.current;
     if (!c || !levels || duration <= 0 || width === 0) return;
     const samples = envelopeSamples(levels.peaks, levels.bins_per_second, 0, duration, Math.max(50, Math.floor(width / 2)));
-    drawEnvelope(c, samples, cssVar("--hw-vocal"));
+    drawEnvelope(c, samples, cssVar("--w-wave"));
   }, [levels, duration, width, settings.scheme]);
   const pct = (t: number) => (duration > 0 ? `${(t / duration) * 100}%` : "0%");
-  const t0 = fmtClock(0, false);
-  const t1 = fmtClock(duration, false);
   return (
-    <div className="overview">
-      <Label className="t0">{t0.main}</Label>
+    <div className="b-overview">
+      <span className="b-overview-t">{fmtClock(0, false).main}</span>
       <div
         ref={ref}
-        className="overview-strip"
+        className="b-ov-strip"
+        title="Whole song — click to seek"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           props.onSeek(((e.clientX - r.left) / r.width) * duration);
         }}
       >
         <canvas ref={canvasRef} />
-        <div className="played" style={{ width: pct(time) }} />
-        {loop && <div className="loop" style={{ left: pct(loop.start), width: pct(loop.end - loop.start) }} />}
+        <div className="b-played" style={{ width: pct(time), height: "100%" }} />
+        {loop && <div className="b-loop" style={{ left: pct(loop.start), width: pct(loop.end - loop.start), height: "100%" }} />}
         {doubts.map((i) => (
-          <span key={i} className="doubt" style={{ left: pct(words[i].start) }} />
+          <span key={i} className="b-doubt-mark" style={{ left: pct(words[i].start) }} />
         ))}
-        <div className="head" style={{ left: pct(time) }} />
+        <div className="b-head" style={{ left: pct(time) }} />
       </div>
-      <Label className="t1">{t1.main}</Label>
+      <span className="b-overview-t end">{fmtClock(duration, false).main}</span>
     </div>
   );
 }
@@ -915,10 +1210,10 @@ function Overview(props: {
 
 type LaneSize = "thin" | "normal" | "focus" | "big";
 const LANE_DIMS: Record<LaneSize, { wave: number; key: number; gap: number; font: number }> = {
-  thin: { wave: 14, key: 18, gap: 2, font: 11 },
-  normal: { wave: 22, key: 22, gap: 3, font: 12 },
-  focus: { wave: 44, key: 22, gap: 8, font: 12 },
-  big: { wave: 168, key: 32, gap: 12, font: 14 },
+  thin: { wave: 14, key: 18, gap: 2, font: 12 },
+  normal: { wave: 24, key: 22, gap: 3, font: 13 },
+  focus: { wave: 44, key: 24, gap: 8, font: 13 },
+  big: { wave: 168, key: 32, gap: 12, font: 16 },
 };
 
 interface LaneCommon {
@@ -955,6 +1250,7 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const width = useWidth(stripRef);
   const { settings } = useSettings();
+  const focused = size === "focus" || size === "big";
   useEffect(() => {
     props.laneWidth.current[index] = width;
   }, [width, index, props.laneWidth]);
@@ -967,10 +1263,9 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
       return;
     }
     const samples = envelopeSamples(levels.peaks, levels.bins_per_second, lane.start, lane.end, Math.max(40, Math.floor(width / 3)));
-    drawEnvelope(c, samples, cssVar("--hw-vocal"));
-  }, [levels, lane.start, lane.end, width, settings.scheme]);
+    drawEnvelope(c, samples, cssVar(focused ? "--w-wave-active" : "--w-wave"));
+  }, [levels, lane.start, lane.end, width, settings.scheme, focused]);
 
-  const focused = size === "focus" || size === "big";
   const height = dims.wave + dims.key + dims.gap * 2 + (focused ? 4 : 0);
   const keysTop = dims.wave + dims.gap;
   const px = (t: number) => secToPx(t, lane, width);
@@ -984,132 +1279,130 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
       : Math.max(w.end, w.start);
   };
   const showLoop = loop && loop.end > lane.start && loop.start < lane.end && (inLane || dragging || (selected != null && lane.indices.includes(selected)));
-  const isInstrumental = false;
 
   return (
-    <div className={`lane${focused ? " focus" : ""}${size === "big" ? " big" : ""}`}>
-      <div className="lane-num">{String(index + 1).padStart(2, "0")}</div>
+    <div className={`b-lane${focused ? " focus" : ""}`}>
+      <div className="b-num">{String(index + 1).padStart(2, "0")}</div>
       <div
         ref={stripRef}
-        className="lane-strip"
+        className="b-strip"
         style={{ height }}
         onClick={(e) => {
-          // Keycaps own their clicks (select / drag / edit); the rest of the
+          // Chips own their clicks (select / drag / edit); the rest of the
           // strip is the track - click to play from that time.
-          if ((e.target as HTMLElement).closest(".wordkey")) return;
+          if ((e.target as HTMLElement).closest(".b-word")) return;
           const r = e.currentTarget.getBoundingClientRect();
           if (r.width <= 0) return;
           props.onSeekPlay(lane.start + pxToSec(e.clientX - r.left, lane, r.width));
         }}
       >
-        <div className="lane-wave" style={{ height: dims.wave }}>
+        <div className="b-wave" style={{ height: dims.wave }}>
           <canvas ref={canvasRef} />
         </div>
-        {inLane && <div className="lane-played" style={{ width: px(time), height: dims.wave }} />}
+        {inLane && <div className="b-played" style={{ width: px(time), height: dims.wave }} />}
         {showLoop && loop && (
           <>
-            <div className="lane-loop" style={{ left: px(loop.start), width: px(loop.end) - px(loop.start), height: dims.wave }} />
+            <div className="b-loop" style={{ left: px(loop.start), width: px(loop.end) - px(loop.start), height: dims.wave }} />
             {focused && (
-              <div className="lane-loop-label" style={{ left: px(loop.start) + 6 }}>
-                <Led on />
-                <Label style={{ color: "var(--hw-orange)" }}>{dragging ? "Loop · release to hear once" : "Loop"}</Label>
+              <div className="b-loop-label" style={{ left: px(loop.start) + 6 }}>
+                {dragging ? "Loop — release to hear once" : "Loop"}
               </div>
             )}
           </>
         )}
-        {!isInstrumental &&
-          lane.indices.map((i, k) => {
-            const w = words[i];
-            const shift = shiftFor(i);
-            const x0 = px(w.start + shift);
-            const x1 = Math.max(x0 + 6, px(endFor(i) + shift));
-            // A keycap is a label first: a short sung span ("in", "my") gets a
-            // box too narrow to read, so widen it up to the next word's onset,
-            // and past that shrink the type (to a floor) before clipping.
-            const next = lane.indices[k + 1];
-            const room = (next != null ? px(words[next].start + shiftFor(next)) : width) - x0 - 2;
-            // (0.66 em per glyph + 10px of padding/border, measured against
-            // Space Grotesk at 11–14px; erring wide only widens a keycap.)
-            const need = Math.ceil(w.word.length * dims.font * 0.66 + 12);
-            const boxW = Math.max(x1 - x0, Math.min(need, room));
-            const fontPx = boxW < need ? Math.max(dims.font * 0.75, (boxW - 11) / (w.word.length * 0.66)) : dims.font;
-            const handleW = Math.min(7, boxW / 3);
-            const isSel = selected === i;
-            const inScope = range != null && i >= range.first && i <= range.last;
-            // The word under the head lights the moment the head enters it
-            // ("now"); "sung" is the trail behind it.
-            const state = isSel
-              ? "sel"
-              : inLane && props.nowWord === i
-                ? "now"
-                : sungThrough != null && i <= sungThrough && inLane && i < (props.nowWord ?? Infinity)
-                  ? "sung"
-                  : "";
-            const tickCls = isSel ? "sel" : isDoubtful(w) ? "doubt" : "";
-            return (
-              <span key={i}>
-                <span className={`lane-tick ${tickCls}`} style={{ left: x0, top: dims.wave - 6, height: dims.gap + 6 }} />
-                {dragging && dragging.moved && i === dragging.index && (
-                  <span className="wordghost" style={{ left: px(w.start), width: px(Math.max(w.end, w.start)) - px(w.start), top: keysTop, height: dims.key }} />
-                )}
-                {editing === i ? (
-                  <span className={`wordkey sel${size === "big" ? " big" : ""}`} style={{ left: x0, width: Math.max(x1 - x0, 60), top: keysTop, height: dims.key }}>
-                    <WordEditor
-                      value={w.word}
-                      onCommit={(text) => {
-                        props.dispatch({ type: "set-text", index: i, text });
-                        props.setEditing(null);
-                      }}
-                      onCancel={() => props.setEditing(null)}
-                    />
-                  </span>
-                ) : (
-                  <span
-                    className={`wordkey ${state}${inScope ? " in-scope" : ""}${w.unsung ? " unsung" : ""}${dragging && i === dragging.index ? ` dragging ${dragging.mode}` : ""}${size === "big" ? " big" : ""}`}
-                    style={{ left: x0, width: boxW, top: keysTop, height: dims.key, fontSize: fontPx }}
-                    onPointerDown={(e) => props.onWordDown(e, i, index)}
-                    onPointerMove={props.onWordMove}
-                    onPointerUp={props.onWordUp}
-                    onPointerCancel={props.onWordUp}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      props.select(i, false);
-                      props.setEditing(i);
+        {lane.indices.map((i, k) => {
+          const w = words[i];
+          const shift = shiftFor(i);
+          const x0 = px(w.start + shift);
+          const x1 = Math.max(x0 + 6, px(endFor(i) + shift));
+          // A chip is a label first: a short sung span ("in", "my") gets a box
+          // too narrow to read, so widen it up to the next word's onset, and
+          // past that shrink the type (to a floor) before clipping.
+          const next = lane.indices[k + 1];
+          const room = (next != null ? px(words[next].start + shiftFor(next)) : width) - x0 - 2;
+          const need = Math.ceil(textWidth(w.word, dims.font) + 12);
+          const boxW = Math.max(x1 - x0, Math.min(need, room));
+          const fontPx = boxW < need ? Math.max(dims.font * 0.75, (dims.font * (boxW - 12)) / Math.max(1, need - 12)) : dims.font;
+          const handleW = Math.min(7, boxW / 3);
+          const isSel = selected === i;
+          const inScope = range != null && i >= range.first && i <= range.last;
+          // The word under the head lights the moment the head enters it
+          // ("now"); "sung" is the trail behind it.
+          const state = isSel
+            ? "sel"
+            : inLane && props.nowWord === i
+              ? "now"
+              : sungThrough != null && i <= sungThrough && inLane && i < (props.nowWord ?? Infinity)
+                ? "sung"
+                : "";
+          const tickCls = isSel ? "sel" : isDoubtful(w) ? "doubt" : "";
+          return (
+            <span key={i}>
+              <span className={`b-tick ${tickCls}`} style={{ left: x0, top: 0, height: keysTop }} />
+              {dragging && dragging.moved && i === dragging.index && (
+                <span className="b-ghost" style={{ left: px(w.start), width: px(Math.max(w.end, w.start)) - px(w.start), top: keysTop, height: dims.key }} />
+              )}
+              {editing === i ? (
+                <span className="b-word sel" style={{ left: x0, width: Math.max(x1 - x0, 72), top: keysTop, height: dims.key, fontSize: dims.font }}>
+                  <WordEditor
+                    value={w.word}
+                    onCommit={(text) => {
+                      props.dispatch({ type: "set-text", index: i, text });
+                      props.setEditing(null);
                     }}
-                    title={`${w.word} · ${w.start.toFixed(2)}–${w.end.toFixed(2)} s · confidence ${Math.round(w.confidence * 100)}%`}
-                    role="button"
-                    tabIndex={-1}
-                  >
-                    {w.word}
-                    {isDoubtful(w) && !isSel && <span className="doubt-led" />}
-                    <span className="wordkey-end" style={{ width: handleW }} aria-hidden />
-                  </span>
-                )}
-              </span>
-            );
-          })}
+                    onCancel={() => props.setEditing(null)}
+                  />
+                </span>
+              ) : (
+                <span
+                  className={`b-word ${state}${inScope ? " in-scope" : ""}${w.unsung ? " unsung" : ""}${dragging && i === dragging.index ? ` dragging ${dragging.mode}` : ""}`}
+                  style={{ left: x0, width: boxW, top: keysTop, height: dims.key, fontSize: fontPx }}
+                  onPointerDown={(e) => props.onWordDown(e, i, index)}
+                  onPointerMove={props.onWordMove}
+                  onPointerUp={props.onWordUp}
+                  onPointerCancel={props.onWordUp}
+                  onContextMenu={() => props.select(i, false)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    props.select(i, false);
+                    props.setEditing(i);
+                  }}
+                  title={`${w.word} · ${w.start.toFixed(2)}–${w.end.toFixed(2)} s · confidence ${Math.round(w.confidence * 100)}%`}
+                  role="button"
+                  tabIndex={-1}
+                >
+                  {w.word}
+                  {isDoubtful(w) && !isSel && <span className="b-doubt" />}
+                  <span className="b-word-end" style={{ width: handleW }} aria-hidden />
+                </span>
+              )}
+            </span>
+          );
+        })}
         {focused && dragging && dragging.moved && (
-          <span className="puck" style={{ left: px(dragging.mode === "stretch" ? endFor(dragging.index) : words[dragging.index].start + dragging.deltaS), top: dims.wave - 8 }} />
+          <span className="b-puck" style={{ left: px(dragging.mode === "stretch" ? endFor(dragging.index) : words[dragging.index].start + dragging.deltaS), top: dims.wave - 8 }} />
         )}
         {focused && (
-          <div className="lane-readout">
+          <div className="b-readout">
             {dragging && dragging.moved ? (
-              <Lcd small>
-                <span className="hot">{(dragging.deltaS >= 0 ? "+" : "−") + Math.abs(dragging.deltaS).toFixed(3)}</span>
-                <span className="dim">s</span>
+              <Lcd>
+                <LcdText value={`${dragging.deltaS >= 0 ? "" : "-"}${Math.abs(dragging.deltaS).toFixed(3)}`} size={13} />
               </Lcd>
             ) : (
-              <Label>
+              <span className="w-muted">
                 {lane.indices.length} word{lane.indices.length === 1 ? "" : "s"} · {fmtClock(lane.start, false).main}–{fmtClock(lane.end, false).main}
-              </Label>
+              </span>
             )}
-            {range && dragging && <Label>{range.last - range.first + 1} move together</Label>}
           </div>
         )}
-        {inLane && <div className="lane-head" style={{ left: px(time) }} />}
+        {inLane && <div className="b-lane-head" style={{ left: px(time) }} />}
       </div>
-      <div className="lane-ear">
-        {size !== "thin" && <Key small icon="ear" onClick={() => props.onHearLine(index)} title="Hear this line" aria-label="Hear this line" />}
+      <div className="b-ear">
+        {size !== "thin" && (
+          <Button size="sm" onClick={() => props.onHearLine(index)} aria-label="Hear this line" title="Hear this line">
+            <Glyph name="speaker" />
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -1127,6 +1420,7 @@ function WordEditor(props: { value: string; onCommit: (text: string) => void; on
       ref={ref}
       type="text"
       value={v}
+      aria-label="Edit word"
       onChange={(e) => setV(e.target.value)}
       onBlur={() => props.onCommit(v)}
       onKeyDown={(e) => {
@@ -1150,6 +1444,7 @@ function FocusView(props: {
   lineLoop: boolean;
   setLineLoop: (v: boolean) => void;
   audio: AudioController;
+  wordMenu: MenuEntry[];
   children: React.ReactNode;
 }) {
   const { lanes, selLane, laneProps } = props;
@@ -1161,17 +1456,17 @@ function FocusView(props: {
   const t = laneProps.time;
   const clock = fmtClock(t);
   return (
-    <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0 }}>
-      <div className="tvpreview">
-        <div className="corner l">
-          <Led on />
-          <Label style={{ color: "var(--hw-lcd-dim)" }}>TV preview</Label>
+    <>
+      <div className="b-tv" aria-label="TV preview">
+        <div className="b-tv-corner l">
+          <Icon name="tv" />
+          TV preview
         </div>
-        <div className="corner r hw-mono" style={{ fontSize: 10, color: "var(--hw-lcd-dim)" }}>
+        <div className="b-tv-corner r">
           {clock.main}
           {clock.frac}
         </div>
-        <div className="ctx">{prev ? prev.indices.map((i) => words[i].word).join(" ") : " "}</div>
+        <div className="ctx">{prev ? prev.indices.map((i) => words[i].word).join(" ") : " "}</div>
         <div className="cur">
           {cur?.indices.map((i) => {
             const w = words[i];
@@ -1183,9 +1478,9 @@ function FocusView(props: {
             );
           })}
         </div>
-        <div className="ctx">{next ? next.indices.map((i) => words[i].word).join(" ") : " "}</div>
+        <div className="ctx">{next ? next.indices.map((i) => words[i].word).join(" ") : " "}</div>
       </div>
-      <div className="bench-scroll" style={{ flexGrow: 0, paddingTop: 10 }}>
+      <ContextMenu items={props.wordMenu} className="b-scroll" style={{ flexGrow: 0 }}>
         {lanes.slice(from, to + 1).map((l, j) => {
           const k = from + j;
           return (
@@ -1194,30 +1489,26 @@ function FocusView(props: {
             </div>
           );
         })}
-      </div>
-      <div className="focus-nav">
-        <Key kb="↑" onClick={() => props.onSelectLane(Math.max(0, selLane - 1))} disabled={selLane <= 0}>
-          Previous line
-        </Key>
-        <Key kb="↓" onClick={() => props.onSelectLane(Math.min(lanes.length - 1, selLane + 1))} disabled={selLane >= lanes.length - 1}>
-          Next line
-        </Key>
-        <Key icon="ear" onClick={() => props.onHearLine(selLane)}>
-          Hear line
-        </Key>
-        <Key icon="loop" on={props.lineLoop} onClick={() => props.setLineLoop(!props.lineLoop)}>
+      </ContextMenu>
+      <div className="b-focus-nav">
+        <Button onClick={() => props.onSelectLane(Math.max(0, selLane - 1))} disabled={selLane <= 0} tip="Previous line (↑)">
+          <Glyph name="up" /> Previous line
+        </Button>
+        <Button onClick={() => props.onSelectLane(Math.min(lanes.length - 1, selLane + 1))} disabled={selLane >= lanes.length - 1} tip="Next line (↓)">
+          <Glyph name="down" /> Next line
+        </Button>
+        <Button onClick={() => props.onHearLine(selLane)}>
+          <Glyph name="speaker" /> Hear line
+        </Button>
+        <Button on={props.lineLoop} onClick={() => props.setLineLoop(!props.lineLoop)} tip="Loop line (L)">
           Loop line
-        </Key>
-        <span className="hw-grow" />
-        <Label>Word targets 32 px · nudge with ← → · couch-friendly</Label>
-        <Key icon="realign" onClick={() => props.onRealign(selLane)}>
-          Re-align this line
-        </Key>
+        </Button>
+        <span className="w-grow" />
+        <span className="w-muted">Big targets for fine work · nudge with ← →</span>
+        <Button onClick={() => props.onRealign(selLane)}>Re-align this line</Button>
       </div>
-      <div style={{ height: 6 }} />
       {props.children}
-      <div className="hw-grow" />
-    </div>
+    </>
   );
 }
 
@@ -1253,71 +1544,57 @@ function TextView(props: {
   };
 
   return (
-    <div className="textview" onKeyDown={onKey}>
-      <div className="textview-col">
+    <div className="b-text" onKeyDown={onKey}>
+      <div className="b-text-col" role="list" aria-label="Lyric lines">
         {blocks.map((b, bi) => (
           <div key={bi} style={{ display: "contents" }}>
             {bi > 0 && (
-              <div className="stanza-gap">
-                <Label>Stanza · silence ≥ {STANZA_GAP_S} s</Label>
+              <div className="b-stanza-gap">
+                Stanza · silence ≥ {STANZA_GAP_S} s
                 <i />
               </div>
             )}
-            <div className="stanza">
-              {b.map((k) => (
-                <TextRow
-                  key={lanes[k].line ?? `run-${lanes[k].indices[0]}`}
-                  index={k}
-                  lane={lanes[k]}
-                  words={words}
-                  selected={k === selLane}
-                  onSelect={() => props.select(lanes[k].indices[0])}
-                  onCommit={(text) => dispatch({ type: "set-line-text", first: lanes[k].indices[0], last: lanes[k].indices[lanes[k].indices.length - 1], text })}
-                  onBreak={(wordInLine) => dispatch({ type: "break-line", at: lanes[k].indices[wordInLine] })}
-                  onJoin={() => dispatch({ type: "join-line", at: lanes[k].indices[0] })}
-                  onHear={() => props.onHearLine(k)}
-                />
-              ))}
-            </div>
+            {b.map((k) => (
+              <TextRow
+                key={lanes[k].line ?? `run-${lanes[k].indices[0]}`}
+                index={k}
+                lane={lanes[k]}
+                words={words}
+                selected={k === selLane}
+                onSelect={() => props.select(lanes[k].indices[0])}
+                onCommit={(text) => dispatch({ type: "set-line-text", first: lanes[k].indices[0], last: lanes[k].indices[lanes[k].indices.length - 1], text })}
+                onBreak={(wordInLine) => dispatch({ type: "break-line", at: lanes[k].indices[wordInLine] })}
+                onJoin={() => dispatch({ type: "join-line", at: lanes[k].indices[0] })}
+                onHear={() => props.onHearLine(k)}
+              />
+            ))}
           </div>
         ))}
-        {lanes.length === 0 && <div className="hw-banner">No lines yet.</div>}
+        {lanes.length === 0 && <div className="w-list-empty">No lines yet.</div>}
       </div>
-      <div className="textview-side">
-        <div className="hw-card">
-          <span className="hw-card-title">Structure, not timing</span>
-          <p>
-            Read the song as it will be sung. Line breaks and typos are fixed here; matched words keep their timing, a retyped run
-            spreads across the old span.
-          </p>
-        </div>
-        <div className="hw-card">
-          <span className="hw-card-title">Line surgery</span>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 11, color: "var(--hw-muted)" }}>
-            <div>
-              <Kb>↵</Kb> mid-line breaks it at the caret
-            </div>
-            <div>
-              <Kb>⌫</Kb> at the start joins with the line above
-            </div>
-            <div>
-              <Kb>↵</Kb> on a selected line plays it
-            </div>
+      <div className="b-text-side">
+        <GroupBox label="Structure, not timing">
+          Read the song as it will be sung. Fix line breaks and typos here; matched words keep their timing, and a retyped run
+          spreads across the old span.
+        </GroupBox>
+        <GroupBox label="Line surgery">
+          <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: "4px 8px" }}>
+            <b>Enter</b>
+            <span>mid-line breaks it at the caret</span>
+            <b>Backspace</b>
+            <span>at the start joins it to the line above</span>
+            <b>Enter</b>
+            <span>on an unchanged line plays it</span>
           </div>
-        </div>
-        <div className="hw-card">
-          <span className="hw-card-title">Still tied to the audio</span>
-          <p>
-            Start times and doubt LEDs stay in the margin. <Kb>+</Kb> drops into Lanes on the selected line.
-          </p>
-        </div>
-        <Key onClick={() => dispatch({ type: "reflow-lines" })}>Reflow lines to fit the TV</Key>
-        <Key accent icon="realign" onClick={() => selLane >= 0 && props.onRealign(selLane)} disabled={selLane < 0}>
+        </GroupBox>
+        <GroupBox label="Still tied to the audio">
+          Start times and check markers stay in the margin. Press + to jump into Lanes on the selected line.
+        </GroupBox>
+        <Button onClick={() => dispatch({ type: "reflow-lines" })}>Re&flow lines to fit the TV</Button>
+        <Button isDefault onClick={() => selLane >= 0 && props.onRealign(selLane)} disabled={selLane < 0}>
           Re-align selected line
-        </Key>
-        <Key onClick={props.onZoom} kb="+">
-          Zoom to lanes
-        </Key>
+        </Button>
+        <Button onClick={props.onZoom}>Zoom to Lanes (+)</Button>
       </div>
     </div>
   );
@@ -1348,10 +1625,7 @@ function TextRow(props: {
     setDraft(null);
   };
   return (
-    <div className={`trow${selected ? " sel" : ""}`} onClick={props.onSelect}>
-      <span className="handle">
-        <Icon name="grip" />
-      </span>
+    <div className={`b-trow${selected ? " sel" : ""}`} onClick={props.onSelect} role="listitem" aria-current={selected || undefined}>
       <span className="num">{String(props.index + 1).padStart(2, "0")}</span>
       <span className="tm">
         {start.main}
@@ -1362,6 +1636,7 @@ function TextRow(props: {
           <input
             ref={inputRef}
             type="text"
+            aria-label={`Line ${props.index + 1}`}
             value={draft ?? text}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
@@ -1388,7 +1663,7 @@ function TextRow(props: {
           text
         )}
       </span>
-      {doubt && <Led on color="yellow" />}
+      {doubt && <span className="b-doubt-sq" title="A word here needs checking" />}
     </div>
   );
 }
