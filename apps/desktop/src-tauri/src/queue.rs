@@ -1,9 +1,12 @@
-//! In-process FIFO job queue for the generate pipeline.
+//! FIFO job queue for the generate pipeline.
 //!
-//! One worker thread executes [`karaoke_core::pipeline::generate`] jobs one at
-//! a time (the pipeline is compute-bound; PLAN.md §5 job queue). Queueing and
-//! the UI never block: `generate_song` returns immediately with a snapshot and
-//! every state change is pushed to the webview as a `karaoke://job` event.
+//! One worker thread feeds jobs, one at a time, to the import worker process
+//! ([`crate::worker`]: below-normal priority, models kept loaded between
+//! queued jobs; the pipeline is compute-bound — PLAN.md §5 job queue). If the
+//! worker process cannot start, the job runs in this process instead.
+//! Queueing and the UI never block: `generate_song` returns immediately with
+//! a snapshot and every state change is pushed to the webview as a
+//! `karaoke://job` event.
 //!
 //! Durable state (the resumable manifest + jobs-dir pointer) is karaoke-core's
 //! job — this queue only tracks *this process's* work. A job killed mid-stage
@@ -14,6 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -22,6 +26,11 @@ use karaoke_core::library::register_completed_job;
 use karaoke_core::pipeline::{self, GenerateRequest, PipelineEvent};
 
 use crate::library::LibraryHandle;
+use crate::worker::{JobEnd, Worker};
+
+/// An idle worker process keeps its models loaded this long for the next
+/// queued job, then exits and frees its RAM and VRAM.
+const WORKER_IDLE: Duration = Duration::from_secs(90);
 
 /// Single event channel the frontend subscribes to.
 pub const JOB_EVENT: &str = "karaoke://job";
@@ -55,8 +64,8 @@ pub struct JobSnapshot {
     pub status: JobStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// True once `cancel_job` was called on a running job; the worker stops at
-    /// the next pipeline progress tick (the manifest stays resumable).
+    /// True once `cancel_job` was called on a running job; the worker process
+    /// is stopped (the manifest stays resumable).
     pub cancel_requested: bool,
     pub queued_unix: u64,
 }
@@ -210,6 +219,7 @@ impl JobQueue {
     /// the song lands in the library marked ready) *before* the completed
     /// lifecycle event fires, so a UI refetch on that event sees the row.
     pub fn run_worker(self: Arc<Self>, app: AppHandle, library: Arc<LibraryHandle>) {
+        let mut worker: Option<Worker> = None;
         loop {
             let (id, request, cancel, started) = {
                 let mut inner = self.inner.lock().unwrap();
@@ -225,12 +235,25 @@ impl JobQueue {
                         entry.snapshot.status = JobStatus::Running;
                         break (id, request, entry.cancel.clone(), entry.snapshot.clone());
                     }
-                    inner = self.cv.wait(inner).unwrap();
+                    if worker.is_none() {
+                        inner = self.cv.wait(inner).unwrap();
+                        continue;
+                    }
+                    let (guard, wait) = self.cv.wait_timeout(inner, WORKER_IDLE).unwrap();
+                    if wait.timed_out() && guard.pending.is_empty() {
+                        // Retire the idle worker outside the lock (its drop
+                        // waits briefly for the process to exit).
+                        drop(guard);
+                        worker = None;
+                        inner = self.inner.lock().unwrap();
+                    } else {
+                        inner = guard;
+                    }
                 }
             };
             emit_lifecycle(&app, &started);
 
-            let outcome = run_one(&app, id, &request, &cancel);
+            let outcome = run_one(&app, id, &request, &cancel, &mut worker);
 
             // Library registration happens outside the queue lock (it reads
             // the manifest + tags from disk) and must not fail the job — the
@@ -307,7 +330,61 @@ enum RunOutcome {
     Failed { message: String },
 }
 
+/// Run one job in the worker process, starting it if needed; falls back to
+/// this process when it cannot start. A cancelled or crashed worker is
+/// discarded (the next job starts a fresh one).
 fn run_one(
+    app: &AppHandle,
+    id: u64,
+    request: &GenerateRequest,
+    cancel: &Arc<AtomicBool>,
+    worker: &mut Option<Worker>,
+) -> RunOutcome {
+    if worker.is_none() {
+        match Worker::spawn() {
+            Ok(w) => *worker = Some(w),
+            Err(e) => {
+                let _ = app.emit(
+                    JOB_EVENT,
+                    JobEventPayload::Pipeline {
+                        job_id: id,
+                        event: PipelineEvent::Note {
+                            message: format!("import worker unavailable ({e}) — importing in the app process"),
+                        },
+                    },
+                );
+                return run_in_process(app, id, request, cancel);
+            }
+        }
+    }
+    let w = worker.as_mut().expect("started above");
+    let app_events = app.clone();
+    let mut on_event = move |e: &PipelineEvent| {
+        let _ = app_events.emit(
+            JOB_EVENT,
+            JobEventPayload::Pipeline {
+                job_id: id,
+                event: e.clone(),
+            },
+        );
+    };
+    match w.run(request, &mut on_event, &|| cancel.load(Ordering::Relaxed)) {
+        JobEnd::Done { map_path } => RunOutcome::Completed { map_path },
+        JobEnd::Failed { message } => RunOutcome::Failed { message },
+        JobEnd::Cancelled => {
+            *worker = None;
+            RunOutcome::Cancelled
+        }
+        JobEnd::Died { message } => {
+            *worker = None;
+            RunOutcome::Failed { message }
+        }
+    }
+}
+
+/// The pre-worker path: run the pipeline on this thread, cancelling by
+/// unwinding out of the progress callback ([`CancelledMarker`]).
+fn run_in_process(
     app: &AppHandle,
     id: u64,
     request: &GenerateRequest,

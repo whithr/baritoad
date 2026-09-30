@@ -46,7 +46,8 @@ pub const FALLBACK_LINE_GAP_S: f64 = 1.5;
 
 /// The export formats we write (PLAN.md §3; the rendered-video export goes
 /// through ffmpeg, not this module).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Format {
     /// Enhanced LRC: line tags + per-word `<mm:ss.xx>` tags.
     Lrc,

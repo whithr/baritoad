@@ -22,7 +22,7 @@ pub mod manifest;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::alignment::{AlignConfig, Aligner, CTC_ONSET_BIAS_S};
 use crate::audio;
@@ -46,7 +46,7 @@ pub const EXPORT_STAGE_VERSION: u32 = 1;
 /// Progress/diagnostic events for a front end to subscribe to. The Tauri app
 /// (next milestone) forwards these to the progress screen; the CLI prints
 /// them to stderr. Serialized as `{"type": "...", ...}` (serde tag).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PipelineEvent {
     StageStarted {
@@ -80,8 +80,9 @@ pub enum PipelineEvent {
 
 /// Everything `generate` needs. Paths may be relative; they are absolutized
 /// against the current directory before hashing so manifests stay meaningful
-/// from any working directory.
-#[derive(Debug, Clone)]
+/// from any working directory. Serializable so the desktop can hand a job to
+/// its worker process.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub audio: PathBuf,
     /// Pasted-lyrics file (golden path — PLAN.md §4). None ⇒ the align stage
@@ -193,11 +194,44 @@ fn absolutize(p: &Path) -> PathBuf {
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
+/// Models kept loaded between [`generate_with`] calls — the desktop's worker
+/// process holds one across a queue of songs so each job skips session
+/// setup. Keys include each model file's size + mtime, so a replaced file
+/// reloads. Holds at most one separation session: a different model or EP
+/// drops the resident one *before* loading (never two htdemucs-class
+/// DirectML sessions at once — [`separation::ModelKind`] docs).
+#[derive(Default)]
+pub struct ModelCache {
+    sep: Option<(SepKey, separation::SepModel)>,
+    aligner: Option<(AlignKey, Aligner)>,
+}
+
+#[derive(PartialEq)]
+struct SepKey {
+    files: Vec<String>,
+    ep: EpChoice,
+}
+
+#[derive(PartialEq)]
+struct AlignKey {
+    files: Vec<String>,
+    whisper_int8: bool,
+}
+
 /// Run (or resume) the full generate pipeline. Every stage transition is
 /// persisted to the job manifest before and after the stage runs, so a kill
 /// at any point leaves a resumable record (manifest module docs).
 pub fn generate(
     req: &GenerateRequest,
+    on_event: &mut dyn FnMut(&PipelineEvent),
+) -> Result<GenerateOutcome> {
+    generate_with(req, &mut ModelCache::default(), on_event)
+}
+
+/// [`generate`], reusing (and refilling) `cache`'s loaded models.
+pub fn generate_with(
+    req: &GenerateRequest,
+    cache: &mut ModelCache,
     on_event: &mut dyn FnMut(&PipelineEvent),
 ) -> Result<GenerateOutcome> {
     let t_total = Instant::now();
@@ -321,6 +355,7 @@ pub fn generate(
             &model_paths,
             req.ep,
             req.sep_options,
+            cache,
             on_event,
         );
         match result {
@@ -519,6 +554,7 @@ pub fn generate(
             req.whisper_int8,
             onset_bias,
             &map_path,
+            cache,
             on_event,
         );
         match result {
@@ -683,6 +719,7 @@ fn run_separate_stage(
     model_paths: &[PathBuf],
     ep: EpChoice,
     sep_options: separation::SeparateOptions,
+    cache: &mut ModelCache,
     on_event: &mut dyn FnMut(&PipelineEvent),
 ) -> Result<(Vec<Artifact>, serde_json::Value)> {
     let progress_msg = |m: String, on_event: &mut dyn FnMut(&PipelineEvent)| {
@@ -736,11 +773,23 @@ fn run_separate_stage(
             message: Some(msg),
         });
     };
-    let prepared =
-        separation::prepare_model(model_paths, ep, Some(&parity_cache), &mut sep_events)?;
-    let init_seconds = prepared.init_seconds;
-    let parity_seconds = prepared.parity_seconds;
-    let mut model = prepared.model;
+    let key = SepKey {
+        files: model_paths.iter().map(|p| model_file_id(p)).collect(),
+        ep,
+    };
+    let (mut model, init_seconds, parity_seconds) = match cache.sep.take() {
+        Some((k, m)) if k == key => {
+            sep_events(&separation::Event::Note(format!("reusing the loaded {} session", m.ep)));
+            (m, 0.0, 0.0)
+        }
+        other => {
+            // Release any resident session before building the next one.
+            drop(other);
+            let prepared =
+                separation::prepare_model(model_paths, ep, Some(&parity_cache), &mut sep_events)?;
+            (prepared.model, prepared.init_seconds, prepared.parity_seconds)
+        }
+    };
     let ep_used = model.ep;
     let sub_models = model.sub_models();
 
@@ -760,6 +809,7 @@ fn run_separate_stage(
         },
     )?;
     let files = sink.finalize()?;
+    cache.sep = Some((key, model));
     on_event(&PipelineEvent::StageProgress {
         stage: StageId::Separate,
         fraction: Some(1.0),
@@ -798,6 +848,7 @@ fn run_align_stage(
     whisper_int8: bool,
     onset_bias_s: f64,
     map_path: &Path,
+    cache: &mut ModelCache,
     on_event: &mut dyn FnMut(&PipelineEvent),
 ) -> Result<(WordTimingMap, crate::alignment::AlignStats)> {
     let vocals_path = stems_dir.join("vocals.wav");
@@ -820,14 +871,27 @@ fn run_align_stage(
         w2v_try_dml: false, // TDR risk — CLI `align --ep dml` remains the opt-in path
         ..AlignConfig::default()
     };
-    let (mut aligner, notes) = Aligner::load(model_dir, cfg)?;
-    for n in &notes {
-        on_event(&PipelineEvent::StageProgress {
-            stage: StageId::Align,
-            fraction: None,
-            message: Some(n.clone()),
-        });
+    let key = AlignKey {
+        files: [crate::alignment::WHISPER_DIR_NAME, crate::alignment::WAV2VEC2_DIR_NAME]
+            .iter()
+            .map(|d| model_file_id(&model_dir.join(d)))
+            .collect(),
+        whisper_int8,
+    };
+    if !matches!(&cache.aligner, Some((k, _)) if *k == key) {
+        cache.aligner = None;
+        let (loaded, notes) = Aligner::load(model_dir, cfg)?;
+        for n in &notes {
+            on_event(&PipelineEvent::StageProgress {
+                stage: StageId::Align,
+                fraction: None,
+                message: Some(n.clone()),
+            });
+        }
+        cache.aligner = Some((key, loaded));
     }
+    let aligner = &mut cache.aligner.as_mut().expect("loaded above").1;
+    aligner.cfg.onset_bias_s = onset_bias_s;
 
     let mut progress = |fraction: Option<f64>, m: &str| {
         on_event(&PipelineEvent::StageProgress {

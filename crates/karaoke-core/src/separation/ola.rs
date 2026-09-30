@@ -42,7 +42,7 @@ pub const STRIDE: usize = SEGMENT / 4 * 3;
 pub const MAX_SHIFT: usize = 22_050;
 
 /// Separation quality knobs. `Default` matches the spike / demucs defaults.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SeparateOptions {
     /// Segment overlap fraction in `[0, 0.9]` (demucs default 0.25).
     pub overlap: f32,

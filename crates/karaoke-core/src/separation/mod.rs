@@ -37,7 +37,8 @@ pub const FT_MODEL_FILE_NAMES: [&str; NUM_SOURCES] = [
 ];
 
 /// Which separation model to run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ModelKind {
     /// Base htdemucs: one ONNX file, one inference sweep per segment.
     #[default]
@@ -103,7 +104,8 @@ impl ModelKind {
 }
 
 /// User-facing EP request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EpChoice {
     /// Best available: GPU EPs in preference order, then CPU.
     Auto,

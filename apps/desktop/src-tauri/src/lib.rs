@@ -10,12 +10,20 @@ mod queue;
 mod review;
 mod stage;
 mod theme;
+mod worker;
 
 use std::sync::Arc;
 
 use library::LibraryHandle;
 use queue::JobQueue;
 use tauri::Manager;
+
+pub use worker::WORKER_ARG;
+
+/// Entry point of the import worker process (worker.rs); returns its exit code.
+pub fn serve_worker() -> i32 {
+    worker::serve()
+}
 
 pub fn run() {
     let job_queue = Arc::new(JobQueue::new());
@@ -37,7 +45,8 @@ pub fn run() {
         .on_window_event(|window, event| stage::on_window_event(window, event))
         .setup(move |app| {
             // One worker: pipeline stages are compute-bound (GPU/CPU saturating)
-            // — jobs queue FIFO and run strictly one at a time (PLAN.md §5).
+            // — jobs queue FIFO and run strictly one at a time (PLAN.md §5),
+            // each in the below-normal-priority worker process (worker.rs).
             let handle = app.handle().clone();
             let worker_queue = job_queue.clone();
             let worker_library = library_handle.clone();
