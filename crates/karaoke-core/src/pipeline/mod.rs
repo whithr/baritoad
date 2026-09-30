@@ -548,17 +548,7 @@ pub fn generate_with(
             stage: StageId::Align,
         });
         let t0 = Instant::now();
-        let result = run_align_stage(
-            &stems_dir,
-            &model_dir,
-            cleaned.as_ref(),
-            req.whisper_int8,
-            onset_bias,
-            req.ep != EpChoice::Cpu,
-            &map_path,
-            cache,
-            on_event,
-        );
+        let result = run_align_stage(req, &stems_dir, &model_dir, cleaned.as_ref(), &map_path, cache, on_event);
         match result {
             Ok((m, stats)) => {
                 let secs = t0.elapsed().as_secs_f64();
@@ -844,16 +834,17 @@ fn run_separate_stage(
 }
 
 fn run_align_stage(
+    req: &GenerateRequest,
     stems_dir: &Path,
     model_dir: &Path,
     cleaned: Option<&CleanLyrics>,
-    whisper_int8: bool,
-    onset_bias_s: f64,
-    w2v_dml: bool,
     map_path: &Path,
     cache: &mut ModelCache,
     on_event: &mut dyn FnMut(&PipelineEvent),
 ) -> Result<(WordTimingMap, crate::alignment::AlignStats)> {
+    let whisper_int8 = req.whisper_int8;
+    let onset_bias_s = req.onset_bias_s.unwrap_or(CTC_ONSET_BIAS_S);
+    let w2v_dml = req.ep != EpChoice::Cpu;
     let vocals_path = stems_dir.join("vocals.wav");
     if !vocals_path.is_file() {
         return Err(Error::InvalidInput(format!(
