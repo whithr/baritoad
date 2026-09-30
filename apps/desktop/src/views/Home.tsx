@@ -4,7 +4,9 @@
 // toolbar holds only the frequent jobs, and the right-click menus and keys
 // are shortcuts to the rest. Adding a song is a wizard (the big drop box
 // shows only while the library is empty, or while a file is dragged over);
-// processing reports in a modeless dialog.
+// adding many is File › Import Folder… (or a folder / several files dropped
+// on the window) — a scan, one review list, then a queued batch that reports
+// once at the end. Processing reports in a modeless dialog.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -26,14 +28,18 @@ import {
   queueList,
   queueMoveEntry,
   queueRemove,
+  scanImport,
   songCollections,
   songSetReviewed,
   type CollectionInfo,
+  type ImportQueued,
+  type ImportScan,
   type QueueEntry,
   type Song,
 } from "../api";
 import type { Route } from "../App";
-import { progressHeadline, type JobsState } from "../jobEvents";
+import { batchProgress } from "../importState";
+import { progressHeadline, type JobProgress, type JobsState } from "../jobEvents";
 import { filterSongs, fmtDuration, sortBy, statusFor, type SongStatus, type SortDir } from "../libraryState";
 import {
   AppFrame,
@@ -62,6 +68,7 @@ import {
 import { openStage } from "../stage";
 import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
+import ImportDialog from "./ImportDialog";
 import ProcessingDialog from "./ProcessingDialog";
 
 const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "wma"];
@@ -148,11 +155,16 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const [procJob, setProcJob] = useState<number | null>(null);
   const [procOpen, setProcOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [importScan, setImportScan] = useState<ImportScan | null>(null);
+  /** What a running folder scan is looking through. */
+  const [scanning, setScanning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const watched = useRef(new Set<number>());
   const announced = useRef(new Set<number>());
+  /** The current bulk import's jobs — reported once, when all are done. */
+  const batch = useRef<number[]>([]);
 
   const collectionId = node.startsWith("c:") ? Number(node.slice(2)) : null;
   const collection = collections.find((c) => c.id === collectionId) ?? null;
@@ -309,6 +321,38 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     if (typeof picked === "string") setWizard({ path: picked });
   }, []);
 
+  // Bulk import: scan what was picked or dropped, then review it.
+  const startImport = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0) return;
+      setScanning(paths.length === 1 ? paths[0] : `${paths.length} items`);
+      try {
+        const scan = await scanImport(paths);
+        if (scan.items.length === 0) {
+          await ask({
+            kind: "info",
+            title: "Import Songs",
+            message: "No songs found there.",
+            detail: "Karascape looks for MP3, FLAC, WAV, M4A, OGG, AAC, AIFF and WMA files — in the folder and every folder inside it.",
+          });
+        } else {
+          setImportScan(scan);
+        }
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setScanning(null);
+      }
+    },
+    [ask],
+  );
+  const startImportRef = useRef(startImport);
+  startImportRef.current = startImport;
+  const importFolder = useCallback(async () => {
+    const picked = await open({ directory: true, multiple: false });
+    if (typeof picked === "string") void startImport([picked]);
+  }, [startImport]);
+
   // A native drop lands on the webview, not the DOM.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -319,8 +363,11 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         else if (event.payload.type === "leave") setDragOver(false);
         else if (event.payload.type === "drop") {
           setDragOver(false);
-          const audio = event.payload.paths.find(isAudioPath) ?? event.payload.paths[0];
-          if (audio) setWizard({ path: audio });
+          // One song → the Add Song wizard; a folder or several files → a
+          // scan and the Import Songs review.
+          const paths = event.payload.paths;
+          if (paths.length === 1 && isAudioPath(paths[0])) setWizard({ path: paths[0] });
+          else if (paths.length > 0) void startImportRef.current(paths);
         }
       })
       .then((u) => (disposed ? u() : (unlisten = u)))
@@ -330,6 +377,57 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       unlisten?.();
     };
   }, []);
+
+  const onImportQueued = (r: ImportQueued) => {
+    setImportScan(null);
+    batch.current = batch.current.concat(r.jobs.map((j) => j.id));
+    if (r.jobs.length > 0) {
+      setProcJob(r.jobs[0].id);
+      setProcOpen(true);
+    }
+    if (r.failures.length > 0) {
+      void ask({
+        kind: "warning",
+        title: "Import Songs",
+        message: `${r.failures.length === 1 ? "1 song" : `${r.failures.length} songs`} couldn't be queued.`,
+        detail: r.failures.map((f) => `${f.audio_path.split(/[\\/]/).pop()}: ${f.message}`).join("\n"),
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (batch.current.length === 0) return;
+    const b = batchProgress(batch.current.map((id) => jobs.jobs[id]));
+    if (b.remaining > 0) return;
+    const failed = batch.current.map((id) => jobs.jobs[id]).filter((p) => p?.job.status === "failed");
+    batch.current = [];
+    setProcOpen(false);
+    const lines = [
+      b.done > 0 ? `${b.done === 1 ? "1 song is" : `${b.done} songs are`} in your library. Songs Karascape timed wait under Needs checking for a quick listen.` : "",
+      b.failed > 0
+        ? `Couldn't finish: ${failed.map((p) => p!.job.title).slice(0, 8).join(", ")}${b.failed > 8 ? ", …" : ""}. Import the folder again to retry them.`
+        : "",
+      b.cancelled > 0 ? `${b.cancelled} cancelled.` : "",
+    ].filter(Boolean);
+    void ask({
+      kind: b.failed > 0 ? "warning" : "info",
+      title: "Import Songs",
+      message:
+        b.done === b.total
+          ? `Imported ${b.total === 1 ? "1 song" : `${b.total} songs`}.`
+          : `Imported ${b.done} of ${b.total === 1 ? "1 song" : `${b.total} songs`}.`,
+      detail: lines.join("\n\n"),
+      buttons:
+        b.done > 0
+          ? [
+              { id: "review", label: "Show &Needs checking", isDefault: true },
+              { id: "ok", label: "OK", cancel: true },
+            ]
+          : [{ id: "ok", label: "OK", isDefault: true, cancel: true }],
+    }).then((r) => {
+      if (r === "review") setNode("review");
+    });
+  }, [jobs, ask]);
 
   const canOpen = !!song?.timing_map_path && st?.kind !== "processing";
   const openSong = (s: Song | null = song) => {
@@ -546,6 +644,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       label: "&File",
       items: [
         { label: "&Add Song…", accel: "Ctrl+O", keys: "ctrl+o", run: () => void addSong() },
+        { label: "&Import Folder…", accel: "Ctrl+Shift+O", keys: "ctrl+shift+o", run: () => void importFolder(), disabled: scanning != null },
         { label: "&New Collection…", run: () => void newCollection() },
         "-",
         { label: "E&xit", accel: "Alt+F4", run: () => void getCurrentWindow().close().catch(() => undefined) },
@@ -629,6 +728,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           <span>Find</span>
           <span>Ctrl+O</span>
           <span>Add a song</span>
+          <span>Ctrl+Shift+O</span>
+          <span>Import a folder of songs</span>
           <span>Alt / F10</span>
           <span>Menus</span>
           <span>Shift+F10</span>
@@ -680,6 +781,32 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const activeJob = jobs.order
     .map((id) => jobs.jobs[id])
     .find((p) => p && (p.job.status === "running" || p.job.status === "queued"));
+  const waitingJobs = jobs.order
+    .map((id) => jobs.jobs[id])
+    .filter((p): p is JobProgress => !!p && p.job.status === "queued" && p !== activeJob);
+  // The Processing dialog follows a batch: once its song is done it shows
+  // the batch's song in progress (else whatever is running).
+  const procProgress = procJob != null ? jobs.jobs[procJob] : undefined;
+  const unfinished = (p: JobProgress | undefined) => !!p && (p.job.status === "queued" || p.job.status === "running");
+  const batchNow = (() => {
+    const mine = batch.current.map((id) => jobs.jobs[id]);
+    return mine.find((p) => p?.job.status === "running") ?? mine.find(unfinished);
+  })();
+  const shownJob = unfinished(procProgress) ? procProgress : (batchNow ?? activeJob ?? procProgress);
+  const cancelAll = async () => {
+    const r = await ask({
+      kind: "question",
+      title: "Import Songs",
+      message: "Stop importing?",
+      detail: `The song in progress and the ${waitingJobs.length === 1 ? "1 song" : `${waitingJobs.length} songs`} waiting won't be imported. Songs already finished stay in your library.`,
+      buttons: [
+        { id: "stop", label: "&Stop importing" },
+        { id: "keep", label: "&Keep going", isDefault: true, cancel: true },
+      ],
+    });
+    if (r !== "stop") return;
+    for (const p of [...waitingJobs, ...(activeJob ? [activeJob] : [])]) void cancelJob(p.job.id).catch(() => undefined);
+  };
 
   const emptyText =
     allSongs.length === 0
@@ -782,10 +909,13 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
               >
                 <Icon name="disc" size={32} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1, lineHeight: "18px" }}>
-                  <b>{dragOver ? "Let go to add this song" : "Drop a song here"}</b>
-                  <span>Or browse for an audio file you own.</span>
+                  <b>{dragOver ? "Let go to add them" : "Drop songs or a folder of them here"}</b>
+                  <span>Or browse for an audio file you own, or a whole folder.</span>
                 </div>
                 <Button onClick={() => void addSong()}>&Browse…</Button>
+                <Button onClick={() => void importFolder()} disabled={scanning != null}>
+                  Import &Folder…
+                </Button>
               </div>
             </GroupBox>
           )}
@@ -796,7 +926,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             >
               <div className="w-window" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px" }}>
                 <Icon name="disc" size={32} />
-                <b>Let go to add this song</b>
+                <b>Let go to add them</b>
               </div>
             </div>
           )}
@@ -896,7 +1026,12 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           {song ? ", 1 selected" : ""}
         </StatusPane>
         <StatusPane grow>
-          {activeJob ? (
+          {scanning ? (
+            <>
+              <Icon name="working" />
+              Looking for songs in {scanning}…
+            </>
+          ) : activeJob ? (
             <>
               <Icon name="working" />
               <button
@@ -909,6 +1044,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                 }}
               >
                 {progressHeadline(activeJob)}: {activeJob.job.title}
+                {waitingJobs.length > 0 ? ` (${waitingJobs.length} more waiting)` : ""}
               </button>
             </>
           ) : (
@@ -932,8 +1068,11 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         }}
       />
       {dialogs.element}
+      <ImportDialog scan={importScan} onClose={() => setImportScan(null)} onQueued={onImportQueued} />
       <ProcessingDialog
-        job={procJob != null ? jobs.jobs[procJob] : undefined}
+        job={shownJob}
+        waiting={waitingJobs}
+        onCancelAll={() => void cancelAll()}
         open={procOpen}
         onHide={() => setProcOpen(false)}
         onCancelJob={(id) => void cancelJob(id)}

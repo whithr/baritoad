@@ -12,6 +12,12 @@
 //! job — this queue only tracks *this process's* work. A job killed mid-stage
 //! resumes from its manifest on the next run, so cancellation is allowed to be
 //! coarse (see [`CancelledMarker`]).
+//!
+//! The *list* of unfinished jobs is durable too (a bulk import is an
+//! overnight job — PLAN.md §3): every queued or running job is mirrored to
+//! [`queue_store_path`], and [`JobQueue::restore`] re-queues them at launch,
+//! where each resumes from its manifest. A job carries [`PostImport`] steps
+//! (collection, mark checked) that run once it registers in the library.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -19,11 +25,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use karaoke_core::library::register_completed_job;
-use karaoke_core::pipeline::{self, GenerateRequest, PipelineEvent};
+use karaoke_core::library::store::LibraryStore;
+use karaoke_core::pipeline::{self, manifest, GenerateRequest, PipelineEvent};
 
 use crate::library::LibraryHandle;
 use crate::worker::{JobEnd, Worker};
@@ -81,10 +88,41 @@ pub enum JobEventPayload {
     Pipeline { job_id: u64, event: PipelineEvent },
 }
 
+/// Library steps a job takes once its song registers (bulk import).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PostImport {
+    /// Add the song to the collection with this name (created if missing,
+    /// matched case-insensitively).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
+    /// Mark the song checked (imported hand-made timings need no review).
+    #[serde(default)]
+    pub mark_checked: bool,
+}
+
+/// One unfinished job as saved in [`queue_store_path`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedJob {
+    request: GenerateRequest,
+    title: String,
+    #[serde(default)]
+    artist: Option<String>,
+    out_dir: PathBuf,
+    #[serde(default)]
+    post: PostImport,
+}
+
+/// `%LOCALAPPDATA%\karaoke\import-queue.json`, beside the library.
+pub fn queue_store_path() -> PathBuf {
+    karaoke_core::library::store::default_library_path().with_file_name("import-queue.json")
+}
+
 struct JobEntry {
     snapshot: JobSnapshot,
     /// Present until the worker takes the job.
     request: Option<GenerateRequest>,
+    /// What the queue file records while the job is unfinished.
+    saved: PersistedJob,
     cancel: Arc<AtomicBool>,
 }
 
@@ -100,6 +138,10 @@ pub struct JobQueue {
     inner: Mutex<Inner>,
     cv: Condvar,
     next_id: AtomicU64,
+    /// Where unfinished jobs are mirrored; None keeps the queue in memory.
+    store: Option<PathBuf>,
+    /// Serializes queue-file writes (outside the `inner` lock).
+    store_lock: Mutex<()>,
 }
 
 /// Panic payload used to unwind out of `pipeline::generate` on cancel. The
@@ -109,11 +151,75 @@ pub struct JobQueue {
 struct CancelledMarker;
 
 impl JobQueue {
+    /// An in-memory queue (nothing survives a restart).
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(Inner::default()),
             cv: Condvar::new(),
             next_id: AtomicU64::new(1),
+            store: None,
+            store_lock: Mutex::new(()),
+        }
+    }
+
+    /// A queue that mirrors its unfinished jobs to `path` (see module docs).
+    pub fn with_store(path: PathBuf) -> Self {
+        Self {
+            store: Some(path),
+            ..Self::new()
+        }
+    }
+
+    /// Re-queue the jobs a previous run left unfinished. Each resumes from
+    /// its manifest (finished stages are skipped). A missing or unreadable
+    /// file restores nothing.
+    pub fn restore(&self, app: &AppHandle) -> usize {
+        let Some(path) = &self.store else { return 0 };
+        let Ok(raw) = std::fs::read_to_string(path) else { return 0 };
+        let Ok(jobs) = serde_json::from_str::<Vec<PersistedJob>>(&raw) else { return 0 };
+        let n = jobs.len();
+        for j in jobs {
+            if j.request.audio.is_file() {
+                self.enqueue(app, j.request, j.title, j.artist, j.out_dir, j.post);
+            }
+        }
+        self.persist(); // drops entries whose audio has gone
+        n
+    }
+
+    /// Mirror every queued/running job to the queue file. Takes `store_lock`
+    /// *then* `inner` (never the reverse), so writes land in order.
+    fn persist(&self) {
+        let Some(path) = &self.store else { return };
+        let _write = self.store_lock.lock().unwrap();
+        let unfinished: Vec<PersistedJob> = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .order
+                .iter()
+                .filter_map(|id| inner.jobs.get(id))
+                .filter(|e| matches!(e.snapshot.status, JobStatus::Queued | JobStatus::Running))
+                .filter(|e| !e.snapshot.cancel_requested)
+                .map(|e| e.saved.clone())
+                .collect()
+        };
+        let result = if unfinished.is_empty() {
+            match std::fs::remove_file(path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                _ => Ok(()),
+            }
+        } else {
+            serde_json::to_vec_pretty(&unfinished)
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| {
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                    }
+                    manifest::write_atomic(path, &bytes).map_err(|e| e.to_string())
+                })
+        };
+        if let Err(e) = result {
+            eprintln!("import queue: cannot save {}: {e}", path.display());
         }
     }
 
@@ -126,8 +232,16 @@ impl JobQueue {
         title: String,
         artist: Option<String>,
         out_dir: PathBuf,
+        post: PostImport,
     ) -> JobSnapshot {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let saved = PersistedJob {
+            request: request.clone(),
+            title: title.clone(),
+            artist: artist.clone(),
+            out_dir: out_dir.clone(),
+            post,
+        };
         let snapshot = JobSnapshot {
             id,
             audio: request.audio.clone(),
@@ -148,11 +262,13 @@ impl JobQueue {
                 JobEntry {
                     snapshot: snapshot.clone(),
                     request: Some(request),
+                    saved,
                     cancel: Arc::new(AtomicBool::new(false)),
                 },
             );
             inner.order.push(id);
         }
+        self.persist();
         // Emit Queued BEFORE the job becomes takeable: the worker emits
         // Running from its own thread, and on an idle queue it used to win
         // the race — the webview saw Running then Queued and the UI sat on
@@ -200,6 +316,7 @@ impl JobQueue {
             }
             entry.snapshot.clone()
         };
+        self.persist();
         emit_lifecycle(app, &snapshot);
         Some(snapshot)
     }
@@ -260,25 +377,42 @@ impl JobQueue {
             // song outputs exist regardless.
             let registered = match &outcome {
                 RunOutcome::Completed { .. } => {
-                    let (title, artist, out_dir) = {
+                    let (title, artist, out_dir, post) = {
                         let inner = self.inner.lock().unwrap();
                         let e = inner.jobs.get(&id).expect("job entry vanished");
                         (
                             e.snapshot.title.clone(),
                             e.snapshot.artist.clone(),
                             e.snapshot.out_dir.clone(),
+                            e.saved.post.clone(),
                         )
                     };
+                    // A failed post-import step (collection, checked) is a
+                    // note, not a lost song: the registration stands.
+                    let mut post_error: Option<String> = None;
                     let result = library.lock().and_then(|store| {
-                        register_completed_job(
+                        let song = register_completed_job(
                             &store,
                             &out_dir,
                             library.covers_dir(),
                             &title,
                             artist.as_deref(),
                         )
-                        .map_err(|e| e.to_string())
+                        .map_err(|e| e.to_string())?;
+                        post_error = apply_post_import(&store, song.id, &post).err();
+                        Ok(song)
                     });
+                    if let Some(msg) = post_error {
+                        let _ = app.emit(
+                            JOB_EVENT,
+                            JobEventPayload::Pipeline {
+                                job_id: id,
+                                event: PipelineEvent::Note {
+                                    message: format!("song added, but its import settings failed: {msg}"),
+                                },
+                            },
+                        );
+                    }
                     match result {
                         Ok(song) => Some(song.id),
                         Err(msg) => {
@@ -319,9 +453,30 @@ impl JobQueue {
                 }
                 entry.snapshot.clone()
             };
+            self.persist();
             emit_lifecycle(&app, &snapshot);
         }
     }
+}
+
+/// A registered song's [`PostImport`] steps.
+fn apply_post_import(store: &LibraryStore, song_id: i64, post: &PostImport) -> Result<(), String> {
+    if let Some(name) = post.collection.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        let existing = store
+            .list_collections()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|c| c.name.eq_ignore_ascii_case(name));
+        let collection_id = match existing {
+            Some(c) => c.id,
+            None => store.create_collection(name).map_err(|e| e.to_string())?.id,
+        };
+        store.add_to_collection(collection_id, song_id).map_err(|e| e.to_string())?;
+    }
+    if post.mark_checked {
+        store.set_reviewed(song_id, true).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 enum RunOutcome {
@@ -445,28 +600,81 @@ fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
-/// Derive title/artist from a file name when tags/user input are absent
-/// (milestone 1: no tag reader yet — "Artist - Title.mp3" or the bare stem).
+/// Derive title/artist from a file name when tags/user input are absent —
+/// "Artist - Title.mp3" or the bare stem (shared with the folder scan).
 pub fn meta_from_filename(path: &Path) -> (String, Option<String>) {
-    let stem = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Untitled".into());
-    let cleaned = stem.replace('_', " ");
-    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    if let Some((artist, title)) = cleaned.split_once(" - ") {
-        let artist = artist.trim();
-        let title = title.trim();
-        if !artist.is_empty() && !title.is_empty() {
-            return (title.to_string(), Some(artist.to_string()));
-        }
-    }
-    (cleaned, None)
+    karaoke_core::import::meta_from_filename(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use karaoke_core::library::store::SongUpsert;
+
+    fn store_with_song() -> (LibraryStore, i64) {
+        let store = LibraryStore::open_in_memory().unwrap();
+        let song = store
+            .upsert_song(&SongUpsert {
+                title: "Waterloo".into(),
+                audio_path: PathBuf::from(r"D:\Karaoke\Party\ABBA - Waterloo.flac"),
+                audio_hash: "h1".into(),
+                job_dir: PathBuf::from(r"D:\Karaoke\Party\ABBA - Waterloo-karaoke"),
+                ..SongUpsert::default()
+            })
+            .unwrap();
+        (store, song.id)
+    }
+
+    #[test]
+    fn post_import_files_the_song_and_reuses_collections_by_name() {
+        let (store, id) = store_with_song();
+        let existing = store.create_collection("Christmas").unwrap();
+        let post = PostImport {
+            collection: Some("christmas".into()),
+            mark_checked: true,
+        };
+        apply_post_import(&store, id, &post).unwrap();
+        assert_eq!(store.list_collections().unwrap().len(), 1, "matched case-insensitively");
+        assert_eq!(store.collections_of_song(id).unwrap(), vec![existing.id]);
+        assert!(store.song(id).unwrap().unwrap().reviewed_at.is_some());
+    }
+
+    #[test]
+    fn post_import_creates_a_missing_collection_and_leaves_review_alone() {
+        let (store, id) = store_with_song();
+        let post = PostImport {
+            collection: Some("Party".into()),
+            mark_checked: false,
+        };
+        apply_post_import(&store, id, &post).unwrap();
+        let colls = store.list_collections().unwrap();
+        assert_eq!(colls.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Party"]);
+        assert!(store.song(id).unwrap().unwrap().reviewed_at.is_none());
+    }
+
+    #[test]
+    fn saved_jobs_round_trip_and_tolerate_missing_post_steps() {
+        let mut req = GenerateRequest::new(PathBuf::from(r"D:\a.mp3"));
+        req.timings = Some(PathBuf::from(r"D:\a.txt"));
+        let saved = PersistedJob {
+            request: req,
+            title: "A".into(),
+            artist: None,
+            out_dir: PathBuf::from(r"D:\a-karaoke"),
+            post: PostImport {
+                collection: Some("Party".into()),
+                mark_checked: true,
+            },
+        };
+        let json = serde_json::to_string(&vec![saved]).unwrap();
+        let back: Vec<PersistedJob> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back[0].request.timings.as_deref(), Some(Path::new(r"D:\a.txt")));
+        assert_eq!(back[0].post.collection.as_deref(), Some("Party"));
+        // A file written without post steps still loads.
+        let bare = json.replace(r#","post":{"collection":"Party","mark_checked":true}"#, "");
+        let back: Vec<PersistedJob> = serde_json::from_str(&bare).unwrap();
+        assert!(back[0].post.collection.is_none() && !back[0].post.mark_checked);
+    }
 
     #[test]
     fn meta_artist_title() {

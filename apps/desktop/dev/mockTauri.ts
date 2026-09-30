@@ -157,6 +157,13 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return r(null);
     case "generate_song":
       return r(fakeJob(args?.request as { audio_path: string; title?: string; artist?: string }));
+    case "scan_import":
+      return r(importScan((args?.paths as string[]) ?? []));
+    case "import_songs": {
+      const items = (args?.items as { audio_path: string; title?: string; artist?: string }[]) ?? [];
+      // Imports run one after another, faster than a wizard song.
+      return r({ jobs: items.map((i) => fakeJob(i, 0.4)), failures: [] });
+    }
     case "cancel_job":
       cancelled.add(args?.jobId as number);
       return r(true);
@@ -226,7 +233,40 @@ if (LABEL === "player" && typeof window !== "undefined") {
 // failure message box).
 let nextJob = 100;
 const cancelled = new Set<number>();
-function fakeJob(req: { audio_path: string; title?: string; artist?: string; out_dir?: string }) {
+// Bulk import stand-in: a folder with every lyrics kind, a sub-folder
+// collection, a song the library already has, and one that fails (its title
+// mentions "fail").
+function importScan(paths: string[]) {
+  const root = paths.length === 1 && !/\.[a-z0-9]{2,4}$/i.test(paths[0]) ? paths[0] : "D:\\Karaoke\\Party";
+  const at = (rel: string) => `${root}\\${rel}`;
+  const song = (rel: string, title: string, artist: string | null, lyrics: Record<string, unknown>, collection: string | null) => ({
+    audio_path: at(rel),
+    title,
+    artist,
+    lyrics,
+    collection,
+    in_library: false,
+  });
+  return {
+    items: [
+      song("ABBA - Waterloo.flac", "Waterloo", "ABBA", { kind: "text", path: at("ABBA - Waterloo.txt") }, null),
+      song("Nirvana - Lithium.mp3", "Lithium", "Nirvana", { kind: "none" }, null),
+      song("Queen - Bohemian Rhapsody\\Queen - Bohemian Rhapsody.mp3", "Bohemian Rhapsody", "Queen", { kind: "ultrastar", path: at("Queen - Bohemian Rhapsody\\Queen - Bohemian Rhapsody.txt") }, null),
+      song("Robyn - Dancing On My Own.mp3", "Dancing On My Own", "Robyn", { kind: "lrc", path: at("Robyn - Dancing On My Own.lrc") }, null),
+      song("The Failures - Fail Safe.mp3", "Fail Safe", "The Failures", { kind: "none" }, null),
+      song("Two Voices - Together.mp3", "Together", "Two Voices", { kind: "unreadable", path: at("Two Voices - Together.txt"), reason: "ultrastar line 5: duet file (P1/P2 voices) — duet import is not supported in v1" }, null),
+      song("Christmas\\Mariah Carey - All I Want For Christmas Is You.mp3", "All I Want For Christmas Is You", "Mariah Carey", { kind: "text", path: at("Christmas\\Mariah Carey - All I Want For Christmas Is You.txt") }, "Christmas"),
+      song("Christmas\\Wham! - Last Christmas.mp3", "Last Christmas", "Wham!", { kind: "none" }, "Christmas"),
+      { ...song("Turning Tide.mp3", "Turning Tide", "The Mock Harbor", { kind: "text", path: at("Turning Tide.txt") }, null), in_library: true },
+    ],
+    unmatched_lyrics: [at("notes.txt"), at("Christmas\\setlist.txt")],
+  };
+}
+
+// The real queue runs one job at a time; so does the stand-in.
+let busyUntil = 0;
+
+function fakeJob(req: { audio_path: string; title?: string; artist?: string; out_dir?: string }, speed = 1) {
   const id = nextJob++;
   const fails = /fail/i.test(req.title ?? "");
   const snap = {
@@ -241,8 +281,10 @@ function fakeJob(req: { audio_path: string; title?: string; artist?: string; out
   };
   const life = (over: Record<string, unknown>) => emit("karaoke://job", { kind: "lifecycle", job: { ...snap, ...over } });
   const pipe = (event: Record<string, unknown>) => emit("karaoke://job", { kind: "pipeline", job_id: id, event });
+  setTimeout(() => life({ status: "queued" }), 0);
+  const wait = Math.max(0, busyUntil - Date.now());
   const steps: [number, () => void][] = [
-    [300, () => life({ status: "running" })],
+    [wait + 300, () => life({ status: "running" })],
     [400, () => pipe({ type: "stage_started", stage: "separate" })],
   ];
   for (let i = 1; i <= 8; i++) {
@@ -258,12 +300,13 @@ function fakeJob(req: { audio_path: string; title?: string; artist?: string; out
     steps.push([300, () => life({ status: "completed", map_path: "C:/jobs/turning-tide/map.json", library_song_id: 1 })]);
   }
   let t = 0;
-  for (const [dt, fn] of steps) {
-    t += dt;
+  for (const [k, [dt, fn]] of steps.entries()) {
+    t += k === 0 ? dt : dt * speed; // the queue wait isn't sped up
     setTimeout(() => {
       if (!cancelled.has(id)) fn();
     }, t);
   }
+  busyUntil = Date.now() + t;
   const watch = window.setInterval(() => {
     if (cancelled.has(id)) {
       window.clearInterval(watch);
@@ -307,7 +350,9 @@ export async function availableMonitors() {
   return [];
 }
 export type Monitor = { name: string | null; position: { x: number; y: number }; size: { width: number; height: number } };
-export async function open(opts?: { filters?: { extensions: string[] }[] }) {
-  // Audio pickers get a stand-in file so the Add Song wizard can be driven.
+export async function open(opts?: { filters?: { extensions: string[] }[]; directory?: boolean }) {
+  // Folder pickers get a stand-in folder (Import Folder…); audio pickers a
+  // stand-in file so the Add Song wizard can be driven.
+  if (opts?.directory) return "D:\\Karaoke\\Party";
   return opts?.filters?.some((f) => f.extensions.includes("mp3")) ? "C:\\Music\\Night Drive.flac" : null;
 }

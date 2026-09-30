@@ -48,12 +48,14 @@ pub struct WordTiming {
 
 /// Where the lyric words came from (PLAN.md §3): pasted lyrics are the golden
 /// path; when none are provided the whisper transcript is the lyric source
-/// and the map is marked as such.
+/// and the map is marked as such. `Imported` maps came whole — words and
+/// hand-made timings — from an UltraStar .txt (no aligner involved).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LyricSource {
     Pasted,
     Transcribed,
+    Imported,
 }
 
 /// A contiguous run of lyric words the aligner could not place with

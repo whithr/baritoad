@@ -77,7 +77,7 @@ export interface TimingMap {
   version: number;
   time_base: string;
   duration: number;
-  lyric_source?: "pasted" | "transcribed";
+  lyric_source?: "pasted" | "transcribed" | "imported";
   words: WordTiming[];
   unsung_spans: { first_word: number; last_word: number; start: number; end: number }[];
 }
@@ -99,6 +99,54 @@ export interface GenerateSongRequest {
 
 export const generateSong = (request: GenerateSongRequest) =>
   invoke<JobSnapshot>("generate_song", { request });
+
+// ---------------------------------------------------------------------------
+// bulk import (karaoke-core import.rs — folder scan; commands.rs)
+// ---------------------------------------------------------------------------
+
+/** The lyrics a scanned song brings. UltraStar files keep their own timings. */
+export type ImportLyrics =
+  | { kind: "none" }
+  | { kind: "text"; path: string }
+  | { kind: "lrc"; path: string }
+  | { kind: "ultrastar"; path: string }
+  | { kind: "unreadable"; path: string; reason: string };
+
+export interface ImportCandidate {
+  audio_path: string;
+  title: string;
+  artist?: string | null;
+  lyrics: ImportLyrics;
+  /** Named after the song's folder. */
+  collection?: string | null;
+  in_library: boolean;
+}
+
+export interface ImportScan {
+  items: ImportCandidate[];
+  /** .txt / .lrc files no song claimed. */
+  unmatched_lyrics: string[];
+}
+
+export interface ImportSongItem {
+  audio_path: string;
+  title?: string;
+  artist?: string;
+  lyrics: ImportLyrics;
+  collection?: string;
+}
+
+export interface ImportQueued {
+  jobs: JobSnapshot[];
+  failures: { audio_path: string; message: string }[];
+}
+
+/** Find the songs in dropped/picked folders and files, paired with lyrics. */
+export const scanImport = (paths: string[]) => invoke<ImportScan>("scan_import", { paths });
+
+/** Queue a reviewed import, one job per song. */
+export const importSongs = (items: ImportSongItem[], opts: { hq_separation: boolean; cpu_only: boolean }) =>
+  invoke<ImportQueued>("import_songs", { items, hqSeparation: opts.hq_separation, cpuOnly: opts.cpu_only });
 
 /** The lyrics the job in `outDir` last ran with; null when it transcribed
  *  (or never got as far as saving them). */

@@ -42,6 +42,9 @@ pub const SEPARATE_STAGE_VERSION: u32 = 1;
 pub const CLEAN_LYRICS_STAGE_VERSION: u32 = 1;
 pub const ALIGN_STAGE_VERSION: u32 = 2;
 pub const EXPORT_STAGE_VERSION: u32 = 1;
+/// Bump when [`run_import_timings_stage`]'s conversion changes (it stands in
+/// for the align stage when a request carries UltraStar timings).
+pub const TIMINGS_IMPORT_VERSION: u32 = 1;
 
 /// Progress/diagnostic events for a front end to subscribe to. The Tauri app
 /// (next milestone) forwards these to the progress screen; the CLI prints
@@ -88,6 +91,12 @@ pub struct GenerateRequest {
     /// Pasted-lyrics file (golden path — PLAN.md §4). None ⇒ the align stage
     /// auto-transcribes and lyric cleanup is not applicable.
     pub lyrics: Option<PathBuf>,
+    /// An UltraStar .txt whose hand-made timings replace alignment (bulk
+    /// import of community song folders — PLAN.md §3 import). When set,
+    /// `lyrics` is ignored: clean-lyrics is not applicable and the align stage
+    /// converts the file instead of running the aligner.
+    #[serde(default)]
+    pub timings: Option<PathBuf>,
     /// Default: `<audio stem>-karaoke` beside the audio file.
     pub out_dir: Option<PathBuf>,
     /// Model root containing htdemucs.onnx, whisper-small/, wav2vec2/.
@@ -120,6 +129,7 @@ impl GenerateRequest {
         Self {
             audio,
             lyrics: None,
+            timings: None,
             out_dir: None,
             model_dir: None,
             jobs_dir: None,
@@ -265,6 +275,10 @@ pub fn generate_with(
         Some(p) => Some(manifest::InputRef::from_file(&absolutize(p))?),
         None => None,
     };
+    let timings_ref = match &req.timings {
+        Some(p) => Some(manifest::InputRef::from_file(&absolutize(p))?),
+        None => None,
+    };
 
     // ---- load or create the manifest ----
     let manifest_path = JobManifest::manifest_path(&out_dir);
@@ -404,13 +418,17 @@ pub fn generate_with(
     // Holds the cleanup output when lyrics exist; populated by run or by
     // loading the artifact on skip (align needs the structure in memory).
     let mut cleaned: Option<CleanLyrics> = None;
-    match &lyrics_ref {
+    match lyrics_ref.as_ref().filter(|_| timings_ref.is_none()) {
         None => {
             man.mark_not_applicable(StageId::CleanLyrics, CLEAN_LYRICS_STAGE_VERSION, &clean_fp);
             save(&mut man)?;
             on_event(&PipelineEvent::StageSkipped {
                 stage: StageId::CleanLyrics,
-                reason: "no lyrics given — align stage will auto-transcribe".into(),
+                reason: if timings_ref.is_some() {
+                    "timings imported from an UltraStar file".into()
+                } else {
+                    "no lyrics given — align stage will auto-transcribe".into()
+                },
             });
             outcomes.push(StageOutcome {
                 stage: StageId::CleanLyrics,
@@ -514,19 +532,30 @@ pub fn generate_with(
     // =====================================================================
     let map_path = out_dir.join(format!("{song_stem}.align.json"));
     let onset_bias = req.onset_bias_s.unwrap_or(CTC_ONSET_BIAS_S);
-    let align_fp = fingerprint(&serde_json::json!({
-        "stage": "align",
-        "version": ALIGN_STAGE_VERSION,
-        "separate_token": sep_token,
-        "clean_token": clean_token,
-        "whisper_int8": req.whisper_int8,
-        "onset_bias_s": onset_bias,
-        "w2v_dml": req.ep != EpChoice::Cpu,
-        "models": [
-            model_file_id(&model_dir.join(crate::alignment::WHISPER_DIR_NAME)),
-            model_file_id(&model_dir.join(crate::alignment::WAV2VEC2_DIR_NAME)),
-        ],
-    }));
+    let align_fp = match &timings_ref {
+        // Imported timings depend only on the file (and the audio length).
+        Some(t) => fingerprint(&serde_json::json!({
+            "stage": "align",
+            "version": ALIGN_STAGE_VERSION,
+            "source": "ultrastar",
+            "import_version": TIMINGS_IMPORT_VERSION,
+            "timings_sha256": t.sha256,
+            "audio_sha256": audio_ref.sha256,
+        })),
+        None => fingerprint(&serde_json::json!({
+            "stage": "align",
+            "version": ALIGN_STAGE_VERSION,
+            "separate_token": sep_token,
+            "clean_token": clean_token,
+            "whisper_int8": req.whisper_int8,
+            "onset_bias_s": onset_bias,
+            "w2v_dml": req.ep != EpChoice::Cpu,
+            "models": [
+                model_file_id(&model_dir.join(crate::alignment::WHISPER_DIR_NAME)),
+                model_file_id(&model_dir.join(crate::alignment::WAV2VEC2_DIR_NAME)),
+            ],
+        })),
+    };
     // The map, in memory, for the export stage (loaded from disk on skip).
     let map: Option<WordTimingMap>;
     if !forced(StageId::Align) && man.stage_up_to_date(StageId::Align, &align_fp) {
@@ -548,9 +577,13 @@ pub fn generate_with(
             stage: StageId::Align,
         });
         let t0 = Instant::now();
-        let result = run_align_stage(req, &stems_dir, &model_dir, cleaned.as_ref(), &map_path, cache, on_event);
+        let result = match &timings_ref {
+            Some(t) => run_import_timings_stage(&t.path, &audio_path, &map_path, on_event),
+            None => run_align_stage(req, &stems_dir, &model_dir, cleaned.as_ref(), &map_path, cache, on_event)
+                .map(|(m, stats)| (m, serde_json::to_value(&stats).unwrap_or(serde_json::Value::Null))),
+        };
         match result {
-            Ok((m, stats)) => {
+            Ok((m, details)) => {
                 let secs = t0.elapsed().as_secs_f64();
                 let bytes = std::fs::metadata(&map_path)?.len();
                 man.mark_complete(
@@ -563,10 +596,7 @@ pub fn generate_with(
                     }],
                     secs,
                 );
-                man.set_details(
-                    StageId::Align,
-                    serde_json::to_value(&stats).unwrap_or(serde_json::Value::Null),
-                );
+                man.set_details(StageId::Align, details);
                 save(&mut man)?;
                 on_event(&PipelineEvent::StageCompleted {
                     stage: StageId::Align,
@@ -833,6 +863,52 @@ fn run_separate_stage(
     Ok((artifacts, details))
 }
 
+/// The align stage for a request carrying UltraStar timings: the file's
+/// words and hand-made timings become the map as they are — no aligner, no
+/// cleanup (PLAN.md §3 import: "lyrics + timings used for playback"). The
+/// map runs to the audio's end so playback and the Bench see the whole song.
+fn run_import_timings_stage(
+    timings: &Path,
+    audio: &Path,
+    map_path: &Path,
+    on_event: &mut dyn FnMut(&PipelineEvent),
+) -> Result<(WordTimingMap, serde_json::Value)> {
+    let text = crate::import::read_text_file(timings)
+        .map_err(|e| Error::InvalidInput(format!("cannot read {}: {e}", timings.display())))?;
+    let map = timings_map_from_ultrastar(&text, crate::library::tags::read_tags(audio).ok().and_then(|t| t.duration_s))?;
+    on_event(&PipelineEvent::StageProgress {
+        stage: StageId::Align,
+        fraction: Some(1.0),
+        message: Some(format!("{} words timed by the UltraStar file", map.words.len())),
+    });
+    manifest::write_atomic(map_path, map.to_json_pretty()?.as_bytes())?;
+    let details = serde_json::json!({
+        "source": "ultrastar",
+        "file": timings,
+        "words": map.words.len(),
+    });
+    Ok((map, details))
+}
+
+/// UltraStar text → a validated, imported-source timing map at least as long
+/// as the audio (`audio_s`, when known).
+fn timings_map_from_ultrastar(text: &str, audio_s: Option<f64>) -> Result<WordTimingMap> {
+    let song = formats::ultrastar::import(text)?;
+    let mut map = song.to_timing_map();
+    if let Some(d) = audio_s.filter(|d| d.is_finite() && *d > 0.0) {
+        map.duration = map.duration.max(d);
+    }
+    map.lyric_source = Some(crate::timing::LyricSource::Imported);
+    let violations = map.validate();
+    if !violations.is_empty() {
+        return Err(Error::InvalidInput(format!(
+            "UltraStar timings failed sanity checks: {}",
+            violations.join("; ")
+        )));
+    }
+    Ok(map)
+}
+
 fn run_align_stage(
     req: &GenerateRequest,
     stems_dir: &Path,
@@ -917,4 +993,38 @@ fn run_align_stage(
     }
     manifest::write_atomic(map_path, out.map.to_json_pretty()?.as_bytes())?;
     Ok((out.map, out.stats))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::timing::LyricSource;
+
+    const SONG: &str = "#TITLE:T\n#ARTIST:A\n#BPM:300\n#GAP:1000\n\
+                        : 0 4 0 Hel\n: 4 4 0 lo\n: 10 4 0  there\n- 20\n: 22 6 0 again\nE\n";
+
+    #[test]
+    fn ultrastar_timings_become_an_imported_map_to_the_audio_end() {
+        let map = timings_map_from_ultrastar(SONG, Some(180.0)).unwrap();
+        let words: Vec<&str> = map.words.iter().map(|w| w.word.as_str()).collect();
+        assert_eq!(words, ["Hello", "there", "again"]);
+        assert_eq!(map.lyric_source, Some(LyricSource::Imported));
+        // #GAP 1000 ms, 20 beats/s at #BPM 300.
+        assert!((map.words[0].start - 1.0).abs() < 1e-9);
+        assert!((map.words[2].start - 2.1).abs() < 1e-9);
+        assert_eq!(map.duration, 180.0);
+        assert_eq!(map.words[2].line, Some(1));
+    }
+
+    #[test]
+    fn unknown_audio_length_keeps_the_last_word_end() {
+        let map = timings_map_from_ultrastar(SONG, None).unwrap();
+        assert!((map.duration - 2.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_duet_is_refused() {
+        let duet = "#TITLE:T\n#BPM:300\nP1\n: 0 4 0 hi\nE\n";
+        assert!(timings_map_from_ultrastar(duet, None).is_err());
+    }
 }

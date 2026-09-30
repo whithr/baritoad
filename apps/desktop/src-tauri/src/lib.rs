@@ -26,7 +26,8 @@ pub fn serve_worker() -> i32 {
 }
 
 pub fn run() {
-    let job_queue = Arc::new(JobQueue::new());
+    // Unfinished imports survive a restart (queue.rs module docs).
+    let job_queue = Arc::new(JobQueue::with_store(queue::queue_store_path()));
     // The library store opens (and migrates) before anything can enqueue —
     // a failure here is unrecoverable-by-design (the DB lives in our own
     // %LOCALAPPDATA% dir).
@@ -48,6 +49,7 @@ pub fn run() {
             // — jobs queue FIFO and run strictly one at a time (PLAN.md §5),
             // each in the below-normal-priority worker process (worker.rs).
             let handle = app.handle().clone();
+            job_queue.restore(&handle);
             let worker_queue = job_queue.clone();
             let worker_library = library_handle.clone();
             std::thread::Builder::new()
@@ -64,6 +66,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::generate_song,
             commands::job_lyrics,
+            commands::scan_import,
+            commands::import_songs,
             commands::cancel_job,
             commands::list_jobs,
             commands::read_timing_map,

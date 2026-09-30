@@ -1,20 +1,25 @@
 // The modeless Processing dialog: what the pipeline is doing to one song,
 // as a step list and a block progress bar. "Run in background" hides it;
-// the Library's status bar and Processing folder keep reporting.
+// the Library's status bar keeps reporting. During a bulk import it follows
+// the batch — the song in progress on top, the songs still waiting below.
 
 import type { JobProgress } from "../jobEvents";
 import { progressHeadline } from "../jobEvents";
-import { Button, Dialog, Glyph, Icon, ProgressBar } from "../win98";
+import { Button, Dialog, Glyph, Icon, ListView, ProgressBar } from "../win98";
 
 type StepState = "done" | "active" | "todo";
 
 export default function ProcessingDialog(props: {
   job: JobProgress | undefined;
+  /** Other songs queued behind this one (bulk import). */
+  waiting?: JobProgress[];
   open: boolean;
   onHide: () => void;
   onCancelJob: (jobId: number) => void;
+  onCancelAll?: () => void;
 }) {
   const { job } = props;
+  const waiting = props.waiting ?? [];
   const status = job?.job.status;
   const running = status === "queued" || status === "running";
   const separating = job?.stage === "separating";
@@ -61,14 +66,32 @@ export default function ProcessingDialog(props: {
           </span>
         </div>
         {job?.message && <div className="w-muted" style={{ lineHeight: "18px" }}>{job.message}</div>}
+        {waiting.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div>{waiting.length === 1 ? "1 more song waiting:" : `${waiting.length} more songs waiting:`}</div>
+            <ListView<JobProgress>
+              ariaLabel="Songs waiting"
+              rows={waiting}
+              rowKey={(p) => p.job.id}
+              selected={null}
+              onSelect={() => undefined}
+              style={{ height: 96 }}
+              columns={[
+                { key: "title", label: "Song", width: "minmax(0, 1.4fr)", render: (p) => p.job.title },
+                { key: "artist", label: "Artist", width: "minmax(0, 1fr)", render: (p) => p.job.artist ?? "" },
+              ]}
+            />
+          </div>
+        )}
       </div>
       <div className="w-dialog-buttons">
         <Button isDefault onClick={props.onHide}>
           Run in &background
         </Button>
         <Button onClick={() => job && props.onCancelJob(job.job.id)} disabled={!running || job?.job.cancel_requested}>
-          Cancel
+          {waiting.length > 0 ? "S&kip this song" : "Cancel"}
         </Button>
+        {waiting.length > 0 && props.onCancelAll && <Button onClick={props.onCancelAll}>Cancel &all</Button>}
       </div>
     </Dialog>
   );

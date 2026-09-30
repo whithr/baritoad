@@ -16,13 +16,16 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use karaoke_core::formats::{self, ExportMeta, Format};
+use karaoke_core::import;
+use karaoke_core::library::store::SongQuery;
 use karaoke_core::lyrics;
 use karaoke_core::pipeline::manifest::{self, StageId};
 use karaoke_core::pipeline::{self, GenerateRequest};
 use karaoke_core::separation;
 use karaoke_core::timing::WordTimingMap;
 
-use crate::queue::{self, JobQueue, JobSnapshot};
+use crate::library::LibraryHandle;
+use crate::queue::{self, JobQueue, JobSnapshot, PostImport};
 
 /// Wizard → pipeline request. Lyrics arrive as pasted *text* (the paste box is
 /// the golden path — PLAN.md §4); the command persists them beside the job's
@@ -52,6 +55,10 @@ pub struct GenerateSongRequest {
     /// leaves the graphics card free.
     #[serde(default)]
     pub cpu_only: bool,
+    /// An UltraStar .txt whose timings are used as they are (bulk import);
+    /// `lyrics_text` is ignored when set.
+    #[serde(default)]
+    pub timings_path: Option<String>,
 }
 
 /// Where `generate_song` persists pasted lyrics, inside the job's out dir.
@@ -72,6 +79,19 @@ pub async fn generate_song(
     queue: State<'_, Arc<JobQueue>>,
     request: GenerateSongRequest,
 ) -> Result<JobSnapshot, String> {
+    let job = build_job(request)?;
+    Ok(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, PostImport::default()))
+}
+
+/// A wizard/import request resolved into what the queue runs.
+struct BuiltJob {
+    request: GenerateRequest,
+    title: String,
+    artist: Option<String>,
+    out_dir: PathBuf,
+}
+
+fn build_job(request: GenerateSongRequest) -> Result<BuiltJob, String> {
     let audio = PathBuf::from(&request.audio_path);
     if !audio.is_file() {
         return Err(format!("audio file not found: {}", audio.display()));
@@ -111,6 +131,7 @@ pub async fn generate_song(
 
     let mut req = GenerateRequest::new(audio);
     req.lyrics = lyrics_path;
+    req.timings = request.timings_path.as_deref().filter(|p| !p.is_empty()).map(PathBuf::from);
     req.out_dir = Some(out_dir.clone());
     req.title = Some(title.clone());
     req.artist = artist.clone();
@@ -146,7 +167,166 @@ pub async fn generate_song(
         }
     }
 
-    Ok(queue.enqueue(&app, req, title, artist, out_dir))
+    Ok(BuiltJob {
+        request: req,
+        title,
+        artist,
+        out_dir,
+    })
+}
+
+// ---------------------------------------------------------------- bulk import
+
+/// One song the folder scan found, as the review list shows it.
+#[derive(Debug, Serialize)]
+pub struct ImportCandidate {
+    pub audio_path: PathBuf,
+    pub title: String,
+    pub artist: Option<String>,
+    pub lyrics: import::LyricsFile,
+    pub collection: Option<String>,
+    /// The library already has a song from this file (unchecked by default).
+    pub in_library: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportScan {
+    pub items: Vec<ImportCandidate>,
+    pub unmatched_lyrics: Vec<PathBuf>,
+}
+
+/// Scan dropped/picked folders and files for songs to import
+/// (karaoke-core `import` module docs: pairing, collections, skips).
+#[tauri::command]
+pub async fn scan_import(
+    library: State<'_, Arc<LibraryHandle>>,
+    paths: Vec<String>,
+) -> Result<ImportScan, String> {
+    let roots: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let scan = tauri::async_runtime::spawn_blocking(move || import::scan(&roots))
+        .await
+        .map_err(|e| format!("scan failed: {e}"))?;
+    let known: std::collections::HashSet<String> = {
+        let store = library.lock()?;
+        store
+            .list_songs(&SongQuery::default())
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|s| path_key(&s.audio_path))
+            .collect()
+    };
+    Ok(ImportScan {
+        items: scan
+            .items
+            .into_iter()
+            .map(|i| ImportCandidate {
+                in_library: known.contains(&path_key(&i.audio)),
+                audio_path: i.audio,
+                title: i.title,
+                artist: i.artist,
+                lyrics: i.lyrics,
+                collection: i.collection,
+            })
+            .collect(),
+        unmatched_lyrics: scan.unmatched_lyrics,
+    })
+}
+
+fn path_key(p: &Path) -> String {
+    p.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
+/// The lyrics an import item brings (the scan's `LyricsFile`, echoed back).
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ImportLyrics {
+    None,
+    Text { path: PathBuf },
+    Lrc { path: PathBuf },
+    #[serde(rename = "ultrastar")]
+    UltraStar { path: PathBuf },
+    Unreadable {
+        #[allow(dead_code)]
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportSongItem {
+    pub audio_path: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub artist: Option<String>,
+    pub lyrics: ImportLyrics,
+    #[serde(default)]
+    pub collection: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportFailure {
+    pub audio_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportQueued {
+    pub jobs: Vec<JobSnapshot>,
+    pub failures: Vec<ImportFailure>,
+}
+
+/// Queue a reviewed import: one job per song, in order. Text and LRC lyrics
+/// go in as pasted lyrics (LRC stripped to its words); UltraStar timings are
+/// used as they are and the song lands checked. A song that can't be queued
+/// (file gone, lyrics unreadable) is reported, not fatal.
+#[tauri::command]
+pub async fn import_songs(
+    app: AppHandle,
+    queue: State<'_, Arc<JobQueue>>,
+    items: Vec<ImportSongItem>,
+    hq_separation: bool,
+    cpu_only: bool,
+) -> Result<ImportQueued, String> {
+    let mut jobs = Vec::new();
+    let mut failures = Vec::new();
+    for item in items {
+        let audio_path = item.audio_path.clone();
+        let read = |p: &Path| import::read_text_file(p).map_err(|e| format!("cannot read {}: {e}", p.display()));
+        let prepared = (|| -> Result<(GenerateSongRequest, bool), String> {
+            let (lyrics_text, timings_path, checked) = match &item.lyrics {
+                ImportLyrics::Text { path } => (Some(read(path)?), None, false),
+                ImportLyrics::Lrc { path } => (Some(formats::lrc::lyrics_text(&read(path)?).text), None, false),
+                ImportLyrics::UltraStar { path } => (None, Some(path.to_string_lossy().into_owned()), true),
+                ImportLyrics::None | ImportLyrics::Unreadable { .. } => (None, None, false),
+            };
+            Ok((
+                GenerateSongRequest {
+                    audio_path: item.audio_path.clone(),
+                    lyrics_text,
+                    title: item.title.clone(),
+                    artist: item.artist.clone(),
+                    out_dir: None,
+                    exports: Vec::new(),
+                    force: false,
+                    hq_separation,
+                    cpu_only,
+                    timings_path,
+                },
+                checked,
+            ))
+        })();
+        match prepared.and_then(|(req, checked)| build_job(req).map(|j| (j, checked))) {
+            Ok((job, checked)) => {
+                let post = PostImport {
+                    collection: item.collection.clone().filter(|c| !c.trim().is_empty()),
+                    mark_checked: checked,
+                };
+                jobs.push(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, post));
+            }
+            Err(message) => failures.push(ImportFailure { audio_path, message }),
+        }
+    }
+    Ok(ImportQueued { jobs, failures })
 }
 
 /// The lyrics the job in `out_dir` last ran with — what the wizard's

@@ -213,6 +213,14 @@ Separator · icons.
   lyrics filled in, resuming in its job folder so the row updates in place.
   The "Add a song" drop box shows only while the
   library is empty; otherwise a dragged file gets a dithered "Let go" overlay.
+  **Import Folder…** (File menu, Ctrl+Shift+O, the empty-library box, or a
+  folder / several files dropped on the window) scans for songs, pairs each
+  with its lyrics (`Song.txt`, `Song.lrc`, or an UltraStar file whose
+  hand-made timings are kept and land checked), names collections after
+  folders, and shows one review list (checkbox column, lyrics source,
+  collection, already-in-library) before queueing. The queue survives a
+  restart; the Processing dialog follows the batch (Skip this song / Cancel
+  all), and one message box reports at the end — never one per song.
   Add Song is a two-page wizard (details → lyrics + Finish); processing is a
   modeless dialog with the step list and block progress bar.
 - **Bench** — toolbar with Library, Save, LCD clock, transport, Loop,

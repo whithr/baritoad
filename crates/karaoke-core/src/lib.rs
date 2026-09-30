@@ -44,6 +44,7 @@ pub mod audio;
 pub mod compute;
 pub mod error;
 pub mod formats;
+pub mod import;
 pub mod library;
 pub mod lyrics;
 pub mod output;

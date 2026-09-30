@@ -61,6 +61,7 @@ pub fn register_completed_job(
         match s {
             crate::timing::LyricSource::Pasted => "pasted",
             crate::timing::LyricSource::Transcribed => "transcribed",
+            crate::timing::LyricSource::Imported => "imported",
         }
         .to_string()
     });
