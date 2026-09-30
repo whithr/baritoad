@@ -257,10 +257,17 @@ pub async fn export_song(request: ExportSongRequest) -> Result<Vec<PathBuf>, Str
     let map_path = PathBuf::from(&request.map_path);
     let raw = std::fs::read_to_string(&map_path)
         .map_err(|e| format!("cannot read timing map {}: {e}", map_path.display()))?;
-    let map = WordTimingMap::from_json(&raw).map_err(|e| e.to_string())?;
+    let mut map = WordTimingMap::from_json(&raw).map_err(|e| e.to_string())?;
     if map.words.is_empty() {
         return Err("timing map has no words — nothing to export".into());
     }
+    // Maps aligned before the aligner stopped auto-flagging still carry
+    // unsung flags. The Bench and Stage show every word, so exports do too
+    // (ASS would otherwise drop a fully flagged line).
+    for w in &mut map.words {
+        w.unsung = false;
+    }
+    map.unsung_spans.clear();
 
     // "<dir>/song" for "<dir>/song.align.json"
     let stem = map_path

@@ -8,8 +8,7 @@
 //
 // Guardrails live here, not in the player: built-ins are immutable
 // (duplicate to customize), text sizes are not knobs (couch-readable is a
-// floor), unsung italics are untouched, and each text colour shows its
-// contrast against the background.
+// floor), and each text colour shows its contrast against the background.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -297,9 +296,9 @@ export default function PlayerThemes(props: { open: boolean; onClose: () => void
                             </span>
                           ))}
                         </div>
-                        <div className="pk-line" style={{ fontSize: 44 }}>
+                        <div className="pk-line next" style={{ fontSize: 44 }}>
                           {["any", "song", "you", "own"].map((w) => (
-                            <span key={w} className="k-word unsung">
+                            <span key={w} className="k-word">
                               {w}
                             </span>
                           ))}
@@ -375,8 +374,7 @@ export default function PlayerThemes(props: { open: boolean; onClose: () => void
           {!editable && (
             <div style={{ display: "flex", gap: 8, alignItems: "center", lineHeight: "16px" }}>
               <Icon name="info" />
-              Built-in theme — Duplicate it to customize. Unsung words always stay italic and dimmed, so sung versus unsung never
-              relies on colour alone.
+              Built-in theme — Duplicate it to customize.
             </div>
           )}
           {tab === "background" && (

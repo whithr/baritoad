@@ -90,17 +90,6 @@
   pointer-events: none;
 }
 
-.b-doubt-mark {
-  position: absolute;
-  bottom: 3px;
-  width: 7px;
-  height: 7px;
-  margin-left: -3px;
-  background: var(--w-check);
-  border: 1px solid #000;
-  pointer-events: none;
-}
-
 /* ---------------------------------------------------------------- lanes */
 
 .b-lane {
@@ -165,10 +154,6 @@
 
 .b-tick.sel {
   border-left-style: solid;
-}
-
-.b-tick.doubt {
-  border-left: 1px solid #808000;
 }
 
 .b-lane-head {
@@ -272,11 +257,6 @@
   outline-offset: -3px;
 }
 
-.b-word.unsung {
-  font-style: italic;
-  opacity: 0.55;
-}
-
 .b-word.dragging {
   cursor: grabbing;
   z-index: 4;
@@ -308,16 +288,6 @@
 .b-word.sel:hover .b-word-end::before,
 .b-word.sel.stretch .b-word-end::before {
   background: var(--w-sel-text);
-}
-
-.b-word .b-doubt {
-  position: absolute;
-  right: 1px;
-  top: 1px;
-  width: 6px;
-  height: 6px;
-  background: var(--w-check);
-  border: 1px solid #000;
 }
 
 .b-word input {
@@ -390,7 +360,6 @@
 
 .b-tv .ctx {
   font-size: 16px;
-  font-style: italic;
   color: #8a8a8a;
 }
 
@@ -406,14 +375,9 @@
   padding: 0 24px;
 }
 
-.b-tv .cur span {
-  font-style: italic;
-}
-
 .b-tv .cur .sung,
 .b-tv .cur .now {
   color: #00ffff;
-  font-style: normal;
 }
 
 .b-tv .cur .now {
@@ -521,12 +485,4 @@
   color: var(--w-text);
   box-shadow: var(--w-sunken);
   user-select: text;
-}
-
-.b-doubt-sq {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  background: var(--w-check);
-  border: 1px solid #000;
 }

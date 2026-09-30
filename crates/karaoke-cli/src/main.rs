@@ -973,11 +973,10 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
         println!(
-            "aligned {} words -> {} ({} anchored, {} unsung, {:.1}s total)",
+            "aligned {} words -> {} ({} anchored, {:.1}s total)",
             out.map.words.len(),
             out_path.display(),
             out.stats.n_anchored,
-            out.stats.n_unsung,
             total_s
         );
     }

@@ -12,9 +12,9 @@
 //!
 //! The user's pasted lyrics are ground truth: whisper output is only matched
 //! against them for rough time anchors ([`anchor`]); the CTC trellis aligns
-//! the *user's* words. Lyric words the evidence cannot place are flagged
-//! explicitly (unsung spans) instead of being silently stretched — the spike's
-//! measured failure mode on instrumental-heavy songs.
+//! the *user's* words. Every lyric word is placed and shown; the aligner does
+//! not mark words unsung (its low-confidence heuristic flagged plainly sung
+//! words), so a word the recording skips is the user's to delete.
 //!
 //! Output timing is **original-song time** (PLAN.md §5 hard rule): the vocal
 //! stem is time-aligned 1:1 with the user's file, and nothing here knows about
@@ -31,7 +31,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::error::{Error, Result};
-use crate::timing::{LyricSource, UnsungSpan, WordTiming, WordTimingMap};
+use crate::timing::{LyricSource, WordTiming, WordTimingMap};
 
 /// Constant onset-bias correction, seconds. The spike measured a consistent
 /// +55 ms "late" bias in CTC word onsets against machine-exact TTS ground
@@ -69,13 +69,6 @@ pub struct AlignConfig {
     pub w2v_try_dml: bool,
     /// Intra-op threads for the CPU sessions.
     pub threads: usize,
-    /// An **unanchored** word stretched past this duration is treated as the
-    /// aligner absorbing audio the word doesn't own (spike: stretched words
-    /// > 2 s marked its under-transcription failure mode). Anchored words are
-    /// exempt — whisper heard them, and sung held notes routinely exceed this.
-    pub max_word_stretch_s: f64,
-    /// Below this CTC path confidence an unanchored word counts as suspect.
-    pub min_word_confidence: f32,
     /// An anchored word whose CTC midpoint lands further than this outside
     /// whisper's chunk window loses its anchor (evidence disagrees).
     pub anchor_tolerance_s: f64,
@@ -91,8 +84,6 @@ impl Default for AlignConfig {
             threads: std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(4),
-            max_word_stretch_s: 2.0,
-            min_word_confidence: 0.15,
             anchor_tolerance_s: 10.0,
         }
     }
@@ -113,7 +104,6 @@ pub struct AlignStats {
     pub n_lyric_words: usize,
     pub n_transcript_words: usize,
     pub n_anchored: usize,
-    pub n_unsung: usize,
     /// Lyric words with no alignable characters (e.g. "42", pure punctuation);
     /// they get zero-length placeholder timings.
     pub n_unalignable: usize,
@@ -395,7 +385,7 @@ impl Aligner {
                 }
                 _ => {
                     // unalignable word (no in-vocab characters): zero-length
-                    // placeholder at the current position, flagged below
+                    // placeholder at the current position (counted as unalignable)
                     raw.push(Raw {
                         start: last_end,
                         end: last_end,
@@ -406,9 +396,12 @@ impl Aligner {
             }
         }
 
-        // ---- flags: anchors, suspects, unsung spans ----
+        // ---- flags: anchors ----
+        // No word is auto-marked unsung: the suspect heuristic (low CTC
+        // confidence / long unanchored stretch) flagged words that were
+        // plainly sung — 47 of 923 on a pasted-lyrics rap track — and the
+        // user can delete a word the recording really skips.
         let mut words: Vec<WordTiming> = Vec::with_capacity(raw.len());
-        let mut suspect: Vec<bool> = Vec::with_capacity(raw.len());
         let mut n_anchored = 0usize;
         let mut n_unalignable = 0usize;
         for (i, r) in raw.iter().enumerate() {
@@ -427,13 +420,6 @@ impl Aligner {
             if !r.aligned {
                 n_unalignable += 1;
             }
-            let stretched = r.end - r.start > self.cfg.max_word_stretch_s;
-            // An anchored word was heard by whisper — direct evidence it IS
-            // sung, so a long duration alone can't mark it suspect (held
-            // notes routinely run past max_word_stretch_s).
-            let sus = !r.aligned
-                || (!anchored && (stretched || r.confidence < self.cfg.min_word_confidence));
-            suspect.push(sus);
             let (line, word_in_line) = match &auto_lines {
                 Some(l) => (Some(l[i].0), Some(l[i].1)),
                 None => (None, None), // pasted path: cleanup annotates (lyrics::annotate_map)
@@ -444,47 +430,15 @@ impl Aligner {
                 end: r.end,
                 confidence: r.confidence,
                 anchored,
-                unsung: false, // set below
+                unsung: false,
                 line,
                 word_in_line,
                 ad_lib: false, // pasted path: cleanup annotates
             });
         }
 
-        // maximal runs of suspect words become unsung spans when the run is
-        // more than a lone low-confidence word (>= 2 words) or contains a
-        // clearly broken member (stretched or unalignable)
-        let mut unsung_spans: Vec<UnsungSpan> = Vec::new();
-        let mut i = 0usize;
-        while i < words.len() {
-            if !suspect[i] {
-                i += 1;
-                continue;
-            }
-            let first = i;
-            while i < words.len() && suspect[i] {
-                i += 1;
-            }
-            let last = i - 1;
-            let broken = (first..=last).any(|k| {
-                !raw[k].aligned || words[k].end - words[k].start > self.cfg.max_word_stretch_s
-            });
-            if last > first || broken {
-                for w in &mut words[first..=last] {
-                    w.unsung = true;
-                }
-                unsung_spans.push(UnsungSpan {
-                    first_word: first,
-                    last_word: last,
-                    start: words[first].start,
-                    end: words[last].end,
-                });
-            }
-        }
-        let n_unsung = words.iter().filter(|w| w.unsung).count();
-
         // ---- assemble map in original-song time, apply onset-bias correction ----
-        let mut map = WordTimingMap::new(duration_s, words, unsung_spans);
+        let mut map = WordTimingMap::new(duration_s, words, Vec::new());
         map.lyric_source = Some(lyric_source);
         map.shift(self.cfg.onset_bias_s);
 
@@ -501,14 +455,13 @@ impl Aligner {
             n_lyric_words: lyric_words.len(),
             n_transcript_words: transcript_words.len(),
             n_anchored,
-            n_unsung,
             n_unalignable,
         };
         progress(
             Some(1.0),
             &format!(
-                "aligned {} words (anchored {}, unsung {}) in {total_s:.1}s (rtf {:.2})",
-                stats.n_lyric_words, stats.n_anchored, stats.n_unsung, stats.realtime_factor
+                "aligned {} words (anchored {}) in {total_s:.1}s (rtf {:.2})",
+                stats.n_lyric_words, stats.n_anchored, stats.realtime_factor
             ),
         );
         Ok(AlignOutput {

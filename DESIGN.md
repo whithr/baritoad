@@ -135,8 +135,8 @@ Night overrides the same names under `:root[data-scheme="night"]`.
 - **Selection** (`selection` + `selection-text`): the one "chosen" colour —
   selected list rows, tree nodes, word chips, menu highlight. Keyboard focus is
   the dotted focus rectangle, never colour alone.
-- **Signals**: `ok` green check (Ready), `check` yellow marker (Needs checking /
-  low-confidence word), `error` red (failures, destructive icons), `playhead` red.
+- **Signals**: `ok` green check (Ready), `check` yellow marker (Needs checking),
+  `error` red (failures, destructive icons), `playhead` red.
   Each always pairs with an icon or text, never hue alone.
 - **LCD**: black well, green ink, dim ghost `88:88` segments behind.
 - **Stage** (`stage`, `sung`): the default TV theme — near-black with cyan
@@ -149,7 +149,8 @@ Night overrides the same names under `:root[data-scheme="night"]`.
   default buttons and headings. The **Pixel font** setting swaps to the smooth
   stack (Tahoma → Microsoft Sans Serif → Barlow) for fractional-DPI screens
   where 1-px glyphs blur.
-- **Barlow** (OFL) for every lyric surface. Unsung words are italic + dim.
+- **Barlow** (OFL) for every lyric surface. Every lyric word renders the same;
+  there is no per-word confidence or "unsung" styling.
 - **DSEG7 Classic** (OFL) for numeric readouts only (clock, key, tempo, wait
   seconds) — never words.
 - Access keys are underlined in menus, buttons and labels (`&File`).
@@ -200,23 +201,23 @@ Separator · icons.
   modeless dialog with the step list and block progress bar.
 - **Bench** — toolbar with LCD clock, transport, Loop, Vocal-guide trackbar,
   Export ▾, **Sing on TV** (default button); Text/Lanes/Focus tabs; lanes are
-  sunken tracks with waveform + raised Barlow word chips (selected = navy, low
-  confidence = yellow marker). Status bar carries line/word timing, words to
-  check, key hints, save state.
+  sunken tracks with waveform + raised Barlow word chips (selected = navy; no
+  per-word confidence markers — pasted lyrics align cleanly and the markers
+  read as noise). Status bar carries line/word timing, key hints, save state.
 - **Stage (TV player)** — separate window; full-bleed stage; chrome is a
   floating tool-window dock (auto-hides) plus "Now singing"/"Up next" captions.
 - **Properties** — tabbed property sheet (Appearance, Bench, Player, Processing).
 - **Player Themes** — display-properties-style dialog with a monitor preview.
 
 ### Full-Screen Player (signature)
-- **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform.** **One row per lyric line:** lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame); a rare line past the 0.55 fit floor keeps the floor size and wraps (`data-overlong`). Never animate font-size. Sung words take the theme's sung colour with its glow; the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat; unsung words are 0.5 opacity italic. Position of the fill edge, luminance, and italics carry the state; hue never carries it alone. During a pause the finished word holds through the 0.25s grace, then the upcoming word's glow eases in (`--glow-in`) across the last 0.6s before its onset. The scroll pre-rolls the next line only once the current line's last word is sung.
+- **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform.** **One row per lyric line:** lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame); a rare line past the 0.55 fit floor keeps the floor size and wraps (`data-overlong`). Never animate font-size. Sung words take the theme's sung colour with its glow; the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat. Position of the fill edge and luminance carry the state; hue never carries it alone. During a pause the finished word holds through the 0.25s grace, then the upcoming word's glow eases in (`--glow-in`) across the last 0.6s before its onset. The scroll pre-rolls the next line only once the current line's last word is sung.
 - **Wait cues:** gaps ≥5 s get a wait row — a draining block meter and a whole-second DSEG7 readout, dim at rest, voiced in the theme accent while counting. Lines after ≥2.5 s of silence carry three square **lead-in pips** counting 3-2-1. Logic in playerView.ts (`gapCues`/`cueLineFlags`/`pipsLitAt`).
 - **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe`/`--wipe-n` CSS vars on the active word — or, in a pause when that hook is idle, `--glow-in` on the single word being approached — (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks. *Amended 2026-08-07 for the wait cues:* (5) `width` + whole-second `textContent` on the counting gap row's meter/readout and its `counting` class at gap boundaries, and (6) `data-lit` on the upcoming line's pip anchor, mutated only on count change. Any restyle of the stage must re-run the player measurement harness and report song length, hardware and frame-time numbers.
 
 ### Player Themes (user content zone)
 - **Model:** a theme is data (src/themes.ts) — background spec (cover blur / flat color / imported image with blur+dim), lyric colors (resting / sung / accent), glow strength, font, pips toggle, visualizer mode — applied to the player stage as CSS vars (`--th-*`) plus a static background layer. Resolution: song pin → app default → built-in fallback. Stored in one localStorage blob; built-in presets are code. Background images are imported into `%LOCALAPPDATA%\karaoke\themes` and served as data URLs (CSP allows `data:` only).
 - **Content exemption:** theme colors are user CONTENT inside the stage. The chrome around it (dock, captions, dialogs) stays Karascape 98.
-- **Guardrails (code, not knobs):** unsung words stay italic + dimmed whatever the palette; text sizes are not themable; the editor shows a live WCAG AA contrast badge per text color.
+- **Guardrails (code, not knobs):** text sizes are not themable; the editor shows a live WCAG AA contrast badge per text color.
 - **Visualizer (Off | Pulse | Bars):** a canvas layer behind the lyrics driven by the instrumental's precomputed peak envelope sampled through the player clock. Off under `prefers-reduced-motion`. One bounded canvas draw per frame joins the hook set.
 
 ### Deferred

@@ -177,11 +177,6 @@
   pointer-events: none;
 }
 
-.player-stage .k-word.unsung {
-  opacity: 0.5;
-  font-style: italic;
-}
-
 /* ---- wait cues: gap meter rows + lead-in pips ----------------------------
    A long instrumental gap gets a wait row: a label, a draining block meter
    (98 progress-bar grammar) and a whole-second DSEG7 readout. Resting rows

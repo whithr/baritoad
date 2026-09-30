@@ -4,8 +4,8 @@
 // ONLY; the app's own chrome stays Digital Dash (DESIGN.md).
 //
 // Guardrails live in code, not knobs (PRODUCT.md accessibility commitments):
-// unsung words stay italic + dimmed whatever the colors (sung/unsung never
-// rides hue alone), and text sizes are untouched (couch-readable). The
+// sung vs not-yet-sung never rides hue alone (the wipe's fill edge and the
+// sung glow carry it), and text sizes are untouched (couch-readable). The
 // editor surfaces a live AA contrast readout via the helpers below.
 //
 // Storage is a single localStorage blob (user themes + default + per-song

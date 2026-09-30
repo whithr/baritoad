@@ -40,14 +40,11 @@ import {
 import type { Route } from "../App";
 import { useSettings } from "../App";
 import {
-  doubtfulIndices,
   envelopeSamples,
   focusRange,
-  isDoubtful,
   laneAtTime,
   laneGroups,
   laneOfWord,
-  nextDoubtful,
   pxToSec,
   secToPx,
   stepView,
@@ -336,7 +333,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     () => (selected != null ? shiftRange(words, selected, scope) : null),
     [words, selected, scope],
   );
-  const doubts = useMemo(() => doubtfulIndices(words), [words]);
   const playLane = laneAtTime(lanes, words, audio.time);
   const sungThrough = sungThroughIndexAt(words, audio.time);
   const nowWord = wordIndexAt(words, audio.time);
@@ -612,12 +608,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
           if (editing != null) setEditing(null);
           else select(null);
           return;
-        case "n":
-        case "N": {
-          const i = nextDoubtful(words, selected);
-          if (i != null) select(i);
-          return;
-        }
         case "l":
         case "L":
           setLineLoop((v) => !v);
@@ -628,10 +618,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
             e.preventDefault();
             setEditing(selected);
           }
-          return;
-        case "u":
-        case "U":
-          if (selected != null) dispatch({ type: "toggle-unsung", index: selected });
           return;
         case "Delete":
         case "Backspace":
@@ -779,12 +765,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const wordCommands = {
     hear: { label: "&Hear word", accel: "Enter", run: () => hasSel && hearWord(selected), disabled: !hasSel },
     edit: { label: "&Edit word", accel: "F2", run: () => hasSel && setEditing(selected), disabled: !hasSel || !onLanes },
-    unsung: {
-      label: "Toggle un&sung",
-      accel: "U",
-      run: () => hasSel && dispatch({ type: "toggle-unsung", index: selected }),
-      disabled: !hasSel,
-    },
     del: {
       label: "&Delete word",
       accel: "Del",
@@ -818,7 +798,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         "-",
         wordCommands.edit,
         wordCommands.del,
-        wordCommands.unsung,
       ],
     },
     {
@@ -862,15 +841,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         { label: "Nudge earlier by 100 ms", accel: "Shift+←", run: () => nudge(-1, true), disabled: !hasSel || !onLanes },
         { label: "Nudge later by 100 ms", accel: "Shift+→", run: () => nudge(1, true), disabled: !hasSel || !onLanes },
         "-",
-        {
-          label: "&Next word to check",
-          accel: "N",
-          run: () => {
-            const i = nextDoubtful(words, selected);
-            if (i != null) select(i);
-          },
-          disabled: doubts.length === 0,
-        },
         wordCommands.realign,
         { label: "Re&flow lines to fit the TV", run: () => dispatch({ type: "reflow-lines" }) },
         "-",
@@ -897,7 +867,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const wordMenu: MenuEntry[] = [
     wordCommands.hear,
     wordCommands.edit,
-    wordCommands.unsung,
     wordCommands.del,
     "-",
     wordCommands.hearLine,
@@ -920,9 +889,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
               ["1 2 3", "Scope: word / line / from here on"],
               ["Enter", "Hear the selected word"],
               ["L", "Loop the line"],
-              ["N", "Next word to check"],
               ["F2", "Edit the word"],
-              ["U", "Toggle unsung"],
               ["Del", "Delete the word"],
               ["− +", "Text / Lanes / Focus"],
               ["Ctrl+Z / Ctrl+Y", "Undo / redo"],
@@ -971,8 +938,8 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
 
   const hints =
     view === "text"
-      ? "↑↓ Line · Enter Break / play · Backspace Join up · Space Play · N Next to check · + Lanes"
-      : "Space Play · ↑↓ Line · Tab Word · 1 2 3 Scope · ←→ Nudge · Enter Hear · L Loop · N Next to check · F2 Edit";
+      ? "↑↓ Line · Enter Break / play · Backspace Join up · Space Play · + Lanes"
+      : "Space Play · ↑↓ Line · Tab Word · 1 2 3 Scope · ←→ Nudge · Enter Hear · L Loop · F2 Edit";
 
   return (
     <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
@@ -1085,7 +1052,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
           <div className="b-body">
             {view === "lanes" && (
               <>
-                <Overview levels={levels} duration={duration} time={audio.time} words={words} doubts={doubts} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
+                <Overview levels={levels} duration={duration} time={audio.time} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
                 <ContextMenu items={wordMenu} className="b-scroll">
                   {lanes.map((l, k) => (
                     <Lane key={l.line ?? `run-${l.indices[0]}`} lane={l} index={k} size={k === selLane ? "focus" : "normal"} {...laneProps} />
@@ -1107,7 +1074,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
                 audio={audio}
                 wordMenu={wordMenu}
               >
-                <Overview levels={levels} duration={duration} time={audio.time} words={words} doubts={doubts} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
+                <Overview levels={levels} duration={duration} time={audio.time} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
               </FocusView>
             )}
             {view === "text" && (
@@ -1126,10 +1093,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
             : selWord
               ? `“${selWord.word}” ${fmtTime(selWord.start)} – ${fmtTime(Math.max(selWord.end, selWord.start))}`
               : "No word selected"}
-        </StatusPane>
-        <StatusPane width={170}>
-          <span className="b-doubt-sq" />
-          {doubts.length} word{doubts.length === 1 ? "" : "s"} to check
         </StatusPane>
         <StatusPane grow>
           {busy ? (
@@ -1205,12 +1168,10 @@ function Overview(props: {
   levels: VocalLevels | null;
   duration: number;
   time: number;
-  words: WordTiming[];
-  doubts: number[];
   loop: { start: number; end: number } | null;
   onSeek: (t: number) => void;
 }) {
-  const { levels, duration, time, words, doubts, loop } = props;
+  const { levels, duration, time, loop } = props;
   const ref = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const width = useWidth(ref);
@@ -1237,9 +1198,6 @@ function Overview(props: {
         <canvas ref={canvasRef} />
         <div className="b-played" style={{ width: pct(time), height: "100%" }} />
         {loop && <div className="b-loop" style={{ left: pct(loop.start), width: pct(loop.end - loop.start), height: "100%" }} />}
-        {doubts.map((i) => (
-          <span key={i} className="b-doubt-mark" style={{ left: pct(words[i].start) }} />
-        ))}
         <div className="b-head" style={{ left: pct(time) }} />
       </div>
       <span className="b-overview-t end">{fmtClock(duration, false).main}</span>
@@ -1376,10 +1334,9 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
               : sungThrough != null && i <= sungThrough && inLane && i < (props.nowWord ?? Infinity)
                 ? "sung"
                 : "";
-          const tickCls = isSel ? "sel" : isDoubtful(w) ? "doubt" : "";
           return (
             <span key={i}>
-              <span className={`b-tick ${tickCls}`} style={{ left: x0, top: 0, height: keysTop }} />
+              <span className={`b-tick${isSel ? " sel" : ""}`} style={{ left: x0, top: 0, height: keysTop }} />
               {dragging && dragging.moved && i === dragging.index && (
                 <span className="b-ghost" style={{ left: px(w.start), width: px(Math.max(w.end, w.start)) - px(w.start), top: keysTop, height: dims.key }} />
               )}
@@ -1396,7 +1353,7 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
                 </span>
               ) : (
                 <span
-                  className={`b-word ${state}${inScope ? " in-scope" : ""}${w.unsung ? " unsung" : ""}${dragging && i === dragging.index ? ` dragging ${dragging.mode}` : ""}`}
+                  className={`b-word ${state}${inScope ? " in-scope" : ""}${dragging && i === dragging.index ? ` dragging ${dragging.mode}` : ""}`}
                   style={{ left: x0, width: boxW, top: keysTop, height: dims.key, fontSize: fontPx }}
                   onPointerDown={(e) => props.onWordDown(e, i, index)}
                   onPointerMove={props.onWordMove}
@@ -1408,12 +1365,11 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
                     props.select(i, false);
                     props.setEditing(i);
                   }}
-                  title={`${w.word} · ${w.start.toFixed(2)}–${w.end.toFixed(2)} s · confidence ${Math.round(w.confidence * 100)}%`}
+                  title={`${w.word} · ${w.start.toFixed(2)}–${w.end.toFixed(2)} s`}
                   role="button"
                   tabIndex={-1}
                 >
                   {w.word}
-                  {isDoubtful(w) && !isSel && <span className="b-doubt" />}
                   <span className="b-word-end" style={{ width: handleW }} aria-hidden />
                 </span>
               )}
@@ -1629,7 +1585,7 @@ function TextView(props: {
           </div>
         </GroupBox>
         <GroupBox label="Still tied to the audio">
-          Start times and check markers stay in the margin. Press + to jump into Lanes on the selected line.
+          Start times stay in the margin. Press + to jump into Lanes on the selected line.
         </GroupBox>
         <Button onClick={() => dispatch({ type: "reflow-lines" })}>Re&flow lines to fit the TV</Button>
         <Button isDefault onClick={() => selLane >= 0 && props.onRealign(selLane)} disabled={selLane < 0}>
@@ -1656,7 +1612,6 @@ function TextRow(props: {
   const text = lane.indices.map((i) => words[i].word).join(" ");
   const [draft, setDraft] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const doubt = lane.indices.some((i) => isDoubtful(words[i]));
   const start = fmtClock(words[lane.indices[0]].start);
   useEffect(() => {
     if (!selected) setDraft(null);
@@ -1704,7 +1659,6 @@ function TextRow(props: {
           text
         )}
       </span>
-      {doubt && <span className="b-doubt-sq" title="A word here needs checking" />}
     </div>
   );
 }

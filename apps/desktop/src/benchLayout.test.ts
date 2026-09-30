@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { WordTiming } from "./api";
 import {
-  doubtfulIndices,
   envelopeSamples,
   focusRange,
   laneAtTime,
   laneGroups,
   laneOfWord,
-  nextDoubtful,
   pxToSec,
   secToPx,
   stepView,
@@ -15,11 +13,11 @@ import {
 } from "./benchLayout";
 import { parseSettings, DEFAULT_SETTINGS } from "./settings";
 
-const w = (word: string, start: number, end: number, line: number, confidence = 0.9): WordTiming => ({
+const w = (word: string, start: number, end: number, line: number): WordTiming => ({
   word,
   start,
   end,
-  confidence,
+  confidence: 0.9,
   anchored: false,
   unsung: false,
   line,
@@ -29,10 +27,10 @@ const w = (word: string, start: number, end: number, line: number, confidence = 
 
 const words: WordTiming[] = [
   w("She", 10.0, 10.3, 0),
-  w("said", 10.4, 10.8, 0, 0.3),
+  w("said", 10.4, 10.8, 0),
   w("and", 14.0, 14.2, 1),
   w("I", 14.3, 14.5, 1),
-  w("care", 15.0, 15.6, 1, 0.1),
+  w("care", 15.0, 15.6, 1),
 ];
 
 describe("laneGroups", () => {
@@ -64,15 +62,6 @@ describe("laneGroups", () => {
     expect(laneAtTime(lanes, words, 13.0)).toBe(1); // next line's lead-in window
     expect(laneAtTime(lanes, words, 14.7)).toBe(1); // between two words of a line
     expect(laneAtTime(lanes, words, 16.5)).toBe(1); // trailing window of the last line
-  });
-});
-
-describe("doubt", () => {
-  it("lists and walks doubtful words, wrapping", () => {
-    expect(doubtfulIndices(words)).toEqual([1, 4]);
-    expect(nextDoubtful(words, null)).toBe(1);
-    expect(nextDoubtful(words, 1)).toBe(4);
-    expect(nextDoubtful(words, 4)).toBe(1);
   });
 });
 

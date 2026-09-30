@@ -26,7 +26,7 @@ is **source-available**, not open source (PLAN.md §1, §8).
   settings/themes in step between the two windows.
 - Pure, tested modules the views sit on: `editorState` (undo/redo + map
   invariants), `lineEdit`/`docEdit` (line surgery), `previewEditor`
-  (shift scopes), `benchLayout` (lane windows, doubt, view axis),
+  (shift scopes), `benchLayout` (lane windows, view axis),
   `highlight`, `levels`, `playerClock`/`playerView`, `jobEvents`,
   `settings`.
 - `dev/mockTauri.ts` + `vite.mock.config.ts` — browser-only harness

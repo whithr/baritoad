@@ -6,9 +6,6 @@ import type { WordTiming } from "./api";
 import { lineWindow } from "./editorState";
 import { groupByLine } from "./highlight";
 
-/** Alignment confidence below which a word gets the "doubt" LED. */
-export const DOUBT_CONFIDENCE = 0.5;
-
 export type BenchView = "text" | "lanes" | "focus";
 export const BENCH_VIEWS: BenchView[] = ["text", "lanes", "focus"];
 
@@ -78,29 +75,6 @@ export function laneAtTime(lanes: LaneGroup[], words: WordTiming[], t: number): 
     prev = k;
   }
   return prev >= 0 && t < lanes[prev].end ? prev : -1;
-}
-
-export function isDoubtful(w: WordTiming): boolean {
-  return !w.unsung && w.confidence < DOUBT_CONFIDENCE;
-}
-
-/** Next doubtful word strictly after `from` (wrapping), or null. */
-export function nextDoubtful(words: WordTiming[], from: number | null): number | null {
-  const n = words.length;
-  if (n === 0) return null;
-  const start = from == null ? -1 : from;
-  for (let k = 1; k <= n; k++) {
-    const i = (start + k) % n;
-    if (isDoubtful(words[i])) return i;
-  }
-  return null;
-}
-
-/** Ordered list of doubtful word indices (overview markers). */
-export function doubtfulIndices(words: WordTiming[]): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < words.length; i++) if (isDoubtful(words[i])) out.push(i);
-  return out;
 }
 
 /**

@@ -412,9 +412,7 @@ export default function PlayerView(props: {
     let raf = 0;
     let lastNow = performance.now();
     const wordClass = (i: number, frame: LyricFrame): string => {
-      const w = map.words[i];
       let cls = "k-word";
-      if (w.unsung) cls += " unsung";
       // The approaching word carries the same classes as the active one —
       // its ::before glow layer is what --glow-in eases in; fill stays 0.
       if (i === frame.activeWord || i === frame.approachWord) cls += " active wipe";
@@ -1347,7 +1345,7 @@ function PlayerOptions(props: {
 // ---------------------------------------------------------------------------
 
 const LyricStage = memo(function LyricStage(props: {
-  words: { word: string; unsung: boolean }[];
+  words: { word: string }[];
   lines: { indices: number[] }[];
   gaps: GapCue[];
   cues: boolean[];
@@ -1404,7 +1402,7 @@ const LyricStage = memo(function LyricStage(props: {
                 return (
                   <span
                     key={wi}
-                    className={`k-word${w.unsung ? " unsung" : ""}`}
+                    className="k-word"
                     /* the active-wipe glow layer (stage.css ::before) re-draws
                        the word as a clipped text-shadow */
                     data-w={w.word}
