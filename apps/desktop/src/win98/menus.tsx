@@ -8,7 +8,6 @@
 
 import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu } from "@base-ui/react/menu";
-import { Menubar } from "@base-ui/react/menubar";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Glyph } from "./icons";
 import { AccessLabel, accessKeyOf, stripAccess } from "./label";
@@ -153,12 +152,23 @@ function SubPopup(props: { items: MenuEntry[] }) {
 
 export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
   const { menus } = props;
-  const [open, setOpen] = useState<number | null>(null);
+  // 98 "menu mode", owned here: a click on a title opens its menu; while a
+  // menu is open, pointing at another title switches to it; a menu stays
+  // open until a click elsewhere, a second click on its own title, a command
+  // or Esc. Each menu is a standalone Base UI Menu (items, typeahead,
+  // submenus, focus); Base UI's Menubar isn't used because its hover-opened
+  // menus are transient and leave stale mouse-up listeners that close the
+  // whole bar on the next click ("cancel-open").
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const openRef = useRef<number | null>(null);
+  openRef.current = openIdx;
+  /** The menu the user clicked open (a click on its title closes it); a
+   *  menu reached by pointing isn't, so a click on its title claims it. */
+  const clickOpened = useRef<number | null>(null);
   const triggers = useRef<(HTMLButtonElement | null)[]>([]);
   const menusRef = useRef(menus);
   menusRef.current = menus;
-  const openRef = useRef(open);
-  openRef.current = open;
+
   // Where focus was before the menu bar took it: a closed menu hands focus
   // back there (the list, the Bench), not to the bar, so the window's own
   // keys work again straight away.
@@ -171,9 +181,30 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
     window.addEventListener("focusin", onFocus);
     return () => window.removeEventListener("focusin", onFocus);
   }, []);
-  const restoreFocus = () => {
+  const restoreFocus = (closing?: number) => {
+    // closing because a neighbouring menu opened: that menu takes focus
+    if (openRef.current !== null && openRef.current !== closing) return false;
     const el = lastFocus.current;
     return el && el.isConnected ? el : false;
+  };
+
+  const openMenu = (i: number, how: "click" | "point" | "key") => {
+    clickOpened.current = how === "click" ? i : null;
+    setOpenIdx(i);
+  };
+  const closeMenus = () => {
+    clickOpened.current = null;
+    setOpenIdx(null);
+  };
+  /** Left/Right along the bar: with a menu open, open the neighbour; with
+   *  only a title focused, move focus. */
+  const step = (from: number, dir: -1 | 1) => {
+    const n = menusRef.current.length;
+    const to = (from + dir + n) % n;
+    const trigger = triggers.current[to];
+    trigger?.focus();
+    // open the neighbour the keyboard way, so its first item is highlighted
+    if (openRef.current !== null) trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   };
 
   // Alt+letter opens that menu; F10 (or a lone Alt tap) focuses the bar.
@@ -185,16 +216,16 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
       altAlone = e.key === "Alt" && !e.repeat;
       // A menu is open but focus hasn't reached its items yet (it moves on
       // the next frame): its access keys still work.
-      const cur = openRef.current;
+      const popup = openPopup();
       if (
-        cur !== null &&
+        popup &&
         !e.altKey &&
         !e.ctrlKey &&
         !e.metaKey &&
         e.key.length === 1 &&
         !(document.activeElement as HTMLElement | null)?.closest(".w-menu")
       ) {
-        if (runAccess(openPopup(), e.key)) {
+        if (runAccess(popup, e.key)) {
           e.preventDefault();
           e.stopPropagation();
         }
@@ -218,7 +249,7 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
       }
     };
     const onUp = (e: KeyboardEvent) => {
-      if (e.key === "Alt" && altAlone && openRef.current === null) {
+      if (e.key === "Alt" && altAlone && !openPopup()) {
         e.preventDefault();
         const first = triggers.current[0];
         if (document.activeElement === first) first?.blur();
@@ -235,17 +266,52 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
   }, [props.disabled]);
 
   return (
-    <Menubar className="w-menubar" disabled={props.disabled}>
+    <div className="w-menubar" role="menubar" aria-orientation="horizontal" aria-disabled={props.disabled || undefined}>
       {menus.map((m, i) => (
         <Menu.Root
           key={m.label}
-          open={open === i}
-          onOpenChange={(o) => setOpen((cur) => (o ? i : cur === i ? null : cur))}
+          modal={false}
+          open={openIdx === i}
+          disabled={props.disabled}
+          onOpenChange={(o, details) => {
+            const reason = (details as { reason?: string } | undefined)?.reason;
+            if (o) {
+              openMenu(i, reason === "trigger-press" && (details as { event?: Event })?.event?.type !== "keydown" ? "click" : "key");
+              return;
+            }
+            if (openRef.current !== i) return;
+            // a click on the title of a menu that was reached by pointing
+            // claims it instead of closing it
+            if (reason === "trigger-press" && clickOpened.current !== i) {
+              clickOpened.current = i;
+              return;
+            }
+            closeMenus();
+          }}
         >
           <Menu.Trigger
             className="w-menubar-item"
+            role="menuitem"
+            tabIndex={-1}
             ref={(el: HTMLButtonElement | null) => {
               triggers.current[i] = el;
+            }}
+            // a click on a title doesn't take focus from the window: the menu
+            // takes it while open and hands it back when it closes
+            onMouseDown={(e: React.MouseEvent<HTMLButtonElement>) => e.preventDefault()}
+            onPointerEnter={(e: React.PointerEvent<HTMLButtonElement>) => {
+              if (e.pointerType !== "touch" && openRef.current !== null && openRef.current !== i) openMenu(i, "point");
+            }}
+            onKeyDown={(e: React.KeyboardEvent<HTMLButtonElement>) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                e.preventDefault();
+                step(i, e.key === "ArrowRight" ? 1 : -1);
+              } else if (e.key === "Escape" && openRef.current === null) {
+                e.preventDefault();
+                const back = restoreFocus();
+                if (back) back.focus();
+                else e.currentTarget.blur();
+              }
             }}
           >
             <AccessLabel text={m.label} />
@@ -254,13 +320,23 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
             <Menu.Positioner side="bottom" align="start" sideOffset={1} style={{ zIndex: 1000 }}>
               <Menu.Popup
                 className="w-popup w-menu"
-                finalFocus={restoreFocus}
+                finalFocus={() => restoreFocus(i)}
                 onKeyDownCapture={(e) => {
                   if (e.altKey || e.ctrlKey || e.metaKey || e.key.length !== 1) return;
                   if (runAccess(e.currentTarget, e.key)) {
                     e.preventDefault();
                     e.stopPropagation();
                   }
+                }}
+                onKeyDown={(e) => {
+                  // Left/Right in a top-level menu walk the bar (inside a
+                  // submenu, or on a submenu title, Base UI handles them)
+                  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                  const t = e.target as HTMLElement;
+                  if (t.closest(".w-menu") !== e.currentTarget) return;
+                  if (e.key === "ArrowRight" && t.getAttribute("aria-haspopup")) return;
+                  e.preventDefault();
+                  step(i, e.key === "ArrowRight" ? 1 : -1);
                 }}
               >
                 <MenuItems items={m.items} />
@@ -269,7 +345,7 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
           </Menu.Portal>
         </Menu.Root>
       ))}
-    </Menubar>
+    </div>
   );
 }
 
@@ -284,14 +360,11 @@ export function ContextMenu(props: {
   style?: React.CSSProperties;
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   return (
     <BaseContextMenu.Root
-      open={open}
       disabled={props.disabled}
       onOpenChange={(o) => {
         if (o) props.onOpen?.();
-        setOpen(o);
       }}
     >
       <BaseContextMenu.Trigger className={props.className} style={props.style}>
@@ -327,9 +400,8 @@ export function DropdownButton(props: {
   disabled?: boolean;
   ariaLabel?: string;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <Menu.Root open={open} onOpenChange={setOpen}>
+    <Menu.Root>
       <Menu.Trigger className={props.className ?? "w-btn"} disabled={props.disabled} aria-label={props.ariaLabel}>
         {props.children}
         <Glyph name="down" />
