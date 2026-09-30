@@ -61,10 +61,6 @@ export default function ProcessingDialog(props: {
           </span>
         </div>
         {job?.message && <div className="w-muted" style={{ lineHeight: "18px" }}>{job.message}</div>}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Icon name="lock" />
-          Running on this computer. Nothing is uploaded.
-        </div>
       </div>
       <div className="w-dialog-buttons">
         <Button isDefault onClick={props.onHide}>

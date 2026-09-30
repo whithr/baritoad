@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { WordTiming } from "./api";
 import {
   envelopeSamples,
-  focusRange,
   laneAtTime,
   laneGroups,
   laneOfWord,
@@ -68,14 +67,9 @@ describe("laneGroups", () => {
 describe("view axis", () => {
   it("steps and clamps", () => {
     expect(stepView("lanes", -1)).toBe("text");
-    expect(stepView("lanes", 1)).toBe("focus");
-    expect(stepView("focus", 1)).toBe("focus");
+    expect(stepView("lanes", 1)).toBe("lanes");
+    expect(stepView("text", 1)).toBe("lanes");
     expect(stepView("text", -1)).toBe("text");
-  });
-  it("focusRange clamps to the list", () => {
-    expect(focusRange(10, 4, 2)).toEqual({ from: 2, to: 6 });
-    expect(focusRange(10, 0, 2)).toEqual({ from: 0, to: 2 });
-    expect(focusRange(3, 2, 2)).toEqual({ from: 0, to: 2 });
   });
 });
 

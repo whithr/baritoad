@@ -12,8 +12,9 @@ export interface Settings {
   pixelFont: boolean;
   /** Large = 125 % chrome. Lyrics have their own couch-sized type. */
   uiScale: UiScale;
-  /** Where the bench opens a song: remembered view zoom level. */
-  benchView: "text" | "lanes" | "focus";
+  /** Where the bench opens a song: the last view used. (A stored "focus"
+   *  from before that view was removed parses back to Lanes.) */
+  benchView: "text" | "lanes";
   /** Last shift scope, remembered across songs (the bench's default). */
   shiftScope: "word" | "line" | "tail";
   /** Where song import runs: the graphics card (DirectML separation and word
@@ -35,7 +36,7 @@ export const SETTINGS_KEY = "karascape.settings.v1";
 
 const SCHEMES: Scheme[] = ["classic", "night"];
 const SCALES: UiScale[] = ["normal", "large"];
-const VIEWS: Settings["benchView"][] = ["text", "lanes", "focus"];
+const VIEWS: Settings["benchView"][] = ["text", "lanes"];
 const SCOPES: Settings["shiftScope"][] = ["word", "line", "tail"];
 const IMPORT_ON: Settings["importOn"][] = ["gpu", "cpu"];
 

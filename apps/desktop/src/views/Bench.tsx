@@ -1,8 +1,11 @@
-// The bench: one song, lyrics on the audio. Three zoom levels of the same
-// surface — Text (structure, no audio), Lanes (the default: one lane per
-// line, words as chips under the vocal waveform), Focus (one line blown
-// up, neighbours as thin strips, TV preview on top). Selection, scope,
-// playhead and keys carry across all three.
+// The bench: one song, lyrics on the audio. Two zoom levels of the same
+// surface — Text (structure, no audio) and Lanes (the default: one lane per
+// line, words as chips under the vocal waveform; the selected line opens
+// up for fine work). Selection, scope, playhead and keys carry across both.
+//
+// Each command is shown once: the menu bar holds everything, the toolbar
+// only the frequent jobs, and modes (nudge scope, save state) live in the
+// status bar — no second copy of a menu item on the work surface.
 //
 // State is the tested editorState reducer (undo/redo/dirty, timing-map
 // invariants); playback is the review-screen <audio> hook (original-song
@@ -41,7 +44,6 @@ import type { Route } from "../App";
 import { useSettings } from "../App";
 import {
   envelopeSamples,
-  focusRange,
   laneAtTime,
   laneGroups,
   laneOfWord,
@@ -66,12 +68,11 @@ import { tokenizeLyric } from "../lineEdit";
 import { shiftRange, type ShiftScope } from "../previewEditor";
 import { fmtTime } from "../format";
 import { onStage, openStage } from "../stage";
-import { useAudio, type AudioController } from "../useAudio";
+import { useAudio } from "../useAudio";
 import {
   AppFrame,
   Button,
   ContextMenu,
-  DropdownButton,
   Glyph,
   GroupBox,
   Hr,
@@ -80,7 +81,6 @@ import {
   LcdText,
   MenuBar,
   ProgressBar,
-  RadioGroup,
   StatusBar,
   StatusPane,
   Tabs,
@@ -294,6 +294,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const [inserting, setInserting] = useState<InsertDraft | null>(null);
   const [lineLoop, setLineLoop] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reviewed, setReviewed] = useState(song?.reviewed_at != null);
   const [busy, setBusy] = useState<string | null>(null);
   const [guide, setGuide] = useState<number>(() => {
     const raw = localStorage.getItem(VOCAL_GUIDE_KEY);
@@ -517,7 +518,10 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     try {
       await saveTimingMap(mapPath, mapFromEditor(map, words));
       dispatch({ type: "mark-saved" });
-      if (songId != null) await songSetReviewed(songId, true);
+      if (songId != null) {
+        await songSetReviewed(songId, true);
+        setReviewed(true);
+      }
       setNotice("Saved");
       window.setTimeout(() => setNotice(null), 1500);
     } catch (e) {
@@ -526,6 +530,23 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       setSaving(false);
     }
   }, [map, saving, mapPath, words, songId]);
+
+  // Save doubles as "the timing is right": a song still waiting for its
+  // check keeps Save lit with nothing to write, and saving marks it checked
+  // (Library › Needs checking) — no hunting for a menu item.
+  const canCheck = songId != null && !reviewed;
+  const markChecked = useCallback(async () => {
+    if (songId == null) return;
+    try {
+      await songSetReviewed(songId, true);
+      setReviewed(true);
+      setNotice("Marked as checked");
+      window.setTimeout(() => setNotice(null), 2000);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [songId]);
+  const saveAndCheck = useCallback(() => (dirty ? save() : markChecked()), [dirty, save, markChecked]);
 
   const realignLane = useCallback(
     async (k: number) => {
@@ -652,7 +673,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       const mod = e.ctrlKey || e.metaKey;
       if (mod && (e.key === "s" || e.key === "S")) {
         e.preventDefault();
-        void save();
+        void saveAndCheck();
         return;
       }
       if (typing) return;
@@ -767,18 +788,13 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [audio, beginEdit, beginInsert, cancelNudgePlay, duration, editing, hearLine, hearWord, lanes, nudge, playLane, save, selLane, select, selected, view, words]);
+  }, [audio, beginEdit, beginInsert, cancelNudgePlay, duration, editing, hearLine, hearWord, lanes, nudge, playLane, saveAndCheck, selLane, select, selected, view, words]);
 
   // ---- leaving: 98-style "Save changes?" on every way out (Close, the
   // Library button, Alt+F4 / caption X via the window's close guard)
   const ask = useMessageBox();
   const dialogs = useAppDialogs();
-  const [reviewed, setReviewed] = useState(song?.reviewed_at != null);
   const title = song?.title ?? props.title ?? "Untitled";
-  const saveAndCheck = useCallback(async () => {
-    await save();
-    if (songId != null) setReviewed(true);
-  }, [save, songId]);
   const confirmLeave = useCallback(async (): Promise<boolean> => {
     if (!dirty) return true;
     const r = await ask({
@@ -836,18 +852,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     if (stageOpen && audio.playing) playerPause().catch(() => undefined);
   }, [stageOpen, audio.playing]);
 
-  const markChecked = useCallback(async () => {
-    if (songId == null) return;
-    try {
-      await songSetReviewed(songId, true);
-      setReviewed(true);
-      setNotice("Marked as checked");
-      window.setTimeout(() => setNotice(null), 2000);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, [songId]);
-
   // ---- commands (menus, right-click, accelerators)
   const hasSel = selected != null;
   const selWord = hasSel ? words[selected] : null;
@@ -883,7 +887,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     {
       label: "&File",
       items: [
-        { label: "&Save", accel: "Ctrl+S", run: () => void saveAndCheck(), disabled: saving },
+        { label: "&Save", accel: "Ctrl+S", run: () => void saveAndCheck(), disabled: saving || (!dirty && !canCheck) },
         { label: "&Export", items: exportItems },
         "-",
         { label: "Sing on &TV", accel: "F5", keys: "f5", run: () => void singOnTv() },
@@ -906,8 +910,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       label: "&View",
       items: [
         { label: "&Text", accel: "−", checked: view === "text", radio: true, run: () => setView("text") },
-        { label: "&Lanes", checked: view === "lanes", radio: true, run: () => setView("lanes") },
-        { label: "&Focus", accel: "+", checked: view === "focus", radio: true, run: () => setView("focus") },
+        { label: "&Lanes", accel: "+", checked: view === "lanes", radio: true, run: () => setView("lanes") },
       ],
     },
     {
@@ -940,13 +943,11 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         },
         { label: "Nudge &earlier", accel: "←", run: () => nudge(-1, false), disabled: !hasSel || !onLanes },
         { label: "Nudge &later", accel: "→", run: () => nudge(1, false), disabled: !hasSel || !onLanes },
-        { label: "Nudge earlier by 100 ms", accel: "Shift+←", run: () => nudge(-1, true), disabled: !hasSel || !onLanes },
-        { label: "Nudge later by 100 ms", accel: "Shift+→", run: () => nudge(1, true), disabled: !hasSel || !onLanes },
         "-",
         wordCommands.realign,
         { label: "Re&flow lines to fit the TV", run: () => dispatch({ type: "reflow-lines" }) },
         "-",
-        { label: "&Mark as checked", run: () => void markChecked(), disabled: songId == null || (reviewed && !dirty) },
+        { label: "&Mark as checked", run: () => void saveAndCheck(), disabled: !canCheck },
       ],
     },
     {
@@ -995,9 +996,9 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
               ["F2", "Edit the word"],
               ["Ins", "Add a word after it (or double-click a lane where it's sung)"],
               ["Del", "Delete the word"],
-              ["− +", "Text / Lanes / Focus"],
+              ["− +", "Text / Lanes"],
               ["Ctrl+Z / Ctrl+Y", "Undo / redo"],
-              ["Ctrl+S", "Save"],
+              ["Ctrl+S", "Save (and mark the song checked)"],
               ["F5", "Sing on TV"],
             ] as [string, string][]
           ).map(([k, v]) => (
@@ -1045,10 +1046,14 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     select,
   };
 
+  // A few keys for what you're doing now; F1 has the full list.
   const hints =
     view === "text"
-      ? "↑↓ Line · Enter Break / play · Backspace Join up · Space Play · + Lanes"
-      : "Space Play · ↑↓ Line · Tab Word · 1 2 3 Scope · ←→ Nudge · Enter Hear · L Loop · F2 Edit · Ins Add";
+      ? "↑↓ Line · Enter Break line / play · Backspace Join up · + Lanes"
+      : hasSel
+        ? "← → Nudge · Enter Hear · L Loop · F2 Retype · F1 Keys"
+        : "Click a word to select it · Space Play · F1 Keys";
+  const scopeName = { word: "Word", line: "Line", tail: "From here on" }[scope];
 
   return (
     <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
@@ -1058,7 +1063,12 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         <ToolButton icon={<Glyph name="left" />} onClick={() => void exit()} tip="Back to the Library (Ctrl+W)">
           Library
         </ToolButton>
-        <ToolButton icon={<Icon name="floppy" />} onClick={() => void saveAndCheck()} disabled={!dirty || saving} tip="Save (Ctrl+S)">
+        <ToolButton
+          icon={<Icon name="floppy" />}
+          onClick={() => void saveAndCheck()}
+          disabled={saving || (!dirty && !canCheck)}
+          tip={dirty ? "Save (Ctrl+S)" : "Mark the song checked — the timing is right (Ctrl+S)"}
+        >
           Save
         </ToolButton>
         <Vr />
@@ -1094,10 +1104,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
         />
         <span style={{ width: 36 }}>{Math.round(guide * 100)}%</span>
         <span className="w-grow" />
-        <DropdownButton className="w-btn tall" items={exportItems} ariaLabel="Export">
-          <Icon name="floppy" />
-          Export
-        </DropdownButton>
         <Button isDefault size="tall" icon={<Icon name="tv" />} onClick={() => void singOnTv()} tip="Sing on the TV (F5)">
           Sing on TV
         </Button>
@@ -1124,39 +1130,9 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
           tabs={[
             { value: "text", label: "Text" },
             { value: "lanes", label: "Lanes" },
-            { value: "focus", label: "Focus" },
           ]}
           className="w-grow"
           panelStyle={{ flexGrow: 1, display: "flex", flexDirection: "column", padding: 8, minHeight: 0 }}
-          aside={
-            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 5 }}>
-              <span>Shift:</span>
-              <RadioGroup
-                ariaLabel="Shift scope"
-                value={scope}
-                onChange={setScope}
-                options={[
-                  { value: "word", label: "Word" },
-                  { value: "line", label: "Line" },
-                  { value: "tail", label: "From here on" },
-                ]}
-              />
-              <Vr style={{ height: 22 }} />
-              <Button slim onClick={() => nudge(-1, false)} disabled={!hasSel || !onLanes} tip="Nudge earlier (←)">
-                « 10 ms
-              </Button>
-              <Button slim onClick={() => nudge(1, false)} disabled={!hasSel || !onLanes} tip="Nudge later (→)">
-                10 ms »
-              </Button>
-              <Vr style={{ height: 22 }} />
-              <Button slim onClick={() => dispatch({ type: "undo" })} disabled={state.past.length === 0} tip="Undo (Ctrl+Z)">
-                Undo
-              </Button>
-              <Button slim onClick={() => dispatch({ type: "redo" })} disabled={state.future.length === 0} tip="Redo (Ctrl+Y)">
-                Redo
-              </Button>
-            </div>
-          }
         >
           <div className="b-body">
             {view === "lanes" && (
@@ -1170,24 +1146,8 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
                 </ContextMenu>
               </>
             )}
-            {view === "focus" && (
-              <FocusView
-                lanes={lanes}
-                selLane={selLane >= 0 ? selLane : Math.max(0, playLane)}
-                laneProps={laneProps}
-                onSelectLane={(k) => select(lanes[k].indices[0])}
-                onHearLine={hearLine}
-                onRealign={realignLane}
-                lineLoop={lineLoop}
-                setLineLoop={setLineLoop}
-                audio={audio}
-                wordMenu={wordMenu}
-              >
-                <Overview levels={levels} duration={duration} time={audio.time} loop={audio.loop} onSeek={(t) => audio.seek(t)} />
-              </FocusView>
-            )}
             {view === "text" && (
-              <TextView lanes={lanes} words={words} selLane={selLane} dispatch={dispatch} select={select} onHearLine={hearLine} onRealign={realignLane} onZoom={() => setView("lanes")} />
+              <TextView lanes={lanes} words={words} selLane={selLane} dispatch={dispatch} select={select} onHearLine={hearLine} />
             )}
           </div>
         </Tabs>
@@ -1201,7 +1161,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
             ? `Shifting ${deltaS >= 0 ? "+" : "−"}${Math.abs(deltaS).toFixed(3)} s${range ? ` · ${range.last - range.first + 1} moving` : ""}`
             : selWord
               ? `“${selWord.word}” ${fmtTime(selWord.start)} – ${fmtTime(Math.max(selWord.end, selWord.start))}`
-              : "No word selected"}
+              : ""}
         </StatusPane>
         <StatusPane grow>
           {busy ? (
@@ -1213,11 +1173,21 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
             (notice ?? hints)
           )}
         </StatusPane>
+        {onLanes && (
+          <StatusPane width={150} title="What ← → moves: 1 word, 2 line, 3 from here on (Timing › Scope)">
+            Nudge: {scopeName}
+          </StatusPane>
+        )}
         <StatusPane width={150}>
           {dirty ? (
             <>
               <Icon name="warn" />
               {state.past.length} change{state.past.length === 1 ? "" : "s"}
+            </>
+          ) : canCheck ? (
+            <>
+              <Icon name="warn" />
+              Not checked yet
             </>
           ) : (
             <>
@@ -1316,12 +1286,11 @@ function Overview(props: {
 
 // ---------------------------------------------------------------- lane
 
-type LaneSize = "thin" | "normal" | "focus" | "big";
+/** "focus" is the selected line, opened up for fine work. */
+type LaneSize = "normal" | "focus";
 const LANE_DIMS: Record<LaneSize, { wave: number; key: number; gap: number; font: number }> = {
-  thin: { wave: 14, key: 18, gap: 2, font: 12 },
   normal: { wave: 24, key: 22, gap: 3, font: 13 },
   focus: { wave: 44, key: 24, gap: 8, font: 13 },
-  big: { wave: 168, key: 32, gap: 12, font: 16 },
 };
 
 interface LaneCommon {
@@ -1366,7 +1335,7 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const width = useWidth(stripRef);
   const { settings } = useSettings();
-  const focused = size === "focus" || size === "big";
+  const focused = size === "focus";
   useEffect(() => {
     props.laneWidth.current[index] = width;
   }, [width, index, props.laneWidth]);
@@ -1539,8 +1508,9 @@ function Lane(props: LaneCommon & { lane: LaneGroup; index: number; size: LaneSi
         )}
         {inLane && <div className="b-lane-head" style={{ left: px(time) }} />}
       </div>
+      {/* Only the selected line: clicking any lane already plays from there. */}
       <div className="b-ear">
-        {size !== "thin" && (
+        {focused && (
           <Button size="sm" onClick={() => props.onHearLine(index)} aria-label="Hear this line" title="Hear this line">
             <Glyph name="speaker" />
           </Button>
@@ -1586,86 +1556,6 @@ function WordEditor(props: { value: string; label?: string; onCommit: (text: str
   );
 }
 
-// ---------------------------------------------------------------- focus
-
-function FocusView(props: {
-  lanes: LaneGroup[];
-  selLane: number;
-  laneProps: LaneCommon;
-  onSelectLane: (k: number) => void;
-  onHearLine: (k: number) => void;
-  onRealign: (k: number) => void;
-  lineLoop: boolean;
-  setLineLoop: (v: boolean) => void;
-  audio: AudioController;
-  wordMenu: MenuEntry[];
-  children: React.ReactNode;
-}) {
-  const { lanes, selLane, laneProps } = props;
-  const { from, to } = focusRange(lanes.length, selLane, 2);
-  const words = laneProps.words;
-  const cur = lanes[selLane];
-  const prev = lanes[selLane - 1];
-  const next = lanes[selLane + 1];
-  const t = laneProps.time;
-  const clock = fmtClock(t);
-  return (
-    <>
-      <div className="b-tv" aria-label="TV preview">
-        <div className="b-tv-corner l">
-          <Icon name="tv" />
-          TV preview
-        </div>
-        <div className="b-tv-corner r">
-          {clock.main}
-          {clock.frac}
-        </div>
-        <div className="ctx">{prev ? prev.indices.map((i) => words[i].word).join(" ") : " "}</div>
-        <div className="cur">
-          {cur?.indices.map((i) => {
-            const w = words[i];
-            const cls = laneProps.nowWord === i ? "now" : t >= Math.max(w.end, w.start) ? "sung" : "";
-            return (
-              <span key={i} className={cls}>
-                {w.word}
-              </span>
-            );
-          })}
-        </div>
-        <div className="ctx">{next ? next.indices.map((i) => words[i].word).join(" ") : " "}</div>
-      </div>
-      <ContextMenu items={props.wordMenu} className="b-scroll" style={{ flexGrow: 0 }}>
-        {lanes.slice(from, to + 1).map((l, j) => {
-          const k = from + j;
-          return (
-            <div key={l.line ?? `run-${l.indices[0]}`} onClick={k !== selLane ? () => props.onSelectLane(k) : undefined}>
-              <Lane lane={l} index={k} size={k === selLane ? "big" : "thin"} {...laneProps} />
-            </div>
-          );
-        })}
-      </ContextMenu>
-      <div className="b-focus-nav">
-        <Button onClick={() => props.onSelectLane(Math.max(0, selLane - 1))} disabled={selLane <= 0} tip="Previous line (↑)">
-          <Glyph name="up" /> Previous line
-        </Button>
-        <Button onClick={() => props.onSelectLane(Math.min(lanes.length - 1, selLane + 1))} disabled={selLane >= lanes.length - 1} tip="Next line (↓)">
-          <Glyph name="down" /> Next line
-        </Button>
-        <Button onClick={() => props.onHearLine(selLane)}>
-          <Glyph name="speaker" /> Hear line
-        </Button>
-        <Button on={props.lineLoop} onClick={() => props.setLineLoop(!props.lineLoop)} tip="Loop line (L)">
-          Loop line
-        </Button>
-        <span className="w-grow" />
-        <span className="w-muted">Big targets for fine work · nudge with ← →</span>
-        <Button onClick={() => props.onRealign(selLane)}>Re-align this line</Button>
-      </div>
-      {props.children}
-    </>
-  );
-}
-
 // ---------------------------------------------------------------- text
 
 function TextView(props: {
@@ -1675,11 +1565,10 @@ function TextView(props: {
   dispatch: React.Dispatch<Parameters<typeof editorReducer>[1]>;
   select: (i: number | null, seek?: boolean) => void;
   onHearLine: (k: number) => void;
-  onRealign: (k: number) => void;
-  onZoom: () => void;
 }) {
   const { lanes, words, selLane, dispatch } = props;
-  // Stanzas: a gap of REFLOW-ish silence between lines reads as a verse break.
+  // Stanzas: a gap of REFLOW-ish silence between lines reads as a verse break
+  // (drawn as a plain gap — the rule behind it isn't the user's business).
   const STANZA_GAP_S = 2.5;
   const blocks: number[][] = [];
   lanes.forEach((l, k) => {
@@ -1702,12 +1591,7 @@ function TextView(props: {
       <div className="b-text-col" role="list" aria-label="Lyric lines">
         {blocks.map((b, bi) => (
           <div key={bi} style={{ display: "contents" }}>
-            {bi > 0 && (
-              <div className="b-stanza-gap">
-                Stanza · silence ≥ {STANZA_GAP_S} s
-                <i />
-              </div>
-            )}
+            {bi > 0 && <div className="b-stanza-gap" aria-hidden />}
             {b.map((k) => (
               <TextRow
                 key={lanes[k].line ?? `run-${lanes[k].indices[0]}`}
@@ -1725,30 +1609,6 @@ function TextView(props: {
           </div>
         ))}
         {lanes.length === 0 && <div className="w-list-empty">No lines yet.</div>}
-      </div>
-      <div className="b-text-side">
-        <GroupBox label="Structure, not timing">
-          Read the song as it will be sung. Fix line breaks and typos here; matched words keep their timing, and a retyped run
-          spreads across the old span.
-        </GroupBox>
-        <GroupBox label="Line surgery">
-          <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: "4px 8px" }}>
-            <b>Enter</b>
-            <span>mid-line breaks it at the caret</span>
-            <b>Backspace</b>
-            <span>at the start joins it to the line above</span>
-            <b>Enter</b>
-            <span>on an unchanged line plays it</span>
-          </div>
-        </GroupBox>
-        <GroupBox label="Still tied to the audio">
-          Start times stay in the margin. Press + to jump into Lanes on the selected line.
-        </GroupBox>
-        <Button onClick={() => dispatch({ type: "reflow-lines" })}>Re&flow lines to fit the TV</Button>
-        <Button isDefault onClick={() => selLane >= 0 && props.onRealign(selLane)} disabled={selLane < 0}>
-          Re-align selected line
-        </Button>
-        <Button onClick={props.onZoom}>Zoom to Lanes (+)</Button>
       </div>
     </div>
   );

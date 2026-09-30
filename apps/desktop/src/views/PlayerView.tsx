@@ -110,8 +110,7 @@ import {
   Lcd,
   Select,
   Spinner,
-  StatusBar,
-  StatusPane,
+  Tip,
   TitleBar,
   Trackbar,
   Vr,
@@ -895,6 +894,40 @@ export default function PlayerView(props: {
     });
   }, [finished, ask, upNext, singEntry, exit, props.measure]);
 
+  // The key list is F1 (and each control's tooltip) — never a strip of
+  // hints on the TV itself.
+  const showKeys = useCallback(
+    () =>
+      ask({
+        kind: "info",
+        title: "Keyboard Shortcuts",
+        message: "Player",
+        detail: (
+          <div style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: "2px 12px" }}>
+            {(
+              [
+                ["Space", "Play / pause"],
+                ["← →", "Back / forward 5 s (Shift: 30 s)"],
+                ["↑ ↓", "Vocal guide up / down"],
+                ["− +", "Key down / up"],
+                ["[ ]", "Slower / faster"],
+                ["0", "Reset key and tempo"],
+                ["F", "Full screen"],
+                ...(ROLE === "player" ? [["F6", "Back to Karascape"]] : []),
+                ["Esc", ROLE === "player" ? "Close the stage" : "Back"],
+              ] as [string, string][]
+            ).map(([k, v]) => (
+              <div key={k} style={{ display: "contents" }}>
+                <span>{k}</span>
+                <span>{v}</span>
+              </div>
+            ))}
+          </div>
+        ),
+      }),
+    [ask],
+  );
+
   // ---- keyboard (PLAN.md §3: keyboard controls; §4 step 5: guide one
   // keypress away). Media keys: deferred — module docs.
   useEffect(() => {
@@ -953,6 +986,10 @@ export default function PlayerView(props: {
             void stageFocus("main");
           }
           break;
+        case "F1":
+          e.preventDefault();
+          void showKeys();
+          break;
         case "Escape":
           if (fullscreen) {
             e.preventDefault();
@@ -965,7 +1002,7 @@ export default function PlayerView(props: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, seekBy, nudgeGuide, nudgePitch, nudgeTempo, toggleFullscreen, exit, fullscreen, pokeControls]);
+  }, [togglePlay, seekBy, nudgeGuide, nudgePitch, nudgeTempo, toggleFullscreen, exit, fullscreen, pokeControls, showKeys]);
 
   // ---- seek bar -----------------------------------------------------------
   const barClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1011,7 +1048,6 @@ export default function PlayerView(props: {
     : guide < 0
       ? `cut ${Math.round(-guide * 100)}%`
       : `${Math.round(guide * 100)}%`;
-  const transportWord = status == null ? "Loading" : status.state === "playing" ? "Playing" : status.state === "finished" ? "Finished" : "Paused";
 
   return (
     <div className="w98" style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "#000010" }}>
@@ -1149,7 +1185,9 @@ export default function PlayerView(props: {
               />
               <span style={{ width: 62 }}>{guideText}</span>
               <Vr style={{ height: 22 }} />
-              <label htmlFor="pk-key">Key</label>
+              <Tip tip="Key down / up (− +)">
+                <label htmlFor="pk-key">Key</label>
+              </Tip>
               <Spinner
                 id="pk-key"
                 value={Math.round(status?.pitch ?? 0)}
@@ -1163,7 +1201,9 @@ export default function PlayerView(props: {
                 disabled={!status}
               />
               <Vr style={{ height: 22 }} />
-              <label htmlFor="pk-tempo">Tempo</label>
+              <Tip tip="Slower / faster ([ ])">
+                <label htmlFor="pk-tempo">Tempo</label>
+              </Tip>
               <Spinner
                 id="pk-tempo"
                 value={status?.tempo ?? 1}
@@ -1181,15 +1221,10 @@ export default function PlayerView(props: {
               <Button onClick={() => setAdvancedOpen(true)} disabled={!status}>
                 &Options…
               </Button>
-              <Button onClick={toggleFullscreen}>{fullscreen ? "Exit full screen" : "&Full screen"}</Button>
+              <Button onClick={toggleFullscreen} tip="Full screen (F) · all keys: F1">
+                {fullscreen ? "Exit full screen" : "&Full screen"}
+              </Button>
             </div>
-            <StatusBar>
-              <StatusPane grow>
-                Space play/pause · ←→ seek · ↑↓ guide · − + key · [ ] tempo · F full screen
-                {ROLE === "player" ? " · F6 Karascape" : ""} · Esc {ROLE === "player" ? "close" : "back"}
-              </StatusPane>
-              <StatusPane width={96}>{transportWord}</StatusPane>
-            </StatusBar>
           </div>
         </div>
       </div>
@@ -1227,8 +1262,9 @@ function StageTitleBar(props: { title: string; active: boolean; onClose: () => v
 }
 
 // ---------------------------------------------------------------------------
-// Player Options: the stage theme for this song, which display the stage
-// lives on, stretch quality, and diagnostics.
+// Player Options: the stage theme for this song and which display the stage
+// lives on. Stretch quality and the audio/clock diagnostics are developer
+// readouts — dev builds only, never on the party host's screen.
 // ---------------------------------------------------------------------------
 
 function PlayerOptions(props: {
@@ -1300,34 +1336,38 @@ function PlayerOptions(props: {
             </div>
           </GroupBox>
         )}
-        <GroupBox label="Sound">
-          <div style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
-            <label htmlFor="po-stretch">Stretch quality</label>
-            <Select
-              id="po-stretch"
-              value={status.stretch_config}
-              onChange={(v) => playerSetStretchConfig(v as StretchConfigName).catch(() => undefined)}
-              options={[
-                { value: "default", label: "Default (smoothest)" },
-                { value: "low_latency", label: "Low latency (faster response)" },
-              ]}
-            />
-          </div>
-        </GroupBox>
-        <GroupBox label="Diagnostics">
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, lineHeight: "16px", userSelect: "text" }}>
-            <div>Device: {status.device ?? "—"}</div>
-            <div>
-              Audio: {status.stalls} stalls · max gap {status.max_gap_ms.toFixed(1)} ms · MMCSS {status.mmcss}
-            </div>
-            <div>Stretch: {status.stretch_engaged ? "engaged (−3 dB net, limited)" : "bypassed"}</div>
-            <div>
-              Transport jitter: max {props.jitter.maxAbsErrorMs.toFixed(1)} ms · {props.jitter.corrections} corrections ·{" "}
-              {props.jitter.snaps} snaps
-            </div>
-            <div>Renderer: DOM</div>
-          </div>
-        </GroupBox>
+        {import.meta.env.DEV && (
+          <>
+            <GroupBox label="Sound">
+              <div style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
+                <label htmlFor="po-stretch">Stretch quality</label>
+                <Select
+                  id="po-stretch"
+                  value={status.stretch_config}
+                  onChange={(v) => playerSetStretchConfig(v as StretchConfigName).catch(() => undefined)}
+                  options={[
+                    { value: "default", label: "Default (smoothest)" },
+                    { value: "low_latency", label: "Low latency (faster response)" },
+                  ]}
+                />
+              </div>
+            </GroupBox>
+            <GroupBox label="Diagnostics">
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, lineHeight: "16px", userSelect: "text" }}>
+                <div>Device: {status.device ?? "—"}</div>
+                <div>
+                  Audio: {status.stalls} stalls · max gap {status.max_gap_ms.toFixed(1)} ms · MMCSS {status.mmcss}
+                </div>
+                <div>Stretch: {status.stretch_engaged ? "engaged (−3 dB net, limited)" : "bypassed"}</div>
+                <div>
+                  Transport jitter: max {props.jitter.maxAbsErrorMs.toFixed(1)} ms · {props.jitter.corrections} corrections ·{" "}
+                  {props.jitter.snaps} snaps
+                </div>
+                <div>Renderer: DOM</div>
+              </div>
+            </GroupBox>
+          </>
+        )}
       </div>
       <DialogButtons>
         <Button isDefault onClick={props.onClose}>

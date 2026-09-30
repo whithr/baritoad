@@ -1,14 +1,15 @@
-// Add a Song wizard: details → lyrics → ready → Finish starts the job.
-// The audio file is already chosen (File › Add Song… opens the file dialog
-// first; a drop on the window skips straight here).
+// Add a Song wizard: details → lyrics, and Finish on the lyrics page starts
+// the job (no separate summary page — the golden path is drop, Next, paste,
+// Finish). The audio file is already chosen (File › Add Song… opens the file
+// dialog first; a drop on the window skips straight here).
 
 import { useEffect, useRef, useState } from "react";
 import { cleanLyricsPreview, generateSong, probeAudio, type CleanPreview, type ProbeResult } from "../api";
 import { useSettings } from "../App";
 import { fmtDuration } from "../libraryState";
-import { Checkbox, FieldLabel, GroupBox, Icon, TextArea, TextField, Wizard } from "../win98";
+import { Checkbox, FieldLabel, Icon, TextArea, TextField, Wizard } from "../win98";
 
-const PAGES = ["details", "lyrics", "ready"] as const;
+const PAGES = ["details", "lyrics"] as const;
 
 export default function AddSongWizard(props: {
   path: string | null;
@@ -92,7 +93,8 @@ export default function AddSongWizard(props: {
 
   const which = PAGES[page];
   const fileName = path?.split(/[\\/]/).pop() ?? "";
-  const next = () => (which === "ready" ? void finish() : setPage((p) => p + 1));
+  const last = page === PAGES.length - 1;
+  const next = () => (last ? void finish() : setPage((p) => p + 1));
 
   return (
     <Wizard
@@ -102,7 +104,7 @@ export default function AddSongWizard(props: {
       onBack={page > 0 ? () => setPage((p) => p - 1) : undefined}
       onNext={next}
       onCancel={props.onClose}
-      nextLabel={which === "ready" ? "&Finish" : undefined}
+      nextLabel={last ? "&Finish" : undefined}
       nextDisabled={which === "details" && !probe}
       busy={submitting}
     >
@@ -141,7 +143,7 @@ export default function AddSongWizard(props: {
           <TextArea
             id="add-lyrics"
             lyric
-            rows={11}
+            rows={10}
             value={lyrics}
             onChange={(e) => setLyrics(e.target.value)}
             placeholder="Leave empty to transcribe from the vocals (slower, rougher)."
@@ -150,34 +152,9 @@ export default function AddSongWizard(props: {
           <div style={{ lineHeight: "18px" }}>
             {preview
               ? `${preview.lines_kept} lines · ${preview.words_kept} words${preview.summary ? ` · ${preview.summary}` : ""}`
-              : "Pasted lyrics give the best sync. Matched words keep their timing if you edit them later."}
-          </div>
-        </>
-      )}
-      {which === "ready" && (
-        <>
-          <div style={{ fontWeight: 700 }}>Ready to make it karaoke</div>
-          <div style={{ display: "grid", gridTemplateColumns: "64px minmax(0, 1fr)", gap: "6px 8px", lineHeight: "18px" }}>
-            <span>Song:</span>
-            <span>
-              {title || fileName}
-              {artist ? ` — ${artist}` : ""}
-            </span>
-            <span>Lyrics:</span>
-            <span>
-              {preview
-                ? `${preview.lines_kept} lines · ${preview.words_kept} words, pasted`
-                : "None pasted — Karascape will transcribe them from the vocals"}
-            </span>
+              : "Pasted lyrics give the best sync."}
           </div>
           <Checkbox checked={hq} onChange={setHq} label="&High-quality separation (cleaner, about 3× slower)" />
-          <GroupBox label="On this machine">
-            <div style={{ display: "flex", gap: 8, alignItems: "center", lineHeight: "18px" }}>
-              <Icon name="lock" />
-              Vocals are separated and words aligned locally. Nothing is uploaded.
-            </div>
-          </GroupBox>
-          <div>Click Finish to start. You can keep using Karascape while it works.</div>
         </>
       )}
       {error && (

@@ -1,8 +1,10 @@
 // Library: the main window's home. Explorer-style — a tree of places on the
-// left (collections, Processing, Needs checking), a sortable list of songs,
-// the Up next queue underneath, and a status bar. Every action lives in the
-// menu bar; the toolbar, right-click menu and keys are shortcuts to it.
-// Adding a song is a wizard; processing reports in a modeless dialog.
+// left (collections, Needs checking), a sortable list of songs, the Up next
+// queue underneath, and a status bar. Every action lives in the menu bar; the
+// toolbar holds only the frequent jobs, and the right-click menus and keys
+// are shortcuts to the rest. Adding a song is a wizard (the big drop box
+// shows only while the library is empty, or while a file is dragged over);
+// processing reports in a modeless dialog.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -49,7 +51,6 @@ import {
   Toolbar,
   TreeView,
   Vr,
-  DropdownButton,
   useAccelerators,
   useMessageBox,
   usePrompt,
@@ -226,20 +227,13 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   }, [allSongs, collSongs, jobs]);
   const statusOf = useCallback((s: Song) => statuses.get(s.id) ?? statusFor(s, jobs), [statuses, jobs]);
 
-  const counts = useMemo(() => {
-    let processing = 0;
-    let review = 0;
-    for (const s of allSongs) {
-      const k = statusOf(s).kind;
-      if (k === "processing") processing++;
-      if (k === "review" || k === "failed" || k === "needs-timings") review++;
-    }
-    return { processing, review };
-  }, [allSongs, statusOf]);
+  const reviewCount = useMemo(
+    () => allSongs.filter((s) => ["review", "failed", "needs-timings"].includes(statusOf(s).kind)).length,
+    [allSongs, statusOf],
+  );
 
   const rows = useMemo(() => {
     let base = collectionId != null ? (collSongs ?? []) : allSongs;
-    if (node === "processing") base = base.filter((s) => statusOf(s).kind === "processing");
     if (node === "review") base = base.filter((s) => ["review", "failed", "needs-timings"].includes(statusOf(s).kind));
     const filtered = filterSongs(base, search);
     const key: Record<SortKey, (s: Song) => string | number | null | undefined> = {
@@ -359,6 +353,13 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const sing = (s: Song | null = song) => {
     if (!s?.timing_map_path || statusOf(s).kind === "processing") return;
     void singSong(s.id);
+  };
+  // Enter / double-click: the song's next step — sing it once it's ready,
+  // check its timing while it still needs checking.
+  const activate = (s: Song) => {
+    const k = statusOf(s).kind;
+    if (k === "ready") sing(s);
+    else if (k === "review") openSong(s);
   };
   const addToQueue = async (s: Song | null = song) => {
     if (!s?.timing_map_path) return;
@@ -513,8 +514,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   // ---------------------------------------------------------- commands
 
   const songMenu: MenuEntry[] = [
-    { label: "&Open in Bench", accel: "Enter", run: () => openSong(), disabled: !canOpen },
     { label: "&Sing", accel: "F5", keys: "f5", run: () => sing(), disabled: !canOpen },
+    { label: "Check &timing", accel: "Ctrl+T", keys: "ctrl+t", run: () => openSong(), disabled: !canOpen },
     { label: "Add to &Up next", accel: "Q", run: () => void addToQueue(), disabled: !song?.timing_map_path },
     { label: "&Mark as checked", run: () => void markChecked(), disabled: st?.kind !== "review" },
     "-",
@@ -609,13 +610,17 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           <span>↑ ↓</span>
           <span>Move through songs</span>
           <span>Enter</span>
-          <span>Open in the Bench</span>
+          <span>Sing it (or check the timing, if it needs checking)</span>
           <span>F5</span>
           <span>Sing</span>
+          <span>Ctrl+T</span>
+          <span>Check the timing</span>
           <span>Q</span>
           <span>Add to Up next</span>
+          <span>Alt+↑ ↓</span>
+          <span>Move in Up next</span>
           <span>Del</span>
-          <span>Remove from library</span>
+          <span>Remove from the library (or from Up next)</span>
           <span>/ or Ctrl+F</span>
           <span>Find</span>
           <span>Ctrl+O</span>
@@ -639,8 +644,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         ...collections.map((c) => ({ id: `c:${c.id}`, label: `${c.name} (${c.song_count})`, icon: <Icon name="folder" /> })),
       ],
     },
-    { id: "processing", label: `Processing (${counts.processing})`, icon: <Icon name="working" />, gap: true },
-    { id: "review", label: `Needs checking (${counts.review})`, icon: <Icon name="warn" /> },
+    { id: "review", label: `Needs checking (${reviewCount})`, icon: <Icon name="warn" />, gap: true },
   ];
   const onTreeSelect = (id: string) => {
     if (id === "lib") id = "all";
@@ -675,14 +679,22 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
 
   const emptyText =
     allSongs.length === 0
-      ? "No songs yet. Choose File › Add Song…, or drop an audio file on this window."
+      ? "No songs yet."
       : search
         ? "No songs match your search."
-        : node === "processing"
-          ? "Nothing is processing."
-          : node === "review"
-            ? "Every song has been checked."
-            : "This collection is empty. Right-click a song › Add to collection.";
+        : node === "review"
+          ? "Every song has been checked."
+          : "This collection is empty. Right-click a song › Add to collection.";
+
+  const queueMenu: MenuEntry[] = [
+    { label: "&Sing now", accel: "Enter", run: () => void singNext(), disabled: !qEntry },
+    "-",
+    { label: "Move &up", accel: "Alt+↑", run: () => void moveQueue(-1), disabled: !qEntry || qIdx === 0 },
+    { label: "Move &down", accel: "Alt+↓", run: () => void moveQueue(1), disabled: !qEntry || qIdx === queue.length - 1 },
+    { label: "&Remove", accel: "Del", run: () => void removeQueued(), disabled: !qEntry },
+    "-",
+    { label: "&Clear Up next…", run: () => void clearQueue(), disabled: queue.length === 0 },
+  ];
 
   return (
     <AppFrame title={collection ? `Karascape - ${collection.name}` : "Karascape - Library"} icon={<Icon name="app" />}>
@@ -692,23 +704,15 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         <ToolButton icon={<Icon name="disc" />} onClick={() => void addSong()} tip="Add a song (Ctrl+O)">
           Add song…
         </ToolButton>
+        <Vr />
         <ToolButton icon={<Icon name="tv" />} onClick={() => sing()} disabled={!canOpen} tip="Sing the selected song (F5)">
           Sing
         </ToolButton>
         <ToolButton icon={<Icon name="queue" />} onClick={() => void addToQueue()} disabled={!song?.timing_map_path} tip="Add to Up next (Q)">
           Up next
         </ToolButton>
-        <Vr />
-        <ToolButton icon={<Icon name="timing" />} onClick={() => openSong()} disabled={!canOpen} tip="Check the timing in the Bench (Enter)">
+        <ToolButton icon={<Icon name="timing" />} onClick={() => openSong()} disabled={!canOpen} tip="Check the timing (Ctrl+T)">
           Check timing
-        </ToolButton>
-        <DropdownButton className="w-tool" items={EXPORTS.map(([f, label]) => ({ label, run: () => void doExport(f) }))} disabled={!song?.timing_map_path}>
-          <Icon name="floppy" />
-          Export
-        </DropdownButton>
-        <Vr />
-        <ToolButton icon={<Icon name="gear" />} onClick={() => dialogs.open("properties")} tip="Properties">
-          Properties
         </ToolButton>
         <span className="w-grow" />
         <label htmlFor="lib-find" style={{ marginRight: 4 }}>
@@ -756,29 +760,42 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           }
         />
 
-        <div style={{ flexGrow: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-          <GroupBox label="Add a song" style={{ flexShrink: 0 }}>
-            <div
-              className={dragOver ? "w-dither" : undefined}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 14,
-                padding: "10px 14px",
-                outline: "1px dotted var(--w-shadow)",
-                outlineOffset: -5,
-                background: dragOver ? undefined : "var(--w-face)",
-                boxShadow: "var(--w-sunken)",
-              }}
-            >
-              <Icon name="disc" size={32} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1, lineHeight: "18px" }}>
-                <b>{dragOver ? "Let go to add this song" : "Drop a song here"}</b>
-                <span>MP3, FLAC, WAV, M4A, OGG, AAC, AIFF or WMA. You bring the music; everything stays on this machine.</span>
+        <div style={{ flexGrow: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }}>
+          {allSongs.length === 0 && (
+            <GroupBox label="Add a song" style={{ flexShrink: 0 }}>
+              <div
+                className={dragOver ? "w-dither" : undefined}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "10px 14px",
+                  outline: "1px dotted var(--w-shadow)",
+                  outlineOffset: -5,
+                  background: dragOver ? undefined : "var(--w-face)",
+                  boxShadow: "var(--w-sunken)",
+                }}
+              >
+                <Icon name="disc" size={32} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1, lineHeight: "18px" }}>
+                  <b>{dragOver ? "Let go to add this song" : "Drop a song here"}</b>
+                  <span>Or browse for an audio file you own.</span>
+                </div>
+                <Button onClick={() => void addSong()}>&Browse…</Button>
               </div>
-              <Button onClick={() => void addSong()}>&Browse…</Button>
+            </GroupBox>
+          )}
+          {dragOver && allSongs.length > 0 && (
+            <div
+              className="w-dither"
+              style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}
+            >
+              <div className="w-window" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px" }}>
+                <Icon name="disc" size={32} />
+                <b>Let go to add this song</b>
+              </div>
             </div>
-          </GroupBox>
+          )}
 
           {error && (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }} role="alert">
@@ -798,7 +815,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             rowKey={(s) => s.id}
             selected={selected}
             onSelect={(k) => setSelected(k as number)}
-            onActivate={(s) => openSong(s)}
+            onActivate={activate}
             rowDim={(s) => statusOf(s).kind === "processing"}
             sort={sort}
             onSort={(k) => toggleSort(k as SortKey)}
@@ -830,6 +847,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                 selected={queueSel}
                 onSelect={(k) => setQueueSel(k as number)}
                 onActivate={() => void singNext()}
+                contextMenu={queueMenu}
                 empty="Nothing queued. Select a song and press Q."
                 columns={[
                   { key: "pos", label: "#", width: "36px", render: (e) => e.position + 1 },
@@ -859,17 +877,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                 <Button isDefault onClick={() => void singNext()} disabled={queue.length === 0} style={{ width: "100%" }}>
                   Sing &next
                 </Button>
-                <Button onClick={() => void moveQueue(-1)} disabled={!qEntry || qIdx === 0} style={{ width: "100%" }}>
-                  Move &up
-                </Button>
-                <Button onClick={() => void moveQueue(1)} disabled={!qEntry || qIdx === queue.length - 1} style={{ width: "100%" }}>
-                  Move &down
-                </Button>
                 <Button onClick={() => void removeQueued()} disabled={!qEntry} style={{ width: "100%" }}>
                   Re&move
-                </Button>
-                <Button onClick={() => void clearQueue()} disabled={queue.length === 0} style={{ width: "100%" }}>
-                  Cl&ear
                 </Button>
               </div>
             </div>

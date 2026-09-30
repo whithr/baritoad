@@ -29,7 +29,7 @@ describe("parseSettings", () => {
         scheme: "night",
         pixelFont: false,
         uiScale: "huge",
-        benchView: "focus",
+        benchView: "text",
         shiftScope: "sideways",
         importOn: "cpu",
       }),
@@ -38,10 +38,14 @@ describe("parseSettings", () => {
       scheme: "night",
       pixelFont: false,
       uiScale: "normal",
-      benchView: "focus",
+      benchView: "text",
       shiftScope: "line",
       importOn: "cpu",
     });
+  });
+
+  it("opens a bench last left on the removed Focus view in Lanes", () => {
+    expect(parseSettings(JSON.stringify({ benchView: "focus" })).benchView).toBe("lanes");
   });
 
   it("imports on the graphics card unless the processor was chosen", () => {

@@ -348,77 +348,6 @@
   z-index: 3;
 }
 
-/* ------------------------------------------------------------ focus view */
-
-.b-tv {
-  height: 150px;
-  flex: none;
-  background: #000;
-  box-shadow: var(--w-sunken);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  position: relative;
-  overflow: hidden;
-  font-family: var(--w-font-lyric);
-  -webkit-font-smoothing: antialiased;
-}
-
-.b-tv-corner {
-  position: absolute;
-  top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #808080;
-  font-family: var(--w-font-ui);
-  -webkit-font-smoothing: none;
-}
-
-.b-tv-corner.l {
-  left: 10px;
-}
-
-.b-tv-corner.r {
-  right: 10px;
-}
-
-.b-tv .ctx {
-  font-size: 16px;
-  color: #8a8a8a;
-}
-
-.b-tv .cur {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-  font-size: 34px;
-  font-weight: 700;
-  color: #c8c8c8;
-  flex-wrap: wrap;
-  justify-content: center;
-  padding: 0 24px;
-}
-
-.b-tv .cur .sung,
-.b-tv .cur .now {
-  color: #00ffff;
-}
-
-.b-tv .cur .now {
-  text-decoration: underline;
-  text-underline-offset: 6px;
-}
-
-.b-focus-nav {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-}
-
 /* ------------------------------------------------------------- text view */
 
 .b-text {
@@ -439,28 +368,10 @@
   flex-direction: column;
 }
 
-.b-text-side {
-  width: 300px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  line-height: 18px;
-  overflow-y: auto;
-}
-
+/* Verse break: a plain gap between stanzas. */
 .b-stanza-gap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  color: var(--w-text-dim);
+  height: 14px;
   flex: none;
-}
-
-.b-stanza-gap i {
-  flex-grow: 1;
-  border-top: 1px dotted var(--w-shadow);
 }
 
 .b-trow {

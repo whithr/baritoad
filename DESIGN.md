@@ -106,8 +106,8 @@ going on. The joke is the costume; the craft is that it's a *good* 98 program �
 keyboard-complete, discoverable through its menus, and honest about state.
 
 The costume stops at the lyrics. Every place a singer reads words — the TV
-stage, the Bench word chips, the Focus preview, the Text view — uses big,
-smooth Barlow, never the pixel face (PRODUCT.md: legible at ~3 m).
+stage, the Bench word chips, the Text view — uses big, smooth Barlow, never
+the pixel face (PRODUCT.md: legible at ~3 m).
 
 Direction locked by the owner 2026-09-29 from the "Karascape 98" concept
 canvas; it replaces the Digital Dash (2026-08-05) and the hardware-panel chrome
@@ -190,25 +190,46 @@ Separator · icons.
 - **Command tables**: each view lists its commands once (label with access key,
   accelerator, run, enabled/checked); menus, toolbar tooltips and status-bar
   hints read from it.
+- **Show each command once.** The menu bar holds everything; the toolbar holds
+  only a view's few frequent jobs; right-click menus and keys reach the rest.
+  A work surface never repeats a menu item as a button, a side panel never
+  restates the status-bar hints, and modes (nudge scope, save/check state)
+  live in the status bar. Explanatory copy is said once, where it's needed
+  — not on every screen (the "nothing is uploaded" promise lives in the
+  Library status bar and About).
 - **Message boxes** replace `window.confirm` and inline confirm strips:
   info/question/error icon, one sentence of what happened, one of what to do.
 
 ## Screens
 
-- **Library** — tree (Library › collections, Up next, Processing, Needs
-  checking) + sortable list view (Title, Artist, Length, Status, Added, Last
-  sung) + Up next group + status bar. Add Song is a wizard; processing is a
+- **Library** — tree (Library › All songs, collections; Needs checking) +
+  sortable list view (Title, Artist, Length, Status, Added, Last sung) + Up
+  next group (Sing next + Remove; move/clear on its right-click menu) + status
+  bar. Toolbar: Add song… | Sing · Up next · Check timing, then Find.
+  Enter / double-click is the song's next step: Sing when Ready, Check timing
+  when it needs checking. The "Add a song" drop box shows only while the
+  library is empty; otherwise a dragged file gets a dithered "Let go" overlay.
+  Add Song is a two-page wizard (details → lyrics + Finish); processing is a
   modeless dialog with the step list and block progress bar.
-- **Bench** — toolbar with LCD clock, transport, Loop, Vocal-guide trackbar,
-  Export ▾, **Sing on TV** (default button); Text/Lanes/Focus tabs; lanes are
-  sunken tracks with waveform + raised Barlow word chips (selected = navy; no
-  per-word confidence markers — pasted lyrics align cleanly and the markers
-  read as noise; play state — now / sung — is colour only, every chip keeps
-  the one raised frame, so rows don't appear to resize as the head passes).
-  Status bar carries line/word timing, key hints, save state.
+- **Bench** — toolbar with Library, Save, LCD clock, transport, Loop,
+  Vocal-guide trackbar, **Sing on TV** (default button); Text/Lanes tabs
+  (the selected lane opens up for fine work and carries the one Hear button;
+  there is no separate Focus view). Lanes are sunken tracks with waveform +
+  raised Barlow word chips (selected = navy; no per-word confidence markers —
+  pasted lyrics align cleanly and the markers read as noise; play state — now
+  / sung — is colour only, every chip keeps the one raised frame, so rows
+  don't appear to resize as the head passes). The Text view is just the
+  lines, full width; verses are separated by a plain gap. Save stays lit
+  while a song is unchecked — saving with no edits marks it checked. Status
+  bar carries line/word timing, contextual key hints (F1 for all), the nudge
+  scope (1 2 3) and save/check state.
 - **Stage (TV player)** — separate window; full-bleed stage; chrome is a
-  floating tool-window dock (auto-hides) plus "Now singing"/"Up next" captions.
-- **Properties** — tabbed property sheet (Appearance, Bench, Player, Processing).
+  floating tool-window dock (auto-hides; no key-hint strip on the TV — keys
+  are F1 and tooltips) plus "Now singing"/"Up next" captions. Player Options
+  holds the song's theme and the display; stretch quality and diagnostics are
+  dev builds only.
+- **Properties** — tabbed property sheet (Appearance, Player, Processing). The
+  Bench remembers its last view and nudge scope, so they aren't settings.
 - **Player Themes** — display-properties-style dialog with a monitor preview.
 
 ### Full-Screen Player (signature)

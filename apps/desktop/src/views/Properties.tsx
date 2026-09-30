@@ -1,17 +1,17 @@
 // Karascape Properties — the app-wide preferences as a tabbed property sheet
 // (OK / Cancel / Apply over a draft), plus the About box. Player stage themes
-// have their own dialog (PlayerThemes.tsx), reachable from the Player tab.
+// (including which one is the default) have their own dialog
+// (PlayerThemes.tsx), reachable from the Player tab. The Bench's view and
+// nudge scope aren't here: the Bench remembers whatever you last used.
 
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useSettings } from "../App";
-import { publishPrefs } from "../prefsSync";
 import type { Settings } from "../settings";
 import { loadDisplay, saveDisplay } from "../stage";
-import { allThemes, loadThemeStore, saveThemeStore, THEME_STORE_KEY } from "../themes";
 import { Button, Checkbox, Dialog, DialogButtons, GroupBox, Icon, ListView, RadioGroup, Select, Tabs } from "../win98";
 
-type Tab = "appearance" | "bench" | "player" | "processing";
+type Tab = "appearance" | "player" | "processing";
 
 /** A tiny drawing of the app in a scheme, for the Appearance tab's monitor. */
 function SchemePreview(props: { scheme: Settings["scheme"] }) {
@@ -43,14 +43,12 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
   const { settings, update } = useSettings();
   const [tab, setTab] = useState<Tab>("appearance");
   const [draft, setDraft] = useState<Settings>(settings);
-  const [defaultTheme, setDefaultTheme] = useState(() => loadThemeStore().defaultId);
   const [display, setDisplay] = useState(() => loadDisplay());
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!props.open) return;
     setDraft(settings);
-    setDefaultTheme(loadThemeStore().defaultId);
     setDisplay(loadDisplay());
     setDirty(false);
   }, [props.open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -61,12 +59,6 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
   };
   const apply = () => {
     update(draft);
-    const store = loadThemeStore();
-    if (store.defaultId !== defaultTheme) {
-      const next = { ...store, defaultId: defaultTheme };
-      saveThemeStore(next);
-      publishPrefs(THEME_STORE_KEY, JSON.stringify(next));
-    }
     saveDisplay(display);
     setDirty(false);
   };
@@ -80,7 +72,6 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
           onChange={setTab}
           tabs={[
             { value: "appearance", label: "Appearance" },
-            { value: "bench", label: "Bench" },
             { value: "player", label: "Player" },
             { value: "processing", label: "Processing" },
           ]}
@@ -132,61 +123,11 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
               </div>
             </>
           )}
-          {tab === "bench" && (
-            <>
-              <GroupBox label="Open songs in">
-                <RadioGroup
-                  ariaLabel="Bench opens in"
-                  column
-                  value={draft.benchView}
-                  onChange={(v) => change({ benchView: v })}
-                  options={[
-                    { value: "text", label: "&Text — read through the lines" },
-                    { value: "lanes", label: "L&anes — every line on the waveform" },
-                    { value: "focus", label: "F&ocus — one line at a time, big" },
-                  ]}
-                />
-              </GroupBox>
-              <GroupBox label="Arrow keys shift">
-                <RadioGroup
-                  ariaLabel="Default shift scope"
-                  column
-                  value={draft.shiftScope}
-                  onChange={(v) => change({ shiftScope: v })}
-                  options={[
-                    { value: "word", label: "The &word" },
-                    { value: "line", label: "The &line" },
-                    { value: "tail", label: "Everything from &here on" },
-                  ]}
-                />
-              </GroupBox>
-            </>
-          )}
           {tab === "player" && (
             <>
               <GroupBox label="Stage theme">
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <label htmlFor="pr-theme" style={{ width: 64 }}>
-                      Default:
-                    </label>
-                    <Select
-                      id="pr-theme"
-                      value={defaultTheme}
-                      onChange={(v) => {
-                        setDefaultTheme(v);
-                        setDirty(true);
-                      }}
-                      options={allThemes(loadThemeStore()).map((t) => ({ value: t.id, label: t.name }))}
-                      style={{ flexGrow: 1 }}
-                    />
-                  </div>
-                  <div className="w-muted" style={{ lineHeight: "16px" }}>
-                    Any song can pin its own theme from the player's Options.
-                  </div>
-                  <div>
-                    <Button onClick={props.onPlayerThemes}>Player &Themes…</Button>
-                  </div>
+                <div>
+                  <Button onClick={props.onPlayerThemes}>Player &Themes…</Button>
                 </div>
               </GroupBox>
               <GroupBox label="TV display">
@@ -224,18 +165,6 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
                     { value: "cpu", label: "&Processor only — slower, keeps the graphics card free" },
                   ]}
                 />
-              </GroupBox>
-              <GroupBox label="On this computer">
-                <div style={{ display: "flex", gap: 12, lineHeight: "18px" }}>
-                  <Icon name="lock" size={32} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div>Vocal separation and word timing run on this computer. Karascape never uploads your audio.</div>
-                    <div>
-                      On the graphics card, vocal separation and word timing use DirectML when each passes a quality check, otherwise the
-                      processor. Imports run at low priority so the rest of the computer stays responsive.
-                    </div>
-                  </div>
-                </div>
               </GroupBox>
             </>
           )}

@@ -1,4 +1,4 @@
-// Pure layout + navigation math for the bench (Lanes / Text / Focus).
+// Pure layout + navigation math for the bench (Text / Lanes).
 // All times are original-song seconds (PLAN.md §5); the views map them to
 // pixels through the per-lane window from editorState.lineWindow.
 
@@ -6,10 +6,10 @@ import type { WordTiming } from "./api";
 import { lineWindow } from "./editorState";
 import { groupByLine } from "./highlight";
 
-export type BenchView = "text" | "lanes" | "focus";
-export const BENCH_VIEWS: BenchView[] = ["text", "lanes", "focus"];
+export type BenchView = "text" | "lanes";
+export const BENCH_VIEWS: BenchView[] = ["text", "lanes"];
 
-/** Step the view axis: −1 zooms out (towards Text), +1 zooms in (Focus). */
+/** Step the view axis: −1 zooms out (to Text), +1 zooms in (to Lanes). */
 export function stepView(view: BenchView, dir: -1 | 1): BenchView {
   const i = BENCH_VIEWS.indexOf(view);
   const j = Math.min(BENCH_VIEWS.length - 1, Math.max(0, i + dir));
@@ -59,9 +59,8 @@ export function laneOfWord(lanes: LaneGroup[], i: number): number {
  * The lane the head is "in" at `t`: the line being sung, else - in the gap
  * between two lines - the line just sung until the next line's lead-in
  * window opens, then that next line. Sticky on purpose: a gap longer than
- * the windows' padding used to fall through to -1, and the focus view
- * showed that as a flash of the first line (or, lanes view, no line at
- * all) between two consecutive rows. -1 only before the first window and
+ * the windows' padding used to fall through to -1, which showed as no line
+ * at all between two consecutive rows. -1 only before the first window and
  * after the last.
  */
 export function laneAtTime(lanes: LaneGroup[], words: WordTiming[], t: number): number {
@@ -121,12 +120,4 @@ export function envelopeSamples(
     out[i] = m / 255;
   }
   return out;
-}
-
-/** Lane windows for the Focus view: the focused lane plus `around`
- *  neighbours each side, clamped to the list. */
-export function focusRange(count: number, focused: number, around: number): { from: number; to: number } {
-  if (count === 0) return { from: 0, to: -1 };
-  const f = Math.min(Math.max(focused, 0), count - 1);
-  return { from: Math.max(0, f - around), to: Math.min(count - 1, f + around) };
 }
