@@ -8,9 +8,12 @@
 //!   this into copies.
 //! - zero-length KV tensors (first decode step) must be created through the
 //!   allocator API; raw-data creation rejects a 0 dimension.
-//! - Whisper runs on **CPU always**: on the RTX 2080 SUPER DirectML measured
-//!   ~4x slower than 8-core CPU for the merged KV-cache decoder (dynamic
-//!   shapes) and slower for the encoder too. wav2vec2 is where DML pays off.
+//! - The merged KV-cache decoder runs on **CPU always**: on the RTX 2080
+//!   SUPER DirectML measured ~4x slower than 8-core CPU for it (dynamic
+//!   shapes). The encoder may run on DirectML ([`Whisper::load`] `try_dml`):
+//!   82 ms vs 797 ms per 30 s chunk on 6 CPU threads, 104.7 dB parity
+//!   (2026-09-30), gated by a golden check against a CPU baseline and
+//!   cached in the shared ep-parity cache.
 //!
 //! Sessions are built once in [`Whisper::load`] and reused for every chunk and
 //! every subsequent song (session reuse per the Phase 1 hardening list).
@@ -24,6 +27,7 @@ use ort::value::Tensor;
 use crate::alignment::chunk::Chunk;
 use crate::alignment::mel;
 use crate::error::{Error, Result};
+use crate::separation::{snr_db, ParityCache, GOLDEN_SNR_THRESHOLD_DB};
 
 pub const SOT: i64 = 50258;
 pub const LANG_EN: i64 = 50259;
@@ -107,6 +111,8 @@ pub struct ChunkTranscript {
 
 pub struct Whisper {
     encoder: Session,
+    /// Set when the encoder was meant for DirectML but runs on CPU.
+    pub note: Option<String>,
     decoder: Session,
     tokenizer: WhisperTokenizer,
     suppress: Vec<i64>,
@@ -123,16 +129,84 @@ pub fn cpu_session(path: &Path, threads: usize) -> Result<Session> {
         .map_err(|e| Error::Model(format!("load {}: {e}", path.display())))
 }
 
+/// EP key in the shared parity cache (the model identity disambiguates it
+/// from separation's and wav2vec2's "directml" entries).
+const ENCODER_PARITY_EP: &str = "directml";
+
+/// Deterministic log-mel-shaped golden input: smooth bands in the encoder's
+/// usual [-1, 1.5] range, so DML and CPU see identical, realistic values.
+fn golden_mel() -> Vec<f32> {
+    let mut v = Vec::with_capacity(mel::N_MELS * mel::N_FRAMES);
+    for m in 0..mel::N_MELS {
+        for t in 0..mel::N_FRAMES {
+            let x = (t as f32 * 0.013 + m as f32 * 0.37).sin() * 0.8
+                + (t as f32 * 0.071).cos() * 0.3 * (m as f32 / mel::N_MELS as f32);
+            v.push(x.clamp(-1.0, 1.5));
+        }
+    }
+    v
+}
+
+fn encode(session: &mut Session, mel: &[f32]) -> Result<Vec<f32>> {
+    let feats = Tensor::from_array((vec![1usize, mel::N_MELS, mel::N_FRAMES], mel.to_vec()))?;
+    let out = session.run(ort::inputs!["input_features" => feats])?;
+    let (_, data) = out["last_hidden_state"].try_extract_tensor::<f32>()?;
+    Ok(data.to_vec())
+}
+
+/// The encoder session: DirectML when `try_dml` and it matches the CPU on
+/// the golden input (cached per model file), otherwise CPU. Returns a note
+/// when DirectML was tried and not used.
+fn encoder_session(path: &Path, threads: usize, try_dml: bool) -> Result<(Session, Option<String>)> {
+    if !try_dml {
+        return Ok((cpu_session(path, threads)?, None));
+    }
+    let dml = crate::compute::session_builder(threads)
+        .and_then(|b| {
+            Ok(b.with_config_entry("ep.dml.disable_graph_fusion", "1")?
+                .with_memory_pattern(false)?
+                .with_parallel_execution(false)?
+                .with_execution_providers([ort::ep::DirectML::default().build().error_on_failure()])?)
+        })
+        .and_then(|mut b| b.commit_from_file(path).map_err(|e| Error::Model(format!("load {}: {e}", path.display()))));
+    let mut dml = match dml {
+        Ok(s) => s,
+        Err(e) => return Ok((cpu_session(path, threads)?, Some(format!("whisper encoder DirectML unavailable, using CPU: {e}")))),
+    };
+    let cache_path = crate::separation::default_parity_cache_path();
+    let mut cache = ParityCache::load(&cache_path, path);
+    if cache.cached_pass(ENCODER_PARITY_EP).is_some() {
+        return Ok((dml, None));
+    }
+    let golden = golden_mel();
+    let candidate = encode(&mut dml, &golden);
+    let mut cpu = cpu_session(path, threads)?;
+    let baseline = encode(&mut cpu, &golden)?;
+    match candidate {
+        Ok(c) => {
+            let snr = snr_db(&baseline, &c);
+            let passed = snr >= GOLDEN_SNR_THRESHOLD_DB;
+            cache.record(ENCODER_PARITY_EP, Some(snr), passed);
+            if passed {
+                Ok((dml, None))
+            } else {
+                Ok((cpu, Some(format!("whisper encoder DirectML parity FAIL ({snr:.1} dB) — using CPU"))))
+            }
+        }
+        Err(e) => Ok((cpu, Some(format!("whisper encoder DirectML failed ({e}) — using CPU")))),
+    }
+}
+
 impl Whisper {
     /// Load encoder/decoder sessions (CPU) and tokenizer from a
     /// `whisper-small` model directory (optimum export layout).
     /// `int8` selects the dynamic-quantized decoder (the int8 *encoder* uses
     /// ConvInteger, unimplemented in ort's bundled CPU build).
-    pub fn load(dir: &Path, int8: bool, threads: usize) -> Result<Self> {
+    pub fn load(dir: &Path, int8: bool, threads: usize, try_dml: bool) -> Result<Self> {
         let suffix = if int8 { "_int8" } else { "" };
         let enc_path = dir.join("onnx/encoder_model.onnx");
         let dec_path = dir.join(format!("onnx/decoder_model_merged{suffix}.onnx"));
-        let encoder = cpu_session(&enc_path, threads)?;
+        let (encoder, note) = encoder_session(&enc_path, threads, try_dml)?;
         let decoder = cpu_session(&dec_path, threads)?;
         let has_cache_position = decoder
             .inputs()
@@ -154,6 +228,7 @@ impl Whisper {
             as usize;
         Ok(Self {
             encoder,
+            note,
             decoder,
             tokenizer,
             suppress,

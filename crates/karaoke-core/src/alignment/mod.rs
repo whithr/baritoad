@@ -69,6 +69,9 @@ pub struct AlignConfig {
     /// +684 MB VRAM. The generate pipeline turns it on unless the request
     /// pins the CPU; this struct's default (and `karaoke align` without
     /// `--ep dml`) stays CPU.
+    ///
+    /// Also moves the whisper *encoder* to DirectML (same parity gating;
+    /// the decoder stays on CPU) — whisper only runs without pasted lyrics.
     pub w2v_try_dml: bool,
     /// Intra-op threads for the CPU sessions (default leaves cores free for
     /// the UI and player — [`crate::compute::inference_threads`]).
@@ -171,6 +174,7 @@ impl Aligner {
                 &self.whisper_dir,
                 self.cfg.whisper_int8,
                 self.cfg.threads,
+                self.cfg.w2v_try_dml,
             )?);
         }
         Ok(self.whisper.as_mut().expect("just loaded"))
@@ -261,7 +265,11 @@ impl Aligner {
                     chunks.len() - voiced.len()
                 ),
             );
-            self.whisper()?.transcribe_chunks(vocals16k, &voiced, &mut |done, total| {
+            let w = self.whisper()?;
+            if let Some(n) = w.note.take() {
+                progress(None, &n);
+            }
+            w.transcribe_chunks(vocals16k, &voiced, &mut |done, total| {
                 progress(
                     Some(whisper_weight * done as f64 / total.max(1) as f64),
                     &format!("whisper: chunk {done}/{total}"),
