@@ -9,15 +9,18 @@ Current phase: **Phase 0 — de-risk spikes** (PLAN.md §9, spikes/README.md).
 
 ## Hard rules — never violate, not even in a prototype
 
-- No bundled songs, no hosting/relaying of user audio, no cloud processing
-  (PLAN.md §7). The network is touched only on user request: Add from URL
-  (yt-dlp), LRCLIB lyrics lookup, and party mode. Online lyrics come from the
-  LRCLIB API — never HTML-scrape lyrics sites (PLAN.md §3, §5).
+- No bundled songs, no sharing user audio between users, no cloud processing
+  (PLAN.md §7). User audio leaves the machine only through the paid cloud
+  library: opt-in, private to the owner's account, one copy per account,
+  never shared or processed server-side (PLAN.md §3, §7). The network is
+  touched only on user request: Add from URL (yt-dlp), LRCLIB lyrics lookup,
+  party mode, and the cloud library. Online lyrics come from the LRCLIB API
+  — never HTML-scrape lyrics sites (PLAN.md §3, §5).
 - The party relay carries the queue and song metadata only — never audio or
-  lyrics. Guests never sign in; only the paying host has an account.
-- The app is **open source (GPL-3.0-or-later)** — say so plainly. The party
-  relay server is ours, closed, and lives outside this repo: never put server
-  code or its secrets here (PLAN.md §1, §8).
+  lyrics. Guests never sign in; only the paying account holder does.
+- The app is **open source (GPL-3.0-or-later)** — say so plainly. Our
+  servers (party relay, cloud library) are ours, closed, and live outside
+  this repo: never put server code or its secrets here (PLAN.md §1, §8).
 - Never commit audio files or model weights to the repo. Test audio is
   copyrighted; weights live on the mirror with provenance in MODEL_LICENSES.md.
   The .gitignore enforces this — do not weaken it.
@@ -41,8 +44,8 @@ Current phase: **Phase 0 — de-risk spikes** (PLAN.md §9, spikes/README.md).
   integrated, measured choice — don't swap without measured numbers.
 - English-first v1: no multilingual alignment paths (PLAN.md §1, §6).
 - v1 scope is frozen (PLAN.md §3). No mic input, no pitch detection, no scoring
-  — those are v2. Party mode is the paid v1.x feature (PLAN.md §9 Phase 4),
-  not v1.0. Flag scope creep when you see it, including in requests.
+  — those are v2. Party mode and the cloud library are the paid v1.x
+  features (PLAN.md §9 Phase 4), not v1.0. Flag scope creep when you see it, including in requests.
 - Timing maps always store original-song time; only the player clock translates
   through stretch ratios (PLAN.md §5).
 
@@ -55,7 +58,8 @@ Current phase: **Phase 0 — de-risk spikes** (PLAN.md §9, spikes/README.md).
 - Spike code may be rough; spike *measurements* may not.
 - Pricing, subscriptions, and other monetization strategy live only in
   `BUSINESS.md` (gitignored, local). Never write them into tracked files —
-  PLAN.md §8 says only that the app is free and party mode is paid.
+  PLAN.md §8 says only that the app is free and that party mode and the
+  cloud library are paid.
 
 ## Repo layout
 

@@ -9,9 +9,11 @@ word-synced scrolling lyrics, and a full-screen player.
 being de-risked.
 
 **License:** open source, [GPL-3.0-or-later](LICENSE). The app is free —
-build it, use it, change it, share it, binaries included. The one paid thing
-is party mode: a hosted service that lets guests join from their phones
-(PLAN.md §8). Its relay server is ours and isn't in this repo.
+build it, use it, change it, share it, binaries included. The paid things
+are hosted services: party mode, which lets guests join from their phones,
+and the cloud library, which keeps your songs in your own private account so
+they follow you to your other computers (PLAN.md §8). Their servers are ours
+and aren't in this repo.
 
 *Additional permission under GNU GPL version 3 section 7:* if you modify this
 program, or any covered work, by linking or combining it with Microsoft
