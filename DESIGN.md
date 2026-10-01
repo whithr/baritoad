@@ -286,4 +286,4 @@ Separator · icons.
 - **Don't** touch the player's per-frame path beyond the Four-Hook contract.
 - **Don't** add corner radii, gradients (other than title bars), glows, or transitions to chrome.
 - **Don't** use Microsoft's icons, logo, fonts, or the word "Windows" in UI copy — the look is an homage, drawn in-house.
-- **Don't** describe the product as "open source" — it is source-available (PLAN.md §1).
+- **Do** call the app open source (GPL-3.0), and be plain that party mode is the one paid feature (PLAN.md §1, §8).

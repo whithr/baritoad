@@ -1,9 +1,10 @@
 [package]
 name = "karaoke-cli"
-description = "Command-line front end for the karaoke pipeline (source-available)"
+description = "Command-line front end for the karaoke pipeline"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "karaoke"

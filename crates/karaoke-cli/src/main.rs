@@ -1,5 +1,5 @@
 //! `karaoke` — command-line front end for the karaoke pipeline
-//! (source-available; PLAN.md is authoritative for scope).
+//! (GPL-3.0-or-later; PLAN.md is authoritative for scope).
 //!
 //! Phase 1:
 //! - `karaoke generate` — the full pipeline (separate → clean lyrics → align

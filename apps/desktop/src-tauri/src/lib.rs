@@ -1,7 +1,7 @@
 //! karaoke-desktop — Tauri 2 shell over karaoke-core (PLAN.md §5, §9 Phase 2).
 //!
-//! Source-available (PLAN.md §1 terminology rule). All processing is local;
-//! no downloader, no cloud, no telemetry (CLAUDE.md hard rules).
+//! Open source, GPL-3.0-or-later (PLAN.md §8). All processing is local;
+//! no cloud, no telemetry, no hosting of user audio (CLAUDE.md hard rules).
 
 mod commands;
 mod library;

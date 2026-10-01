@@ -1,5 +1,5 @@
 //! karaoke-core — pipeline stages, inference, and format I/O for the karaoke
-//! app (source-available; see PLAN.md).
+//! app (GPL-3.0-or-later; see PLAN.md).
 //!
 //! Phase 1 scope so far:
 //! - separation stage (htdemucs via ONNX Runtime), ported from

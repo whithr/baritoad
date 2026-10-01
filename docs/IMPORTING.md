@@ -6,8 +6,8 @@ shows which lyrics each song picked up, which collection it goes in, and
 whether it's already in your library. This page describes the folder layout
 that import reads, for people and for AI agents preparing a folder.
 
-Only import songs you own. Karascape never downloads music or lyrics, and
-everything runs on your computer.
+Everything runs on your computer: import reads files from disk and never
+uploads anything.
 
 ## The short version
 
@@ -126,11 +126,11 @@ songs into collection folders. In this repo, Claude Code has the
 **prep-song-import** skill (`.claude/skills/prep-song-import/`) with the
 full workflow. Any agent should follow the same rules:
 
-- **Use only the user's own files.** Never download audio, never fetch lyrics
-  from websites, and never type lyrics from memory. Lyrics are copyrighted, a
-  model's memory of them is often wrong, and fetching them is lyrics-site
-  scraping, which this project never does (PLAN.md §7). Songs without lyrics
-  get transcribed, or the user pastes their own.
+- **Work only on files already in the folder.** Don't fetch audio or lyrics
+  yourself, and never type lyrics from memory — a model's memory of lyrics is
+  often wrong. Fetching is the app's job (Add from URL and LRCLIB lookup,
+  PLAN.md §3); songs without lyrics get transcribed, or the user pastes their
+  own.
 - **Names come from the files or the user**: tags, file names, a title line
   in the lyrics file. Never identify a song by recognizing its lyrics or
   searching a lyric line online.

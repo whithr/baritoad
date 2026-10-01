@@ -9,19 +9,19 @@ The folder layout Import Folder… reads is in `docs/IMPORTING.md` — read it
 first. This skill is the workflow for getting a messy folder of audio and
 text files into that layout, with `karaoke scan` as the judge.
 
-## Hard rules (legal load-bearing — CLAUDE.md, PLAN.md §7)
+## Hard rules
 
-- **Only the user's own files.** Never download audio. Never fetch lyrics
-  from the web: no lyrics sites, no searching to copy text. **Never write
-  lyrics from memory**, even if you think you know the song: lyrics are
-  copyrighted, recall is often wrong, and the product's rule is "you bring
-  the music". A song without lyrics gets transcribed, or the user pastes
-  their own and you save that text verbatim.
+- **Only files already in the folder.** Don't fetch audio or lyrics
+  yourself — fetching is the app's job (Add from URL, LRCLIB lookup;
+  PLAN.md §3). **Never write lyrics from memory**, even if you think you know
+  the song: recall is often wrong, and lyrics are copyrighted. A song without
+  lyrics gets looked up or transcribed by the app, or the user pastes their
+  own and you save that text verbatim.
 - **Names come from the files or the user.** A song's title and artist may
   come only from its tags, its file or folder name, a header or title line
   in its paired lyrics file, or the user. Never identify a song by
-  recognizing its lyrics or by searching a lyric line online — that is
-  lyrics lookup by another road.
+  recognizing its lyrics or by searching a lyric line online — a wrong guess
+  mislabels the song, and the app's LRCLIB lookup trusts title and artist.
 - **Never modify, re-encode, or delete audio files. Never delete any file.**
 - **Everything that changes a file needs approval** — renames, moves, *and*
   content edits (deleting chord lines, splitting a file). Show the full list

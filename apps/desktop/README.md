@@ -6,9 +6,9 @@ Tauri 2 shell over `karaoke-core`, styled as a late-90s desktop program
 wizard) and the Bench (`views/Bench.tsx` — the timing editor, Text / Lanes /
 Focus), and a separate Stage window for the TV player
 (`views/PlayerView.tsx`, created by `src-tauri/src/stage.rs`) that can be
-dragged or sent full screen to another display. All processing is local; the app never downloads music,
-never uploads audio, and ships no lyrics. The code is public but the project
-is **source-available**, not open source (PLAN.md §1, §8).
+dragged or sent full screen to another display. All processing is local; the app never uploads audio
+and ships no music or lyrics. The app is open source
+(GPL-3.0-or-later, PLAN.md §1, §8).
 
 ## Layout
 

@@ -4,6 +4,7 @@ description = "Vendored Signalsmith Stretch (MIT) + hand-written FFI for key/tem
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 links = "signalsmith_stretch_wrapper"
 
 [build-dependencies]

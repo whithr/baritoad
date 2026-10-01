@@ -3,7 +3,8 @@ name = "karaoke-desktop"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Desktop app shell (Tauri) for the karaoke pipeline — source-available, local-only processing"
+license.workspace = true
+description = "Desktop app shell (Tauri) for the karaoke pipeline — local-only processing"
 
 # Wraps karaoke-core directly (no CLI subprocess). PLAN.md §5: Tauri webview
 # UI over the Rust core; PLAN.md §9 Phase 2 milestone 1.

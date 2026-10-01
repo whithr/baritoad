@@ -224,7 +224,7 @@ export function AboutDialog(props: { open: boolean; onClose: () => void }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <b>Karascape</b>
             <span>Version {version ?? "—"}</span>
-            <span>Source-available software.</span>
+            <span>Free, open-source software (GPL-3.0).</span>
           </div>
         </div>
         <div style={{ lineHeight: "18px" }}>

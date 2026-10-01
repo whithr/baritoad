@@ -1,9 +1,10 @@
 [package]
 name = "karaoke-core"
-description = "Pipeline stages, ONNX inference, and format I/O for the karaoke app (source-available)"
+description = "Pipeline stages, ONNX inference, and format I/O for the karaoke app"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 ort.workspace = true

@@ -46,6 +46,9 @@ apps/desktop/src-tauri/gen/
 __pycache__/
 *.pyc
 
+# Business notes — pricing and monetization stay local (CLAUDE.md)
+BUSINESS.md
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
