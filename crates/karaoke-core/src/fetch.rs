@@ -136,13 +136,18 @@ impl Tools {
 
     /// What a link points at: one song, or a playlist's songs (listed flat —
     /// fast, and each one is fetched in full when its turn comes).
+    ///
+    /// A video opened from a playlist or a YouTube Mix carries the list in
+    /// its link (`watch?v=…&list=…`); that's the one video (`--no-playlist`
+    /// — yt-dlp's default would take the whole list, dozens of songs for a
+    /// Mix). Only a link to the playlist itself expands.
     pub fn check_link(&self, url: &str) -> Result<Vec<Link>> {
         let url = url.trim();
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err(Error::InvalidInput(format!("not a web link: {url}")));
         }
         let mut cmd = self.command();
-        cmd.args(["-J", "--flat-playlist", "--"]).arg(url);
+        cmd.args(["-J", "--flat-playlist", "--no-playlist", "--"]).arg(url);
         let run = run_collect(cmd, CHECK_TIMEOUT, &self.ytdlp)?;
         if !run.ok {
             return Err(Error::Fetch(error_message(&run.stderr)));

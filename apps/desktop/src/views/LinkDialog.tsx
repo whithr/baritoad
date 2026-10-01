@@ -107,8 +107,9 @@ export default function LinkDialog(props: {
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start", lineHeight: "18px" }}>
               <Icon name="globe" size={32} />
               <span>
-                Paste links to songs — a music video, a song page, or a whole playlist. Karascape downloads each one to
-                this computer, then separates the vocals and lines up the lyrics like any song you add.
+                Paste links to songs — a music video, a song page, or a playlist's own link for all its songs (a video
+                you opened from a playlist adds just that video). Karascape downloads each one to this computer, then
+                separates the vocals and lines up the lyrics like any song you add.
               </span>
             </div>
             <FieldLabel htmlFor="link-text" text="&Links — one per line:" />
