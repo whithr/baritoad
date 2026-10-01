@@ -40,7 +40,9 @@ use manifest::{Artifact, JobManifest, JobPointer, StageId};
 /// rerun the stage instead of trusting stale artifacts.
 pub const SEPARATE_STAGE_VERSION: u32 = 1;
 pub const CLEAN_LYRICS_STAGE_VERSION: u32 = 1;
-pub const ALIGN_STAGE_VERSION: u32 = 2;
+/// 3: transcribed lyrics break into lines at the singer's pauses, not
+/// whole whisper chunks (alignment::lines).
+pub const ALIGN_STAGE_VERSION: u32 = 3;
 pub const EXPORT_STAGE_VERSION: u32 = 1;
 /// Bump when [`run_import_timings_stage`]'s conversion changes (it stands in
 /// for the align stage when a request carries UltraStar timings).

@@ -22,6 +22,7 @@
 
 pub mod anchor;
 pub mod chunk;
+pub mod lines;
 pub mod ctc;
 pub mod mel;
 pub mod w2v;
@@ -213,8 +214,9 @@ impl Aligner {
 
     /// Auto-transcribe fallback (PLAN.md §3): no pasted lyrics — the whisper
     /// transcript becomes the lyric source, and the map is marked
-    /// [`LyricSource::Transcribed`]. Each whisper chunk becomes one lyric
-    /// line (words carry line/word indices).
+    /// [`LyricSource::Transcribed`]. Its lines break at whisper chunk
+    /// boundaries and, inside a chunk, at the singer's pauses
+    /// ([`lines::break_lines`]); words carry line/word indices.
     pub fn align_transcribe(
         &mut self,
         vocals16k: &[f32],
@@ -318,8 +320,9 @@ impl Aligner {
         let lyric_source;
         let lyric_words: Vec<anchor::LyricWord>;
         let anchors: Vec<Option<anchor::Anchor>>;
-        // per lyric word: (line index, word-in-line index), auto mode only
-        let mut auto_lines: Option<Vec<(usize, usize)>> = None;
+        // per lyric word: its whisper chunk, auto mode only (lines are
+        // broken once the words have timings — below)
+        let mut auto_chunks: Option<Vec<usize>> = None;
         match pasted {
             Some(words) => {
                 lyric_source = LyricSource::Pasted;
@@ -359,21 +362,7 @@ impl Aligner {
                         })
                     })
                     .collect();
-                // dense line numbering over chunks that produced words
-                let mut lines = Vec::with_capacity(lyric_words.len());
-                let mut line = 0usize;
-                let mut word_in_line = 0usize;
-                let mut prev_chunk: Option<usize> = None;
-                for (ci, _) in &transcript_meta {
-                    if prev_chunk.is_some() && prev_chunk != Some(*ci) {
-                        line += 1;
-                        word_in_line = 0;
-                    }
-                    prev_chunk = Some(*ci);
-                    lines.push((line, word_in_line));
-                    word_in_line += 1;
-                }
-                auto_lines = Some(lines);
+                auto_chunks = Some(transcript_meta.iter().map(|(ci, _)| *ci).collect());
             }
         }
 
@@ -453,6 +442,42 @@ impl Aligner {
                 }
             }
         }
+
+        // ---- transcribed lines: whisper chunks are hard breaks; inside each,
+        // break where the singer pauses (lines module docs). Dense numbering.
+        let auto_lines: Option<Vec<(usize, usize)>> = auto_chunks.map(|chunk_of| {
+            let mut out = Vec::with_capacity(chunk_of.len());
+            let mut line = 0usize;
+            let mut a = 0usize;
+            while a < chunk_of.len() {
+                let mut z = a + 1;
+                while z < chunk_of.len() && chunk_of[z] == chunk_of[a] {
+                    z += 1;
+                }
+                let timed: Vec<lines::Timed<'_>> = (a..z)
+                    .map(|i| lines::Timed {
+                        start: raw[i].start,
+                        end: raw[i].end,
+                        text: &lyric_words[i].display,
+                    })
+                    .collect();
+                let breaks = lines::break_lines(&timed);
+                let mut next_break = breaks.iter().peekable();
+                let mut word_in_line = 0usize;
+                for k in 0..(z - a) {
+                    if next_break.peek() == Some(&&k) {
+                        next_break.next();
+                        line += 1;
+                        word_in_line = 0;
+                    }
+                    out.push((line, word_in_line));
+                    word_in_line += 1;
+                }
+                line += 1;
+                a = z;
+            }
+            out
+        });
 
         // ---- flags: anchors ----
         // No word is auto-marked unsung: the suspect heuristic (low CTC
