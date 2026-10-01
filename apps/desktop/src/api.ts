@@ -209,6 +209,8 @@ export interface LinkItem {
   artist?: string;
   duration_s?: number;
   thumbnail?: string;
+  /** Lyrics pasted in the review list (the job skips the online lookup). */
+  lyrics_text?: string;
 }
 
 /** Queue reviewed links: each downloads, finds its lyrics, then imports. */

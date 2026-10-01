@@ -5,7 +5,11 @@
 //!
 //! Lookup order: `GET /api/get` (exact match on title + artist, duration
 //! within a couple of seconds) when the artist is known, then
-//! `/api/search` by title + artist, then by title alone. Search results go
+//! `/api/search` by title + artist, then by title alone; then the same with
+//! version tags stripped ("be in your band v2" → "be in your band",
+//! "… demo", "… acoustic"); last, a free-text search for "artist title",
+//! also read with title and artist swapped (uploads named "Song - Artist").
+//! Search results go
 //! through [`pick_best`]: LRCLIB's "instrumental" flag is unreliable for old
 //! recordings (several vocal 1908 recordings are tagged instrumental), so only
 //! records that carry lyrics are candidates, and duration decides between
@@ -161,8 +165,26 @@ impl Client {
         }
     }
 
+    /// `/api/search?q=` — LRCLIB's free-text search over title, artist and
+    /// album.
+    pub fn search_text(&self, text: &str) -> Result<Vec<Record>> {
+        let mut resp = self
+            .agent
+            .get(format!("{}/api/search", self.base))
+            .query("q", text.trim())
+            .call()
+            .map_err(net)?;
+        let status = resp.status().as_u16();
+        let body = resp.body_mut().read_to_string().map_err(net)?;
+        match status {
+            200 => serde_json::from_str(&body).map_err(|e| bad_reply(&e)),
+            s => Err(Error::Network(format!("LRCLIB answered HTTP {s}"))),
+        }
+    }
+
     /// The best record with lyrics for `q`, or `Ok(None)` when LRCLIB has
-    /// nothing that fits (the job then transcribes).
+    /// nothing that fits (the job then transcribes). Order in the module
+    /// docs; each step only runs when the ones before found nothing.
     pub fn lookup(&self, q: &Query) -> Result<Option<Record>> {
         let title = q.title.trim();
         if title.is_empty() {
@@ -175,13 +197,45 @@ impl Client {
                     return Ok(Some(r));
                 }
             }
-            let hits = self.search(title, Some(a))?;
-            if let Some(r) = pick_best(&hits, q) {
+        }
+        // By title (+ artist), then by the title without version tags.
+        let full = normalize(title);
+        let core = strip_version(&full);
+        let mut titles = vec![title.to_string()];
+        if !core.is_empty() && core != full {
+            titles.push(core);
+        }
+        for t in &titles {
+            let tq = Query { title: t.clone(), ..q.clone() };
+            if let Some(a) = artist {
+                if let Some(r) = pick_best(&self.search(t, Some(a))?, &tq) {
+                    return Ok(Some(r.clone()));
+                }
+            }
+            if let Some(r) = pick_best(&self.search(t, None)?, &tq) {
                 return Ok(Some(r.clone()));
             }
         }
-        let hits = self.search(title, None)?;
-        Ok(pick_best(&hits, q).cloned())
+        // Free text, read both ways round.
+        let text = match artist {
+            Some(a) => format!("{a} {title}"),
+            None => title.to_string(),
+        };
+        let hits = self.search_text(&text)?;
+        if let Some(r) = pick_best(&hits, q) {
+            return Ok(Some(r.clone()));
+        }
+        if let Some(a) = artist {
+            let swapped = Query {
+                title: a.to_string(),
+                artist: Some(title.to_string()),
+                ..q.clone()
+            };
+            if let Some(r) = pick_best(&hits, &swapped) {
+                return Ok(Some(r.clone()));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -300,7 +354,41 @@ pub fn normalize(s: &str) -> String {
 }
 
 fn titles_match(want: &str, got: &str) -> bool {
-    !got.is_empty() && (want == got || squash(want) == squash(got))
+    if got.is_empty() {
+        return false;
+    }
+    if want == got || squash(want) == squash(got) {
+        return true;
+    }
+    let (w, g) = (strip_version(want), strip_version(got));
+    !w.is_empty() && (w == g || squash(&w) == squash(&g))
+}
+
+/// Words that tag a version of a song rather than name it, when they end
+/// an (already normalized) title: "song v2", "song demo", "song acoustic
+/// version", "song live", "song remastered 2011".
+const VERSION_WORDS: &[&str] = &[
+    "version", "ver", "demo", "acoustic", "live", "remaster", "remastered", "edit", "radio", "extended", "mono",
+    "stereo", "explicit", "clean", "single", "album", "original", "mix", "take", "unplugged", "session",
+];
+
+/// A normalized title without trailing version tags ("be in your band v2"
+/// → "be in your band"). Never strips down to nothing.
+pub fn strip_version(normalized: &str) -> String {
+    let mut words: Vec<&str> = normalized.split_whitespace().collect();
+    let is_tag = |w: &str| {
+        VERSION_WORDS.contains(&w) || (w.len() >= 2 && w.starts_with('v') && w[1..].chars().all(|c| c.is_ascii_digit()))
+    };
+    while let Some(&last) = words.last() {
+        let number = last.chars().all(|c| c.is_ascii_digit());
+        let before_is_tag = words.len() >= 2 && is_tag(words[words.len() - 2]);
+        let strip = is_tag(last) || (number && before_is_tag);
+        if !strip || words.len() <= 1 {
+            break;
+        }
+        words.pop();
+    }
+    words.join(" ")
 }
 
 /// Whole-word containment either way, so multi-artist credits ("A & B",
@@ -433,6 +521,29 @@ mod tests {
         assert_eq!(pick_best(&hits, &q("song", None, Some(180.0))).map(|r| r.id), Some(2));
         let joined = vec![rec(3, "Take Me Out to the Ballgame", "A", 150.0, Some("x"), None)];
         assert_eq!(pick_best(&joined, &q("Take Me Out to the Ball Game", None, None)).map(|r| r.id), Some(3));
+    }
+
+    #[test]
+    fn version_tags_come_off_the_end_only() {
+        assert_eq!(strip_version("be in your band v2"), "be in your band");
+        assert_eq!(strip_version("song acoustic version"), "song");
+        assert_eq!(strip_version("song remastered 2011"), "song");
+        assert_eq!(strip_version("song demo take 3"), "song");
+        assert_eq!(strip_version("live and let die"), "live and let die", "only trailing tags");
+        assert_eq!(strip_version("live"), "live", "never to nothing");
+        assert_eq!(strip_version("99 problems"), "99 problems", "a number alone isn't a tag");
+    }
+
+    #[test]
+    fn a_versioned_upload_matches_the_plain_record() {
+        let hits = vec![rec(1, "Be In Your Band", "Some Artist", 180.0, Some("x"), None)];
+        let q1 = q("be in your band v2", Some("some artist"), Some(182.0));
+        assert_eq!(pick_best(&hits, &q1).map(|r| r.id), Some(1));
+        let q2 = q("Be In Your Band - Demo", Some("Some Artist"), None);
+        assert_eq!(pick_best(&hits, &q2).map(|r| r.id), Some(1));
+        // A different song with a shared prefix still doesn't match.
+        let q3 = q("be in your band forever", Some("Some Artist"), None);
+        assert!(pick_best(&hits, &q3).is_none());
     }
 
     #[test]

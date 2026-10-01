@@ -22,18 +22,79 @@ export function parseLinks(text: string): string[] {
 /** Songs start checked unless they were fetched before. */
 export const defaultCheckedLinks = (links: FoundLink[]) => new Set(links.filter((l) => !l.in_library).map((l) => l.url));
 
-/** The queue request for the checked songs, in list order. */
-export function linkItems(links: FoundLink[], checked: Set<string>): LinkItem[] {
+/** What the review list knows about a song's lyrics. */
+export type LinkLyrics =
+  | { kind: "checking" }
+  | { kind: "found"; track: string; artist: string; lines: number }
+  | { kind: "missing" }
+  | { kind: "failed"; message: string }
+  | { kind: "pasted"; text: string };
+
+/** The Lyrics cell: icon, label, and a tooltip with the details. */
+export function lyricsCell(
+  l: LinkLyrics | undefined,
+  lookupOn: boolean,
+): { icon: "ready" | "warn" | "working"; label: string; tip?: string } {
+  if (l?.kind === "pasted") {
+    const lines = l.text.split(/\r?\n/).filter((s) => s.trim()).length;
+    return { icon: "ready", label: "Pasted", tip: `${lines === 1 ? "1 line" : `${lines} lines`} you pasted` };
+  }
+  if (!lookupOn) return { icon: "warn", label: "Will transcribe", tip: "Paste lyrics, or tick Find lyrics online" };
+  switch (l?.kind) {
+    case "found":
+      return { icon: "ready", label: "On LRCLIB", tip: `“${l.track}” by ${l.artist} — ${l.lines} lines` };
+    case "missing":
+      return { icon: "warn", label: "Not found — will transcribe", tip: "LRCLIB doesn't have this song. Paste the lyrics for the best timing." };
+    case "failed":
+      return { icon: "warn", label: "Couldn't check", tip: l.message };
+    default:
+      return { icon: "working", label: "Checking…" };
+  }
+}
+
+/** "4 songs · 2 with lyrics from LRCLIB · 1 pasted · 1 will be transcribed" */
+export function lyricsSummary(
+  links: FoundLink[],
+  checked: Set<string>,
+  lyrics: Record<string, LinkLyrics>,
+  lookupOn: boolean,
+): string {
+  const picked = links.filter((l) => checked.has(l.url));
+  let found = 0;
+  let pasted = 0;
+  let checking = 0;
+  for (const l of picked) {
+    const s = lyrics[l.url];
+    if (s?.kind === "pasted") pasted++;
+    else if (lookupOn && s?.kind === "found") found++;
+    else if (lookupOn && (!s || s.kind === "checking")) checking++;
+  }
+  const rest = picked.length - found - pasted - checking;
+  const parts = [picked.length === 1 ? "1 song" : `${picked.length} songs`];
+  if (found > 0) parts.push(`${found} with lyrics from LRCLIB`);
+  if (pasted > 0) parts.push(`${pasted} pasted`);
+  if (checking > 0) parts.push(`${checking} still checking`);
+  if (rest > 0) parts.push(`${rest} will be transcribed`);
+  return parts.join(" · ");
+}
+
+/** The queue request for the checked songs, in list order. Pasted lyrics go
+ *  with their song. */
+export function linkItems(links: FoundLink[], checked: Set<string>, lyrics: Record<string, LinkLyrics> = {}): LinkItem[] {
   return links
     .filter((l) => checked.has(l.url))
-    .map((l) => ({
-      url: l.url,
-      id: l.id,
-      title: l.title,
-      artist: l.artist ?? undefined,
-      duration_s: l.duration_s ?? undefined,
-      thumbnail: l.thumbnail ?? undefined,
-    }));
+    .map((l) => {
+      const s = lyrics[l.url];
+      return {
+        url: l.url,
+        id: l.id,
+        title: l.title,
+        artist: l.artist ?? undefined,
+        duration_s: l.duration_s ?? undefined,
+        thumbnail: l.thumbnail ?? undefined,
+        lyrics_text: s?.kind === "pasted" ? s.text : undefined,
+      };
+    });
 }
 
 /** yt-dlp's extractor names, as people say them. */

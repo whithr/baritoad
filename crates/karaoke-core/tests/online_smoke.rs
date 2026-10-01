@@ -37,6 +37,31 @@ fn lrclib_finds_full_lyrics_for_the_1908_recording() {
 }
 
 #[test]
+#[ignore = "network"]
+fn lrclib_near_misses_still_find_the_song() {
+    let client = Client::new("Karascape-dev/0.1 (karaoke app; smoke test)");
+    // A version tag on the upload's title.
+    let tagged = Query {
+        title: "Take Me Out To The Ball Game v2".into(),
+        artist: Some("Harvey Hindermeyer".into()),
+        album: None,
+        duration_s: Some(157.62),
+    };
+    let r = client.lookup(&tagged).expect("lookup").expect("found despite the v2");
+    println!("v2 title -> LRCLIB #{} '{}' by '{}'", r.id, r.track_name, r.artist_name);
+    // An upload named "Song - Artist": title and artist arrive swapped.
+    let swapped = Query {
+        title: "Ed Meeker".into(),
+        artist: Some("Take Me Out to the Ball Game".into()),
+        album: None,
+        duration_s: None,
+    };
+    let r = client.lookup(&swapped).expect("lookup").expect("found despite the swap");
+    println!("swapped -> LRCLIB #{} '{}' by '{}'", r.id, r.track_name, r.artist_name);
+    assert!(r.track_name.to_lowercase().contains("ball game"));
+}
+
+#[test]
 #[ignore = "network + yt-dlp"]
 fn ytdlp_checks_a_public_domain_link() {
     let tools = Tools::locate(&[]).expect("set KARAOKE_YTDLP or put yt-dlp on PATH");

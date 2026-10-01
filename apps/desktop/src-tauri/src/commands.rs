@@ -483,10 +483,15 @@ pub struct LinkItem {
     pub duration_s: Option<f64>,
     #[serde(default)]
     pub thumbnail: Option<String>,
+    /// Lyrics pasted in the review list; the job uses them as they are
+    /// (no lookup).
+    #[serde(default)]
+    pub lyrics_text: Option<String>,
 }
 
 /// Queue reviewed links: one job each, which downloads its audio, looks its
-/// lyrics up (when asked), then runs the pipeline like any import.
+/// lyrics up (when asked, and when none were pasted), then runs the pipeline
+/// like any import.
 #[tauri::command]
 pub async fn queue_links(
     app: AppHandle,
@@ -520,6 +525,14 @@ pub async fn queue_links(
         }
         if hq_separation {
             hq_options(&mut req);
+        }
+        // Pasted lyrics are the job's lyrics file, as the wizard's are (the
+        // lookup step skips a job that already has lyrics).
+        if let Some(text) = item.lyrics_text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            std::fs::create_dir_all(&out_dir).map_err(|e| format!("cannot create {}: {e}", out_dir.display()))?;
+            let p = out_dir.join(PASTED_LYRICS);
+            std::fs::write(&p, text).map_err(|e| format!("cannot write lyrics: {e}"))?;
+            req.lyrics = Some(p);
         }
         let post = PostImport {
             collection: collection.clone().filter(|c| !c.trim().is_empty()),

@@ -124,8 +124,10 @@ The review list marks songs that brought no lyrics file. Tick **Find missing
 lyrics online (LRCLIB)** and those songs look their lyrics up on lrclib.net
 before they're timed (only the title, artist and length are sent); the
 setting is remembered. Songs LRCLIB doesn't have are transcribed from the
-vocals, as before. The same lookup runs for songs added with **File › Add from
-URL…**.
+vocals, as before. **File › Add from URL…** does the same lookup, and its review
+list shows each song's result before anything downloads — **On LRCLIB**, or
+**Not found — will transcribe** — with **Paste lyrics…** for the songs LRCLIB
+doesn't have.
 
 ## Preparing a folder with an AI agent
 
