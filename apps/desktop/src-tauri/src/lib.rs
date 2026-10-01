@@ -50,6 +50,7 @@ pub fn run() {
             // each in the below-normal-priority worker process (worker.rs).
             let handle = app.handle().clone();
             job_queue.restore(&handle);
+            library::spawn_meta_backfill(handle.clone(), library_handle.clone());
             let worker_queue = job_queue.clone();
             let worker_library = library_handle.clone();
             std::thread::Builder::new()
@@ -68,6 +69,7 @@ pub fn run() {
             commands::job_lyrics,
             commands::scan_import,
             commands::import_songs,
+            library::song_update_details,
             commands::cancel_job,
             commands::list_jobs,
             commands::read_timing_map,

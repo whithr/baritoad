@@ -1,5 +1,8 @@
 // Library: the main window's home. Explorer-style — a tree of places on the
-// left (collections, Needs checking), a sortable list of songs, the Up next
+// left (collections; the Most sung / Never sung / Recently added shelves; a
+// Browse branch of artists, decades, genres, languages and singability,
+// all derived from the rows — categories.ts; Needs checking), a sortable
+// list of songs that View › Group by can split under headers, the Up next
 // queue underneath, and a status bar. Every action lives in the menu bar; the
 // toolbar holds only the frequent jobs, and the right-click menus and keys
 // are shortcuts to the rest. Adding a song is a wizard (the big drop box
@@ -28,6 +31,7 @@ import {
   queueList,
   queueMoveEntry,
   queueRemove,
+  onLibraryChanged,
   scanImport,
   songCollections,
   songSetReviewed,
@@ -38,9 +42,20 @@ import {
   type Song,
 } from "../api";
 import type { Route } from "../App";
+import { useSettings } from "../App";
+import {
+  categoryContext,
+  categoryFilter,
+  facets,
+  GROUP_BYS,
+  groupRows,
+  PACE_LABELS,
+  searchSongs,
+  type GroupBy,
+} from "../categories";
 import { batchProgress } from "../importState";
 import { progressHeadline, type JobProgress, type JobsState } from "../jobEvents";
-import { filterSongs, fmtDuration, sortBy, statusFor, type SongStatus, type SortDir } from "../libraryState";
+import { fmtDuration, sortBy, statusFor, type SongStatus, type SortDir } from "../libraryState";
 import {
   AppFrame,
   Button,
@@ -70,6 +85,25 @@ import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
 import ProcessingDialog from "./ProcessingDialog";
+import SongProperties from "./SongProperties";
+
+/** Browse branches: selecting one lists every song, grouped by it. */
+const BROWSE_GROUP: Record<string, GroupBy> = {
+  "browse:artist": "artist",
+  "browse:decade": "decade",
+  "browse:genre": "genre",
+  "browse:lang": "language",
+  "browse:sing": "pace",
+};
+
+const GROUP_LABELS: Record<GroupBy, string> = {
+  none: "&None",
+  artist: "&Artist",
+  decade: "&Decade",
+  genre: "&Genre",
+  language: "&Language",
+  pace: "&Pace",
+};
 
 const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "wma"];
 const isAudioPath = (p: string) => AUDIO_EXTS.includes((p.split(".").pop() ?? "").toLowerCase());
@@ -156,6 +190,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const [procOpen, setProcOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [importScan, setImportScan] = useState<ImportScan | null>(null);
+  const [propsSong, setPropsSong] = useState<Song | null>(null);
+  const { settings, update } = useSettings();
   /** What a running folder scan is looking through. */
   const [scanning, setScanning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +231,19 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     void refresh();
   }, [completedKey, refresh]);
 
+  // The startup backfill (year / genre / pace for older songs) lands later.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    onLibraryChanged(() => void refresh())
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [refresh]);
+
   const loadQueue = useCallback(() => {
     queueList()
       .then((q) => setQueue(q ?? []))
@@ -223,10 +272,14 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     [allSongs, statusOf],
   );
 
-  const rows = useMemo(() => {
+  const cctx = useMemo(() => categoryContext(allSongs), [allSongs]);
+  const groupBy: GroupBy = BROWSE_GROUP[node] ?? settings.libraryGroupBy;
+  const { rows, labelOf } = useMemo(() => {
     let base = collectionId != null ? (collSongs ?? []) : allSongs;
+    const inCategory = categoryFilter(node, cctx);
     if (node === "review") base = base.filter((s) => ["review", "failed", "needs-timings"].includes(statusOf(s).kind));
-    const filtered = filterSongs(base, search);
+    else if (inCategory) base = base.filter(inCategory);
+    const filtered = searchSongs(base, search, cctx);
     const key: Record<SortKey, (s: Song) => string | number | null | undefined> = {
       title: (s) => s.title,
       artist: (s) => s.artist,
@@ -235,8 +288,13 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       added: (s) => s.date_added,
       played: (s) => s.last_played,
     };
-    return sortBy(filtered, key[sort.key], sort.dir);
-  }, [allSongs, collSongs, collectionId, node, search, sort, statusOf]);
+    // The Most sung shelf is in play-count order, whatever the column sort.
+    const sorted =
+      node === "shelf:most"
+        ? [...filtered].sort((a, b) => b.play_count - a.play_count || a.title.localeCompare(b.title))
+        : sortBy(filtered, key[sort.key], sort.dir);
+    return groupRows(sorted, groupBy, cctx);
+  }, [allSongs, collSongs, collectionId, node, search, sort, statusOf, cctx, groupBy]);
 
   const song = rows.find((s) => s.id === selected) ?? null;
   const st = song ? statusOf(song) : null;
@@ -637,6 +695,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     },
     "-",
     { label: "&Remove from Library…", accel: "Del", run: () => void removeSong(), disabled: !song },
+    "-",
+    { label: "P&roperties…", accel: "Alt+Enter", keys: "alt+enter", run: () => song && setPropsSong(song), disabled: !song },
   ];
 
   const menus: MenuDef[] = [
@@ -671,6 +731,15 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
               ["played", "Last &sung"],
             ] as [SortKey, string][]
           ).map(([k, label]) => ({ label, checked: sort.key === k, radio: true, run: () => toggleSort(k) })),
+        },
+        {
+          label: "&Group by",
+          items: GROUP_BYS.map((g) => ({
+            label: GROUP_LABELS[g],
+            checked: settings.libraryGroupBy === g,
+            radio: true,
+            run: () => update({ libraryGroupBy: g }),
+          })),
         },
         "-",
         { label: "&Refresh", accel: "Ctrl+R", keys: "ctrl+r", run: () => void refresh() },
@@ -724,6 +793,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           <span>Move in Up next</span>
           <span>Del</span>
           <span>Remove from the library (or from Up next)</span>
+          <span>Alt+Enter</span>
+          <span>Song properties (title, artist, year, genre)</span>
           <span>/ or Ctrl+F</span>
           <span>Find</span>
           <span>Ctrl+O</span>
@@ -739,6 +810,32 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     });
   // --------------------------------------------------------------- tree
 
+  const count = (id: string) => {
+    const f = categoryFilter(id, cctx);
+    return f ? allSongs.filter(f).length : 0;
+  };
+  const facetNodes = (kind: "artist" | "decade" | "genre" | "lang"): TreeNode[] =>
+    facets(allSongs, kind).map((f) => ({ id: f.id, label: `${f.label} (${f.count})`, icon: <Icon name="folder" /> }));
+  const browse: TreeNode[] = [
+    { id: "browse:artist", label: "Artists", icon: <Icon name="folder" />, collapsed: true, children: facetNodes("artist") },
+    { id: "browse:decade", label: "Decades", icon: <Icon name="folder" />, collapsed: true, children: facetNodes("decade") },
+    { id: "browse:genre", label: "Genres", icon: <Icon name="folder" />, collapsed: true, children: facetNodes("genre") },
+    ...(facets(allSongs, "lang").length > 1
+      ? [{ id: "browse:lang", label: "Languages", icon: <Icon name="folder" />, collapsed: true, children: facetNodes("lang") }]
+      : []),
+    {
+      id: "browse:sing",
+      label: "Singability",
+      icon: <Icon name="folder" />,
+      collapsed: true,
+      children: [
+        ...(cctx.bands
+          ? (["slow", "fast"] as const).map((p) => ({ id: `sing:${p}`, label: `${PACE_LABELS[p]} (${count(`sing:${p}`)})`, icon: <Icon name="timing" /> }))
+          : []),
+        { id: "sing:short", label: `Short songs (${count("sing:short")})`, icon: <Icon name="timing" /> },
+      ],
+    },
+  ].filter((b) => b.children.length > 0);
   const tree: TreeNode[] = [
     {
       id: "lib",
@@ -749,12 +846,25 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         ...collections.map((c) => ({ id: `c:${c.id}`, label: `${c.name} (${c.song_count})`, icon: <Icon name="folder" /> })),
       ],
     },
+    { id: "shelf:most", label: `Most sung (${count("shelf:most")})`, icon: <Icon name="note" />, gap: true },
+    { id: "shelf:never", label: `Never sung (${count("shelf:never")})`, icon: <Icon name="mic" /> },
+    { id: "shelf:recent", label: `Recently added (${count("shelf:recent")})`, icon: <Icon name="disc" /> },
+    ...(browse.length > 0 ? [{ id: "browse", label: "Browse", icon: <Icon name="folder" />, gap: true, children: browse }] : []),
     { id: "review", label: `Needs checking (${reviewCount})`, icon: <Icon name="warn" />, gap: true },
   ];
   const onTreeSelect = (id: string) => {
-    if (id === "lib") id = "all";
+    if (id === "lib" || id === "browse") id = "all";
     setNode(id);
   };
+  const findLabel = (nodes: TreeNode[], id: string): string | null => {
+    for (const n of nodes) {
+      if (n.id === id) return typeof n.label === "string" ? n.label.replace(/ \(\d+\)$/, "") : null;
+      const hit = n.children ? findLabel(n.children, id) : null;
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const place = collection?.name ?? (node === "all" ? "Library" : (findLabel(tree, node) ?? "Library"));
 
   // ------------------------------------------------------------ columns
 
@@ -815,7 +925,15 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         ? "No songs match your search."
         : node === "review"
           ? "Every song has been checked."
-          : "This collection is empty. Right-click a song › Add to collection.";
+          : node === "shelf:most"
+            ? "Nothing sung yet. The songs you sing show up here."
+            : node === "shelf:never"
+              ? "You've sung every song."
+              : node === "shelf:recent"
+                ? "Nothing added in the last 30 days."
+                : collection
+                  ? "This collection is empty. Right-click a song › Add to collection."
+                  : "No songs here.";
 
   const queueMenu: MenuEntry[] = [
     { label: "&Sing now", accel: "Enter", run: () => void singNext(), disabled: !qEntry },
@@ -828,7 +946,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   ];
 
   return (
-    <AppFrame title={collection ? `Karascape - ${collection.name}` : "Karascape - Library"} icon={<Icon name="app" />}>
+    <AppFrame title={`Karascape - ${place}`} icon={<Icon name="app" />}>
       <MenuBar menus={menus} />
       <Hr />
       <Toolbar label="Library">
@@ -853,7 +971,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           id="lib-find"
           ref={searchRef}
           value={search}
-          placeholder="Title, artist or language"
+          placeholder="Title, artist, genre, 80s, never sung…"
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") setSearch("");
@@ -953,6 +1071,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             rowDim={(s) => statusOf(s).kind === "processing"}
             sort={sort}
             onSort={(k) => toggleSort(k as SortKey)}
+            groupOf={groupBy !== "none" ? labelOf : undefined}
             empty={emptyText}
             contextMenu={songMenu}
             style={{ flexGrow: 1 }}
@@ -1069,6 +1188,15 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       />
       {dialogs.element}
       <ImportDialog scan={importScan} onClose={() => setImportScan(null)} onQueued={onImportQueued} />
+      <SongProperties
+        song={propsSong}
+        bands={cctx.bands}
+        onClose={() => setPropsSong(null)}
+        onSaved={() => {
+          setPropsSong(null);
+          void refresh();
+        }}
+      />
       <ProcessingDialog
         job={shownJob}
         waiting={waitingJobs}

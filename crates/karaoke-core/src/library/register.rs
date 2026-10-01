@@ -80,5 +80,9 @@ pub fn register_completed_job(
         cover_path,
         lyric_source,
         language_tag: None, // English-first v1 (PLAN.md §1): default 'en'
+        year: file_tags.year,
+        genre: file_tags.genre,
+        pace_wpm: super::stats::singing_pace(&map),
+        meta_version: super::stats::META_VERSION,
     })
 }

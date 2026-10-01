@@ -1,9 +1,11 @@
 // List view (report mode) and tree view. Both are single-select, keep
 // selection on the focused container (aria-activedescendant), and follow the
 // 98 keyboard model: arrows/Home/End/PgUp/PgDn move, Enter activates,
-// Shift+F10 or the Menu key opens the row's context menu.
+// Shift+F10 or the Menu key opens the row's context menu. The list can show
+// group header rows (rows arrive sorted by group); tree branches collapse
+// with the [+]/[-] box, ←/→ or a double-click.
 
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ContextMenu, type MenuEntry } from "./menus";
 
 // -------------------------------------------------------------- list view
@@ -37,6 +39,9 @@ export function ListView<T>(props: {
   ariaLabel: string;
   style?: React.CSSProperties;
   listRef?: React.Ref<HTMLDivElement>;
+  /** Group header label for a row; rows must arrive sorted so each group is
+   *  contiguous. A header row (label and count) opens every group. */
+  groupOf?: (row: T) => string;
 }) {
   const id = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -89,6 +94,12 @@ export function ListView<T>(props: {
   };
 
   const grid = props.columns.map((c) => c.width).join(" ");
+  const groupCounts = props.groupOf
+    ? props.rows.reduce((m, r) => {
+        const g = props.groupOf!(r);
+        return m.set(g, (m.get(g) ?? 0) + 1);
+      }, new Map<string, number>())
+    : null;
   const body = (
     <div
       ref={props.listRef}
@@ -122,12 +133,22 @@ export function ListView<T>(props: {
               );
             })}
           </div>
-          {props.rows.map((r) => {
+          {props.rows.map((r, i) => {
             const k = props.rowKey(r);
             const sel = k === props.selected;
+            const group = props.groupOf?.(r);
+            const opensGroup = group != null && (i === 0 || props.groupOf!(props.rows[i - 1]) !== group);
             return (
+              <div key={k} style={{ display: "contents" }}>
+              {opensGroup && (
+                <div className="w-list-group-row" role="row">
+                  <div className="w-list-group" role="gridcell" aria-colspan={props.columns.length} style={{ gridColumn: "1 / -1" }}>
+                    {group}
+                    <span className="w-list-group-count">({groupCounts?.get(group) ?? 0})</span>
+                  </div>
+                </div>
+              )}
               <div
-                key={k}
                 id={rowId(k)}
                 className="w-list-row"
                 role="row"
@@ -148,6 +169,7 @@ export function ListView<T>(props: {
                     {c.render(r)}
                   </div>
                 ))}
+              </div>
               </div>
             );
           })}
@@ -175,14 +197,40 @@ export interface TreeNode {
   children?: TreeNode[];
   /** Extra space above this top-level node. */
   gap?: boolean;
+  /** Starts collapsed the first time the node appears. */
+  collapsed?: boolean;
 }
 
-function flat(nodes: TreeNode[], level = 1, out: { node: TreeNode; level: number }[] = []) {
+const hasKids = (n: TreeNode) => !!n.children && n.children.length > 0;
+
+/** Visible rows in order (children of closed nodes skipped), with parents. */
+function flat(
+  nodes: TreeNode[],
+  closed: Set<string>,
+  level = 1,
+  parent: string | null = null,
+  out: { node: TreeNode; level: number; parent: string | null }[] = [],
+) {
   for (const n of nodes) {
-    out.push({ node: n, level });
-    if (n.children) flat(n.children, level + 1, out);
+    out.push({ node: n, level, parent });
+    if (hasKids(n) && !closed.has(n.id)) flat(n.children!, closed, level + 1, n.id, out);
   }
   return out;
+}
+
+function contains(n: TreeNode, id: string): boolean {
+  return !!n.children?.some((c) => c.id === id || contains(c, id));
+}
+
+/** The 9-px [+]/[-] box, drawn as crisp rects. */
+function Expander(props: { open: boolean }) {
+  return (
+    <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+      <rect x="0.5" y="0.5" width="8" height="8" fill="var(--w-window)" stroke="var(--w-shadow)" />
+      <rect x="2" y="4" width="5" height="1" fill="var(--w-text)" />
+      {!props.open && <rect x="4" y="2" width="1" height="5" fill="var(--w-text)" />}
+    </svg>
+  );
 }
 
 export function TreeView(props: {
@@ -195,18 +243,56 @@ export function TreeView(props: {
   style?: React.CSSProperties;
 }) {
   const id = useId();
-  const all = flat(props.nodes);
+  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  const seen = useRef(new Set<string>());
+  // Nodes marked `collapsed` start closed the first time they appear (a
+  // browse branch that fills in later still starts tidy).
+  useEffect(() => {
+    const fresh: string[] = [];
+    const visit = (ns: TreeNode[]) =>
+      ns.forEach((n) => {
+        if (!seen.current.has(n.id)) {
+          seen.current.add(n.id);
+          if (n.collapsed) fresh.push(n.id);
+        }
+        if (n.children) visit(n.children);
+      });
+    visit(props.nodes);
+    if (fresh.length) setClosed((c) => new Set([...c, ...fresh]));
+  }, [props.nodes]);
+
+  const all = flat(props.nodes, closed);
   const idx = all.findIndex((n) => n.node.id === props.selected);
   const nodeId = (k: string) => `${id}-n-${k}`;
 
+  const setOpen = (n: TreeNode, open: boolean) => {
+    setClosed((c) => {
+      const next = new Set(c);
+      if (open) next.delete(n.id);
+      else next.add(n.id);
+      return next;
+    });
+    // Folding away the selected node selects the branch, as Explorer does.
+    if (!open && contains(n, props.selected)) props.onSelect(n.id);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (props.onKey?.(e, props.selected)) return;
+    const cur = idx >= 0 ? all[idx] : null;
     let to = -1;
     if (e.key === "ArrowDown") to = Math.min(all.length - 1, idx + 1);
     else if (e.key === "ArrowUp") to = Math.max(0, idx - 1);
     else if (e.key === "Home") to = 0;
     else if (e.key === "End") to = all.length - 1;
-    else return;
+    else if (e.key === "ArrowRight" && cur && hasKids(cur.node)) {
+      if (closed.has(cur.node.id)) setOpen(cur.node, true);
+      else to = idx + 1;
+    } else if (e.key === "ArrowLeft" && cur) {
+      if (hasKids(cur.node) && !closed.has(cur.node.id)) setOpen(cur.node, false);
+      else if (cur.parent) to = all.findIndex((n) => n.node.id === cur.parent);
+    } else if ((e.key === "+" || e.key === "-") && cur && hasKids(cur.node)) {
+      setOpen(cur.node, e.key === "+");
+    } else return;
     e.preventDefault();
     if (to >= 0 && all[to]) props.onSelect(all[to].node.id);
   };
@@ -220,16 +306,29 @@ export function TreeView(props: {
           role="treeitem"
           aria-level={level}
           aria-selected={n.id === props.selected}
-          aria-expanded={n.children ? true : undefined}
+          aria-expanded={hasKids(n) ? !closed.has(n.id) : undefined}
           onMouseDown={() => props.onSelect(n.id)}
           onContextMenu={() => props.onSelect(n.id)}
+          onDoubleClick={() => hasKids(n) && setOpen(n, closed.has(n.id))}
         >
+          {hasKids(n) && (
+            <span
+              className="w-tree-exp"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setOpen(n, closed.has(n.id));
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+            >
+              <Expander open={!closed.has(n.id)} />
+            </span>
+          )}
           {n.icon}
           <span className="w-tree-label">{n.label}</span>
         </div>
-        {n.children && n.children.length > 0 && (
+        {hasKids(n) && !closed.has(n.id) && (
           <div className="w-tree-kids" role="group">
-            {renderNodes(n.children, level + 1)}
+            {renderNodes(n.children!, level + 1)}
           </div>
         )}
       </div>

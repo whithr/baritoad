@@ -71,11 +71,17 @@ unnoticed. A stray notes file just shows up there and does no harm.
 - To preview what import will keep: `karaoke lyrics clean Song.txt`
   (`--summary` for just the counts and changes).
 
-## Titles, artists and collections
+## Titles, artists, years, genres and collections
 
 - **Title and artist** come from the UltraStar header if there is one, then
   the audio file's tags, then an `.lrc` file's `[ti:]`/`[ar:]`, then a file
-  named `Artist - Title.mp3`. You can fix them in the library later.
+  named `Artist - Title.mp3`.
+- **Year, genre and language** come from the UltraStar header (`#YEAR`,
+  `#GENRE`, `#LANGUAGE`) or the audio file's tags. They're what the
+  Library's **Browse** folders (Artists, Decades, Genres, Languages) and
+  **View › Group by** use, so tagged files sort themselves.
+- Fix any of them later with **Song › Properties…** (Alt+Enter). An edit
+  there wins over the file's tags, even if the song is imported again.
 - **Collections come from folders.** Songs in a folder named `Christmas` go
   in a `Christmas` collection, created if needed. A folder that holds exactly
   one song is treated as that song's own folder (the UltraStar layout), so

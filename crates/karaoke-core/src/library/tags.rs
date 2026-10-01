@@ -30,8 +30,24 @@ pub struct FileTags {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    /// Release year (from a year or recording-date tag), when plausible.
+    pub year: Option<i32>,
+    /// Genre text; ID3v1 numeric codes ("(17)", "17") are dropped.
+    pub genre: Option<String>,
     pub duration_s: Option<f64>,
     pub cover: Option<CoverArt>,
+}
+
+/// A genre tag worth showing: trimmed, not an ID3v1 numeric code.
+pub fn clean_genre(raw: &str) -> Option<String> {
+    let g = raw.trim();
+    let numeric = g.trim_start_matches('(').trim_end_matches(')').chars().all(|c| c.is_ascii_digit());
+    (!g.is_empty() && !numeric).then(|| g.to_string())
+}
+
+/// A year worth trusting (recordings, not typos).
+pub fn plausible_year(y: i64) -> Option<i32> {
+    (1900..=2100).contains(&y).then_some(y as i32)
 }
 
 /// Read tags + duration from an audio file. Errors only on unreadable /
@@ -56,6 +72,8 @@ pub fn read_tags(path: &Path) -> Result<FileTags> {
         out.title = tag.title().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         out.artist = tag.artist().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         out.album = tag.album().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        out.year = tag.year().and_then(|y| plausible_year(y as i64));
+        out.genre = tag.genre().and_then(|g| clean_genre(&g));
 
         // Prefer the designated front cover; otherwise take the first picture.
         let pics = tag.pictures();

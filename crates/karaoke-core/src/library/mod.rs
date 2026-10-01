@@ -21,12 +21,40 @@
 //!   never from the network (PLAN.md §2 local-first).
 
 pub mod register;
+pub mod stats;
 pub mod store;
 pub mod tags;
 
 pub use register::register_completed_job;
 pub use store::{
     default_covers_dir, default_library_path, CollectionInfo, LibraryStore, QueueEntry, Song,
-    SongQuery, SongSort, SongUpsert,
+    SongDetails, SongQuery, SongSort, SongUpsert,
 };
 pub use tags::{read_tags, save_cover, CoverArt, FileTags};
+
+/// Facts a library row carries beyond what the user typed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SongMeta {
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub pace_wpm: Option<f64>,
+}
+
+/// Recompute a song's facts from its files (tags + timing map) — the
+/// backfill for rows older than [`stats::META_VERSION`]. Reads files only;
+/// the caller stores the result ([`LibraryStore::set_song_meta`]) so a
+/// store lock needn't be held during the I/O.
+pub fn compute_meta(song: &Song) -> SongMeta {
+    let tags = read_tags(&song.audio_path).unwrap_or_default();
+    let pace_wpm = song
+        .timing_map_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|raw| crate::timing::WordTimingMap::from_json(&raw).ok())
+        .and_then(|map| stats::singing_pace(&map));
+    SongMeta {
+        year: tags.year,
+        genre: tags.genre,
+        pace_wpm,
+    }
+}

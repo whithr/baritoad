@@ -11,9 +11,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
-use karaoke_core::library::{self, CollectionInfo, LibraryStore, QueueEntry, Song, SongQuery};
+use karaoke_core::library::{self, CollectionInfo, LibraryStore, QueueEntry, Song, SongDetails, SongQuery};
+
+/// Emitted when library rows change outside a command the webview made
+/// (the startup backfill) — the Library refetches.
+pub const LIBRARY_EVENT: &str = "karaoke://library";
 
 use crate::queue::meta_from_filename;
 
@@ -102,6 +106,51 @@ pub async fn library_songs(
     store
         .list_songs(&query.unwrap_or_default())
         .map_err(|e| e.to_string())
+}
+
+/// Song › Properties: the details a person edits (title, artist, year,
+/// genre, language).
+#[tauri::command]
+pub async fn song_update_details(
+    library: State<'_, Arc<LibraryHandle>>,
+    song_id: i64,
+    details: SongDetails,
+) -> Result<Song, String> {
+    let store = library.lock()?;
+    store.update_song_details(song_id, &details).map_err(|e| e.to_string())
+}
+
+/// Fill in year, genre and singing pace for songs imported before those
+/// existed (or before the facts' version changed). Runs once per launch on
+/// its own thread; the store is locked per song, never across the file
+/// reads, so the Library stays responsive.
+pub fn spawn_meta_backfill(app: AppHandle, library: Arc<LibraryHandle>) {
+    let _ = std::thread::Builder::new()
+        .name("library-backfill".into())
+        .spawn(move || {
+            let pending = match library.lock().and_then(|s| s.songs_needing_meta().map_err(|e| e.to_string())) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("library backfill: {e}");
+                    return;
+                }
+            };
+            let mut done = 0usize;
+            for song in &pending {
+                let meta = library::compute_meta(song);
+                let stored = library.lock().and_then(|s| {
+                    s.set_song_meta(song.id, meta.year, meta.genre.as_deref(), meta.pace_wpm)
+                        .map_err(|e| e.to_string())
+                });
+                match stored {
+                    Ok(()) => done += 1,
+                    Err(e) => eprintln!("library backfill: song {}: {e}", song.id),
+                }
+            }
+            if done > 0 {
+                let _ = app.emit(LIBRARY_EVENT, done);
+            }
+        });
 }
 
 #[tauri::command]

@@ -2,6 +2,8 @@
 // Persisted in localStorage (the webview's own store; nothing leaves the
 // machine). The player's stage themes are a separate store (themes.ts).
 
+import { GROUP_BYS, type GroupBy } from "./categories";
+
 /** Chrome colour scheme (DESIGN.md). The TV stage follows its own theme. */
 export type Scheme = "classic" | "night";
 export type UiScale = "normal" | "large";
@@ -21,6 +23,8 @@ export interface Settings {
    *  timing, each falling back to the CPU on its own) or the processor only,
    *  leaving the GPU free. */
   importOn: "gpu" | "cpu";
+  /** Library › View › Group by (the song list's group headers). */
+  libraryGroupBy: GroupBy;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   benchView: "lanes",
   shiftScope: "line",
   importOn: "gpu",
+  libraryGroupBy: "none",
 };
 
 export const SETTINGS_KEY = "karascape.settings.v1";
@@ -58,6 +63,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
       benchView: pick(VIEWS, v.benchView, DEFAULT_SETTINGS.benchView),
       shiftScope: pick(SCOPES, v.shiftScope, DEFAULT_SETTINGS.shiftScope),
       importOn: pick(IMPORT_ON, v.importOn, DEFAULT_SETTINGS.importOn),
+      libraryGroupBy: pick(GROUP_BYS, v.libraryGroupBy, DEFAULT_SETTINGS.libraryGroupBy),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

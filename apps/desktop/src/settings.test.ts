@@ -41,7 +41,13 @@ describe("parseSettings", () => {
       benchView: "text",
       shiftScope: "line",
       importOn: "cpu",
+      libraryGroupBy: "none",
     });
+  });
+
+  it("remembers a valid Group by and drops a bogus one", () => {
+    expect(parseSettings(JSON.stringify({ libraryGroupBy: "decade" })).libraryGroupBy).toBe("decade");
+    expect(parseSettings(JSON.stringify({ libraryGroupBy: "mood" })).libraryGroupBy).toBe("none");
   });
 
   it("opens a bench last left on the removed Focus view in Lanes", () => {

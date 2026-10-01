@@ -202,8 +202,19 @@ Separator · icons.
 
 ## Screens
 
-- **Library** — tree (Library › All songs, collections; Needs checking) +
-  sortable list view (Title, Artist, Length, Status, Added, Last sung) + Up
+- **Library** — tree (Library › All songs, collections; the **Most sung /
+  Never sung / Recently added** shelves; **Browse** › Artists, Decades,
+  Genres, Languages, Singability — collapsible branches with the [+]/[-] box
+  on the dotted line, starting closed; Needs checking) + sortable list view
+  (Title, Artist, Length, Status, Added, Last sung) — **View › Group by**
+  (Artist / Decade / Genre / Language / Pace) splits it under bold, etched
+  group headers with counts; picking a Browse branch lists every song grouped
+  by it. Categories are derived from the rows (tags, UltraStar headers, play
+  history, our own timings — never looked up); Singability's Easy sing-alongs
+  / Fast lyrics are the slowest / fastest thirds of *this* library by words a
+  minute while singing. The Find box also understands "80s", "rock", "german",
+  "never sung", "fast lyrics". **Song › Properties…** (Alt+Enter) edits
+  title, artist, year, genre and language and shows the measured facts. Up
   next group (Sing next + Remove; move/clear on its right-click menu) + status
   bar. Toolbar: Add song… | Sing · Up next · Check timing, then Find.
   Enter / double-click is the song's next step: Sing when Ready, Check timing

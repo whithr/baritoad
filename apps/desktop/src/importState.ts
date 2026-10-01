@@ -73,6 +73,9 @@ export function importItems(items: ImportCandidate[], checked: Set<string>, useC
       artist: i.artist ?? undefined,
       lyrics: i.lyrics,
       collection: useCollections ? (i.collection ?? undefined) : undefined,
+      year: i.year ?? undefined,
+      genre: i.genre ?? undefined,
+      language: i.language ?? undefined,
     }));
 }
 

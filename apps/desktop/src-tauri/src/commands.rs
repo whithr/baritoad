@@ -187,6 +187,10 @@ pub struct ImportCandidate {
     pub collection: Option<String>,
     /// The library already has a song from this file (unchecked by default).
     pub in_library: bool,
+    /// From an UltraStar header, when the song has one.
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,6 +230,9 @@ pub async fn scan_import(
                 artist: i.artist,
                 lyrics: i.lyrics,
                 collection: i.collection,
+                year: i.year,
+                genre: i.genre,
+                language: i.language,
             })
             .collect(),
         unmatched_lyrics: scan.unmatched_lyrics,
@@ -261,6 +268,12 @@ pub struct ImportSongItem {
     pub lyrics: ImportLyrics,
     #[serde(default)]
     pub collection: Option<String>,
+    #[serde(default)]
+    pub year: Option<i32>,
+    #[serde(default)]
+    pub genre: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -320,6 +333,9 @@ pub async fn import_songs(
                 let post = PostImport {
                     collection: item.collection.clone().filter(|c| !c.trim().is_empty()),
                     mark_checked: checked,
+                    year: item.year,
+                    genre: item.genre.clone(),
+                    language: item.language.clone(),
                 };
                 jobs.push(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, post));
             }

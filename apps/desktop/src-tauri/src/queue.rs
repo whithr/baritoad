@@ -98,6 +98,14 @@ pub struct PostImport {
     /// Mark the song checked (imported hand-made timings need no review).
     #[serde(default)]
     pub mark_checked: bool,
+    /// Metadata the import brought (UltraStar `#YEAR`/`#GENRE`/`#LANGUAGE`);
+    /// replaces what the audio's tags said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub year: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 /// One unfinished job as saved in [`queue_store_path`].
@@ -476,6 +484,11 @@ fn apply_post_import(store: &LibraryStore, song_id: i64, post: &PostImport) -> R
     if post.mark_checked {
         store.set_reviewed(song_id, true).map_err(|e| e.to_string())?;
     }
+    if post.year.is_some() || post.genre.is_some() || post.language.is_some() {
+        store
+            .apply_imported_meta(song_id, post.year, post.genre.as_deref(), post.language.as_deref())
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -632,11 +645,16 @@ mod tests {
         let post = PostImport {
             collection: Some("christmas".into()),
             mark_checked: true,
+            year: Some(1984),
+            genre: Some("Pop".into()),
+            language: Some("en".into()),
         };
         apply_post_import(&store, id, &post).unwrap();
         assert_eq!(store.list_collections().unwrap().len(), 1, "matched case-insensitively");
         assert_eq!(store.collections_of_song(id).unwrap(), vec![existing.id]);
-        assert!(store.song(id).unwrap().unwrap().reviewed_at.is_some());
+        let song = store.song(id).unwrap().unwrap();
+        assert!(song.reviewed_at.is_some());
+        assert_eq!((song.year, song.genre.as_deref()), (Some(1984), Some("Pop")));
     }
 
     #[test]
@@ -644,7 +662,7 @@ mod tests {
         let (store, id) = store_with_song();
         let post = PostImport {
             collection: Some("Party".into()),
-            mark_checked: false,
+            ..PostImport::default()
         };
         apply_post_import(&store, id, &post).unwrap();
         let colls = store.list_collections().unwrap();
@@ -664,6 +682,7 @@ mod tests {
             post: PostImport {
                 collection: Some("Party".into()),
                 mark_checked: true,
+                ..PostImport::default()
             },
         };
         let json = serde_json::to_string(&vec![saved]).unwrap();

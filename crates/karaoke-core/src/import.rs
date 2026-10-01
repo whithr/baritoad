@@ -86,6 +86,11 @@ pub struct ScanItem {
     pub lyrics: LyricsFile,
     /// Collection named after the song's folder (module docs).
     pub collection: Option<String>,
+    /// From an UltraStar header (`#YEAR`, `#GENRE`, `#LANGUAGE` as a tag
+    /// like "en"); the audio's own tags are read when the song registers.
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -307,6 +312,40 @@ fn starts_with_timestamp(line: &str) -> bool {
                     && m.chars().all(|c| c.is_ascii_digit())
                     && s.chars().all(|c| c.is_ascii_digit()))
         })
+}
+
+/// A language name as UltraStar files write it ("English", "Deutsch",
+/// "Español") — or already a two-letter code — as the library's language
+/// tag. Unknown names give `None` (the song keeps its default).
+pub fn language_tag(name: &str) -> Option<String> {
+    let n = name.trim().to_lowercase();
+    const NAMES: &[(&str, &[&str])] = &[
+        ("en", &["english", "englisch"]),
+        ("de", &["german", "deutsch"]),
+        ("es", &["spanish", "español", "espanol", "castellano"]),
+        ("fr", &["french", "français", "francais"]),
+        ("it", &["italian", "italiano"]),
+        ("pt", &["portuguese", "português", "portugues"]),
+        ("nl", &["dutch", "nederlands"]),
+        ("sv", &["swedish", "svenska"]),
+        ("no", &["norwegian", "norsk"]),
+        ("da", &["danish", "dansk"]),
+        ("fi", &["finnish", "suomi"]),
+        ("pl", &["polish", "polski"]),
+        ("cs", &["czech", "čeština", "cestina"]),
+        ("hu", &["hungarian", "magyar"]),
+        ("ru", &["russian", "русский"]),
+        ("tr", &["turkish", "türkçe", "turkce"]),
+        ("el", &["greek", "ελληνικά"]),
+        ("ja", &["japanese", "日本語"]),
+        ("ko", &["korean", "한국어"]),
+        ("zh", &["chinese", "中文"]),
+        ("la", &["latin"]),
+    ];
+    if let Some((tag, _)) = NAMES.iter().find(|(tag, names)| *tag == n || names.contains(&n.as_str())) {
+        return Some((*tag).to_string());
+    }
+    None
 }
 
 /// Title and artist from an "Artist - Title" file name (underscores read as
@@ -539,6 +578,7 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
         let mut title_source = TitleSource::Filename;
         let mut lyrics = LyricsFile::None;
         let mut us_meta: Option<(Option<String>, Option<String>)> = None;
+        let (mut year, mut genre, mut language) = (None, None, None);
         if let Some(&ci) = paired.get(&ai) {
             let (path, cand) = &candidates[ci];
             match cand {
@@ -551,6 +591,11 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
                         header(headers, "TITLE").map(String::from),
                         header(headers, "ARTIST").map(String::from),
                     ));
+                    year = header(headers, "YEAR")
+                        .and_then(|y| y.trim().get(..4)?.parse::<i64>().ok())
+                        .and_then(tags::plausible_year);
+                    genre = header(headers, "GENRE").and_then(tags::clean_genre);
+                    language = header(headers, "LANGUAGE").and_then(language_tag);
                 }
                 Candidate::Lrc(l) => {
                     if !l.text.is_empty() {
@@ -592,7 +637,17 @@ fn pair_folder(listing: &Listing, only: Option<&HashSet<PathBuf>>) -> (Vec<ScanI
                 artist = a;
             }
         }
-        items.push(ScanItem { audio: audio.clone(), title, artist, title_source, lyrics, collection: None });
+        items.push(ScanItem {
+            audio: audio.clone(),
+            title,
+            artist,
+            title_source,
+            lyrics,
+            collection: None,
+            year,
+            genre,
+            language,
+        });
     }
 
     let unmatched = candidates
@@ -662,6 +717,7 @@ mod tests {
     }
 
     const US_SONG: &str = "#TITLE:Bohemian Rhapsody\n#ARTIST:Queen\n#MP3:Queen - Bohemian Rhapsody [karaoke].mp3\n\
+                           #YEAR:1975\n#GENRE:Rock\n#LANGUAGE:English\n\
                            #BPM:300\n#GAP:1000\n: 0 4 0 Is\n: 5 4 0  this\nE\n";
 
     fn item<'a>(scan: &'a Scan, file: &str) -> &'a ScanItem {
@@ -704,6 +760,7 @@ mod tests {
         assert!(matches!(q.lyrics, LyricsFile::UltraStar { .. }));
         assert_eq!((q.title.as_str(), q.artist.as_deref()), ("Bohemian Rhapsody", Some("Queen")));
         assert_eq!(q.title_source, TitleSource::Ultrastar);
+        assert_eq!((q.year, q.genre.as_deref(), q.language.as_deref()), (Some(1975), Some("Rock"), Some("en")));
         // The song folder isn't a collection; the flat root is.
         let root_name = d.file_name().unwrap().to_string_lossy().into_owned();
         assert_eq!(q.collection.as_deref(), Some(root_name.as_str()));
@@ -817,6 +874,15 @@ mod tests {
         assert!(!is_chord_line("Bad Guy"));
         assert!(!is_chord_line("Dad Bad"));
         assert!(!is_chord_line("C"));
+    }
+
+    #[test]
+    fn language_names_become_tags() {
+        assert_eq!(language_tag("English").as_deref(), Some("en"));
+        assert_eq!(language_tag(" Deutsch ").as_deref(), Some("de"));
+        assert_eq!(language_tag("Español").as_deref(), Some("es"));
+        assert_eq!(language_tag("fr").as_deref(), Some("fr"));
+        assert_eq!(language_tag("Klingon"), None);
     }
 
     #[test]

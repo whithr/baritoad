@@ -4,8 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
+use karaoke_core::library::store::SCHEMA_VERSION;
 use karaoke_core::library::{
-    register_completed_job, LibraryStore, SongQuery, SongSort, SongUpsert,
+    register_completed_job, stats, LibraryStore, SongDetails, SongQuery, SongSort, SongUpsert,
 };
 use karaoke_core::pipeline::manifest::{Artifact, InputRef, JobManifest, StageId};
 use karaoke_core::timing::{LyricSource, WordTiming, WordTimingMap};
@@ -41,12 +42,12 @@ fn migrations_run_once_and_reopen_is_stable() {
     let db = dir.join("library.db");
     {
         let store = LibraryStore::open(&db).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 2);
+        assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
         store.upsert_song(&upsert("h1", "First", None)).unwrap();
     }
     // Re-open: schema stays, data stays, no re-migration damage.
     let store = LibraryStore::open(&db).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
     let songs = store.list_songs(&SongQuery::default()).unwrap();
     assert_eq!(songs.len(), 1);
     assert_eq!(songs[0].title, "First");
@@ -102,7 +103,7 @@ const SHIPPED_V1_SCHEMA: &str = "
 ";
 
 #[test]
-fn v1_database_upgrades_to_v2_preserving_rows() {
+fn v1_database_upgrades_to_current_preserving_rows() {
     let dir = tmp_dir("v1-upgrade");
     let db = dir.join("library.db");
     {
@@ -122,9 +123,10 @@ fn v1_database_upgrades_to_v2_preserving_rows() {
     }
 
     let store = LibraryStore::open(&db).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
 
-    // Every v1 row survives; the new column reads as NULL (never reviewed).
+    // Every v1 row survives; the new columns read as NULL (never reviewed,
+    // no year/genre/pace yet — the backfill's job).
     let songs = store.list_songs(&SongQuery::default()).unwrap();
     assert_eq!(songs.len(), 1);
     let s = &songs[0];
@@ -563,4 +565,99 @@ fn register_fails_cleanly_without_a_map() {
     assert!(err.to_string().contains("no timing map"), "got: {err}");
     assert!(store.list_songs(&SongQuery::default()).unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// categories (v3): year / genre / pace, details edits, backfill
+// ---------------------------------------------------------------------------
+
+#[test]
+fn old_rows_need_meta_until_backfilled() {
+    let store = LibraryStore::open_in_memory().unwrap();
+    let song = store.upsert_song(&upsert("h1", "Old", None)).unwrap(); // meta_version 0
+    assert_eq!(store.songs_needing_meta().unwrap().len(), 1);
+    store.set_song_meta(song.id, Some(1985), Some("Pop"), Some(142.0)).unwrap();
+    assert!(store.songs_needing_meta().unwrap().is_empty());
+    let s = store.song(song.id).unwrap().unwrap();
+    assert_eq!((s.year, s.genre.as_deref(), s.pace_wpm), (Some(1985), Some("Pop"), Some(142.0)));
+}
+
+#[test]
+fn a_persons_edit_survives_backfill_and_regenerate() {
+    let store = LibraryStore::open_in_memory().unwrap();
+    let song = store.upsert_song(&upsert("h1", "Song", None)).unwrap();
+    store
+        .update_song_details(
+            song.id,
+            &SongDetails {
+                title: "  Song (Live) ".into(),
+                artist: Some("Band".into()),
+                year: Some(1979),
+                genre: Some("Disco".into()),
+                language_tag: Some("de".into()),
+            },
+        )
+        .unwrap();
+    // Backfill only fills blanks.
+    store.set_song_meta(song.id, Some(2001), Some("Rock"), Some(90.0)).unwrap();
+    // Re-generate: tags say otherwise, the edit still wins; pace is replaced.
+    store
+        .upsert_song(&SongUpsert {
+            year: Some(2001),
+            genre: Some("Rock".into()),
+            pace_wpm: Some(120.0),
+            meta_version: stats::META_VERSION,
+            ..upsert("h1", "Song (Live)", Some("Band"))
+        })
+        .unwrap();
+    let s = store.song(song.id).unwrap().unwrap();
+    assert_eq!(s.title, "Song (Live)");
+    assert_eq!((s.year, s.genre.as_deref()), (Some(1979), Some("Disco")));
+    assert_eq!(s.language_tag, "de");
+    assert_eq!(s.pace_wpm, Some(120.0));
+}
+
+#[test]
+fn details_need_a_title_and_blank_fields_clear() {
+    let store = LibraryStore::open_in_memory().unwrap();
+    let song = store
+        .upsert_song(&SongUpsert {
+            year: Some(1990),
+            genre: Some("Rock".into()),
+            ..upsert("h1", "Song", Some("Band"))
+        })
+        .unwrap();
+    assert!(store
+        .update_song_details(song.id, &SongDetails { title: "  ".into(), ..SongDetails::default() })
+        .is_err());
+    let s = store
+        .update_song_details(
+            song.id,
+            &SongDetails {
+                title: "Song".into(),
+                artist: Some(" ".into()),
+                year: None,
+                genre: Some("".into()),
+                language_tag: None,
+            },
+        )
+        .unwrap();
+    assert_eq!((s.artist, s.year, s.genre), (None, None, None));
+    assert_eq!(s.language_tag, "en", "no language given keeps the current one");
+}
+
+#[test]
+fn imported_meta_replaces_what_tags_said() {
+    let store = LibraryStore::open_in_memory().unwrap();
+    let song = store
+        .upsert_song(&SongUpsert {
+            year: Some(2010),
+            ..upsert("h1", "Song", None)
+        })
+        .unwrap();
+    store.apply_imported_meta(song.id, Some(1975), Some("Rock"), Some("fr")).unwrap();
+    let s = store.song(song.id).unwrap().unwrap();
+    assert_eq!((s.year, s.genre.as_deref(), s.language_tag.as_str()), (Some(1975), Some("Rock"), "fr"));
+    store.apply_imported_meta(song.id, None, None, None).unwrap();
+    assert_eq!(store.song(song.id).unwrap().unwrap().year, Some(1975), "absent values keep");
 }

@@ -120,6 +120,10 @@ export interface ImportCandidate {
   /** Named after the song's folder. */
   collection?: string | null;
   in_library: boolean;
+  /** From an UltraStar header, when the song has one. */
+  year?: number | null;
+  genre?: string | null;
+  language?: string | null;
 }
 
 export interface ImportScan {
@@ -134,6 +138,9 @@ export interface ImportSongItem {
   artist?: string;
   lyrics: ImportLyrics;
   collection?: string;
+  year?: number;
+  genre?: string;
+  language?: string;
 }
 
 export interface ImportQueued {
@@ -196,7 +203,30 @@ export interface Song {
   play_count: number;
   /** Unix seconds of "Looks good" / a timing-fix save; null = needs review. */
   reviewed_at?: number | null;
+  /** Release year (tags, UltraStar header, or Song › Properties). */
+  year?: number | null;
+  genre?: string | null;
+  /** Words per minute while singing, measured from our own timings. */
+  pace_wpm?: number | null;
 }
+
+/** What Song › Properties edits. */
+export interface SongDetails {
+  title: string;
+  artist?: string | null;
+  year?: number | null;
+  genre?: string | null;
+  /** Omit to keep the current language. */
+  language_tag?: string | null;
+}
+
+export const songUpdateDetails = (songId: number, details: SongDetails) =>
+  invoke<Song>("song_update_details", { songId, details });
+
+/** Library rows changed behind the webview's back (the startup backfill of
+ *  year / genre / pace). */
+export const onLibraryChanged = (handler: () => void): Promise<UnlistenFn> =>
+  listen("karaoke://library", () => handler());
 
 export type SongSort = "recently_added" | "recently_played" | "title" | "collection_order";
 

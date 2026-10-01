@@ -71,6 +71,19 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE songs ADD COLUMN reviewed_at INTEGER;
     ",
+    // v2 -> v3: categories. Year and genre come from the audio file's tags,
+    // an UltraStar header, or the user (Song › Properties); pace is words
+    // per minute while singing, from our own timing map (stats.rs).
+    // meta_version marks rows whose computed facts are current — older rows
+    // are backfilled once (library::compute_meta).
+    "
+    ALTER TABLE songs ADD COLUMN year INTEGER;
+    ALTER TABLE songs ADD COLUMN genre TEXT;
+    ALTER TABLE songs ADD COLUMN pace_wpm REAL;
+    ALTER TABLE songs ADD COLUMN meta_version INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX idx_songs_year  ON songs(year);
+    CREATE INDEX idx_songs_genre ON songs(genre);
+    ",
 ];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -121,6 +134,26 @@ pub struct Song {
     /// Unix seconds when the user confirmed the preview ("Looks good") or
     /// saved timing fixes; `None` = awaiting review (PLAN.md §4 step 4).
     pub reviewed_at: Option<i64>,
+    /// Release year (tags, UltraStar header, or the user).
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    /// Words per minute while singing ([`super::stats::singing_pace`]).
+    pub pace_wpm: Option<f64>,
+}
+
+/// What a person edits in Song › Properties.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SongDetails {
+    pub title: String,
+    #[serde(default)]
+    pub artist: Option<String>,
+    #[serde(default)]
+    pub year: Option<i32>,
+    #[serde(default)]
+    pub genre: Option<String>,
+    /// None keeps the current language.
+    #[serde(default)]
+    pub language_tag: Option<String>,
 }
 
 /// Input to [`LibraryStore::upsert_song`]. Identity is `audio_hash`.
@@ -142,6 +175,14 @@ pub struct SongUpsert {
     pub lyric_source: Option<String>,
     /// `None` ⇒ 'en' on insert, keep existing on update.
     pub language_tag: Option<String>,
+    /// Year / genre: on update an existing value wins (it may be the user's
+    /// edit); these only fill blanks.
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    /// Replaces the stored pace when supplied (new timings, new pace).
+    pub pace_wpm: Option<f64>,
+    /// [`super::stats::META_VERSION`] when the caller computed the facts.
+    pub meta_version: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,9 +303,10 @@ impl LibraryStore {
         self.conn.execute(
             "INSERT INTO songs (title, artist, album, audio_path, audio_hash, job_dir,
                                 timing_map_path, vocals_path, instrumental_path, duration_s,
-                                cover_path, lyric_source, language_tag, date_added)
+                                cover_path, lyric_source, language_tag, date_added,
+                                year, genre, pace_wpm, meta_version)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                     COALESCE(?13, 'en'), ?14)
+                     COALESCE(?13, 'en'), ?14, ?15, ?16, ?17, ?18)
              ON CONFLICT(audio_hash) DO UPDATE SET
                  title = excluded.title,
                  artist = excluded.artist,
@@ -278,6 +320,10 @@ impl LibraryStore {
                  cover_path = COALESCE(?11, cover_path),
                  lyric_source = COALESCE(excluded.lyric_source, lyric_source),
                  language_tag = COALESCE(?13, language_tag),
+                 year = COALESCE(year, excluded.year),
+                 genre = COALESCE(genre, excluded.genre),
+                 pace_wpm = COALESCE(excluded.pace_wpm, pace_wpm),
+                 meta_version = MAX(meta_version, excluded.meta_version),
                  reviewed_at = NULL",
             params![
                 s.title,
@@ -294,6 +340,10 @@ impl LibraryStore {
                 s.lyric_source,
                 s.language_tag,
                 unix_now(),
+                s.year,
+                s.genre,
+                s.pace_wpm,
+                s.meta_version,
             ],
         )?;
         self.song_by_hash(&s.audio_hash)?
@@ -324,6 +374,73 @@ impl LibraryStore {
         let n = self.conn.execute("DELETE FROM songs WHERE id = ?1", [id])?;
         self.compact_queue()?;
         Ok(n > 0)
+    }
+
+    /// Song › Properties: title, artist, year, genre and (when given)
+    /// language, as the person typed them. Blank text clears a field; the
+    /// title may not be blank.
+    pub fn update_song_details(&self, id: i64, d: &SongDetails) -> Result<Song> {
+        let title = d.title.trim();
+        if title.is_empty() {
+            return Err(Error::InvalidInput("a song needs a title".into()));
+        }
+        let blank_none = |v: &Option<String>| v.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+        let n = self.conn.execute(
+            "UPDATE songs SET title = ?2, artist = ?3, year = ?4, genre = ?5,
+                              language_tag = COALESCE(?6, language_tag)
+             WHERE id = ?1",
+            params![
+                id,
+                title,
+                blank_none(&d.artist),
+                d.year,
+                blank_none(&d.genre),
+                blank_none(&d.language_tag),
+            ],
+        )?;
+        if n == 0 {
+            return Err(Error::InvalidInput(format!("no song {id}")));
+        }
+        self.song(id)?.ok_or_else(|| Error::Db(format!("song {id} vanished")))
+    }
+
+    /// Metadata an import brought (an UltraStar header's year, genre and
+    /// language): each supplied value replaces the stored one.
+    pub fn apply_imported_meta(
+        &self,
+        id: i64,
+        year: Option<i32>,
+        genre: Option<&str>,
+        language_tag: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE songs SET year = COALESCE(?2, year), genre = COALESCE(?3, genre),
+                              language_tag = COALESCE(?4, language_tag)
+             WHERE id = ?1",
+            params![id, year, genre, language_tag],
+        )?;
+        Ok(())
+    }
+
+    /// Songs whose computed facts predate [`super::stats::META_VERSION`].
+    pub fn songs_needing_meta(&self) -> Result<Vec<Song>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{SONG_SELECT} WHERE s.meta_version < ?1 ORDER BY s.id"))?;
+        let rows = stmt.query_map([super::stats::META_VERSION], song_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Store backfilled facts: year and genre only fill blanks (a person's
+    /// edit wins); pace is replaced; the row is marked current.
+    pub fn set_song_meta(&self, id: i64, year: Option<i32>, genre: Option<&str>, pace_wpm: Option<f64>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE songs SET year = COALESCE(year, ?2), genre = COALESCE(genre, ?3),
+                              pace_wpm = ?4, meta_version = ?5
+             WHERE id = ?1",
+            params![id, year, genre, pace_wpm, super::stats::META_VERSION],
+        )?;
+        Ok(())
     }
 
     /// Set (or clear) the review timestamp — "Looks good" on the preview
@@ -631,11 +748,13 @@ impl LibraryStore {
 
 const SONG_COLS: &str = "s.id, s.title, s.artist, s.album, s.audio_path, s.audio_hash, s.job_dir,
      s.timing_map_path, s.vocals_path, s.instrumental_path, s.duration_s, s.cover_path,
-     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count, s.reviewed_at";
+     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count, s.reviewed_at,
+     s.year, s.genre, s.pace_wpm";
 
 const SONG_SELECT: &str = "SELECT s.id, s.title, s.artist, s.album, s.audio_path, s.audio_hash, s.job_dir,
      s.timing_map_path, s.vocals_path, s.instrumental_path, s.duration_s, s.cover_path,
-     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count, s.reviewed_at
+     s.lyric_source, s.language_tag, s.date_added, s.last_played, s.play_count, s.reviewed_at,
+     s.year, s.genre, s.pace_wpm
      FROM songs s";
 
 fn song_from_row(r: &Row<'_>) -> rusqlite::Result<Song> {
@@ -662,6 +781,9 @@ fn song_from_row_offset(r: &Row<'_>, o: usize) -> rusqlite::Result<Song> {
         last_played: r.get(o + 15)?,
         play_count: r.get(o + 16)?,
         reviewed_at: r.get(o + 17)?,
+        year: r.get(o + 18)?,
+        genre: r.get(o + 19)?,
+        pace_wpm: r.get(o + 20)?,
     })
 }
 

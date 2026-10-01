@@ -117,7 +117,29 @@ const SONGS = [
   { id: 4, title: "Falling Out of Love", artist: null, audio_path: "C:/music/fool.mp3", audio_hash: "d", job_dir: "j4", timing_map_path: "C:/jobs/fool/map.json", duration_s: 233, language_tag: "en", date_added: 4, play_count: 1, reviewed_at: 5 },
   { id: 5, title: "Back On My BS", artist: "Pip", audio_path: "C:/music/bs.mp3", audio_hash: "e", job_dir: "j5", timing_map_path: "C:/jobs/bs/map.json", duration_s: 201, language_tag: "en", date_added: 5, play_count: 0, reviewed_at: 9 },
   { id: 6, title: "Harvest Moon", artist: "Neil Young", audio_path: "C:/music/moon.mp3", audio_hash: "f", job_dir: "j6", timing_map_path: null, duration_s: 303, language_tag: "en", date_added: 6, play_count: 0, reviewed_at: null },
+  { id: 7, title: "99 Luftballons", artist: "Nena", audio_path: "C:/music/nena.mp3", audio_hash: "g", job_dir: "j7", timing_map_path: "C:/jobs/nena/map.json", duration_s: 232, language_tag: "de", date_added: 7, play_count: 2, reviewed_at: 9 },
+  { id: 8, title: "Africa", artist: "Toto", audio_path: "C:/music/africa.mp3", audio_hash: "h", job_dir: "j8", timing_map_path: "C:/jobs/africa/map.json", duration_s: 295, language_tag: "en", date_added: 8, play_count: 6, reviewed_at: 9 },
+  { id: 9, title: "Lose Yourself", artist: "Eminem", audio_path: "C:/music/lose.mp3", audio_hash: "i", job_dir: "j9", timing_map_path: "C:/jobs/lose/map.json", duration_s: 326, language_tag: "en", date_added: 9, play_count: 0, reviewed_at: 9 },
+  { id: 10, title: "Waterloo", artist: "ABBA", audio_path: "C:/music/waterloo.mp3", audio_hash: "k", job_dir: "j10", timing_map_path: "C:/jobs/waterloo/map.json", duration_s: 168, language_tag: "en", date_added: 10, play_count: 1, reviewed_at: 9 },
 ];
+// Categories (Browse / Group by / search): year, genre, pace — and two songs
+// added "this week" so Recently added isn't empty.
+const CATEGORY: Record<number, { year?: number; genre?: string; pace_wpm?: number; recent?: boolean }> = {
+  1: { year: 2017, genre: "Indie Rock", pace_wpm: 132, recent: true },
+  2: { year: 1994, genre: "Rock", pace_wpm: 98 },
+  4: { year: 2019, genre: "Pop", pace_wpm: 118 },
+  5: { year: 2020, genre: "Pop", pace_wpm: 176, recent: true },
+  7: { year: 1983, genre: "Pop", pace_wpm: 141 },
+  8: { year: 1982, genre: "Rock", pace_wpm: 104 },
+  9: { year: 2002, genre: "Hip Hop", pace_wpm: 262 },
+  10: { year: 1974, genre: "Pop", pace_wpm: 150 },
+};
+for (const s of SONGS as Record<string, unknown>[]) {
+  const c = CATEGORY[s.id as number];
+  if (!c) continue;
+  Object.assign(s, { year: c.year, genre: c.genre, pace_wpm: c.pace_wpm });
+  if (c.recent) s.date_added = Math.floor(Date.now() / 1000) - 2 * 86400;
+}
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const r = (v: unknown) => v as T;
@@ -135,6 +157,14 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return r(args?.outDir === "j4" ? LYRICS.join("\n") : null);
     case "library_songs":
       return r(SONGS);
+    case "song_update_details": {
+      const song = SONGS.find((s) => s.id === args?.songId) as Record<string, unknown> | undefined;
+      const d = args?.details as { title: string; artist?: string | null; year?: number | null; genre?: string | null; language_tag?: string | null };
+      if (!song) throw new Error("no such song");
+      Object.assign(song, { title: d.title, artist: d.artist ?? null, year: d.year ?? null, genre: d.genre ?? null });
+      if (d.language_tag) song.language_tag = d.language_tag;
+      return r(song);
+    }
     case "library_collections":
       return r([{ id: 1, name: "Cassie's hits", created: 0, song_count: 3 }, { id: 2, name: "Christmas party", created: 0, song_count: 12 }]);
     case "library_song":

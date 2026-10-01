@@ -967,6 +967,28 @@ textarea.w-field {
   display: contents;
 }
 
+/* Group header (View › Group by): bold caption over an etched rule. */
+.w-list-group-row {
+  display: contents;
+}
+
+.w-list-group {
+  height: 24px;
+  padding: 0 6px;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding-bottom: 3px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: inset 0 -1px 0 var(--w-hi), inset 0 -2px 0 var(--w-shadow);
+}
+
+.w-list-group-count {
+  font-weight: 400;
+  color: var(--w-text-dis);
+}
+
 .w-list-cell {
   height: 22px;
   padding: 0 6px;
@@ -1013,9 +1035,21 @@ textarea.w-field {
 .w-tree {
   background: var(--w-window);
   box-shadow: var(--w-sunken);
-  padding: 4px 6px;
+  /* the left gutter holds top-level [+]/[-] boxes */
+  padding: 4px 6px 4px 20px;
   overflow: auto;
   outline: none;
+}
+
+/* [+]/[-] sits on the branch line, left of the icon (Explorer's gutter). */
+.w-tree-exp {
+  position: absolute;
+  left: -15px;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  display: flex;
+  z-index: 1;
 }
 
 .w-tree-row {
