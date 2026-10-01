@@ -19,8 +19,25 @@
 // correction), so every existing control keeps driving one element. Both
 // files come from the same separation run and share the original-song time
 // base, so mirrored currentTime keeps them musically aligned.
+//
+// Keeping them aligned (measured 2026-09-30, WebView2): elements started or
+// seeked *together* land within ~2 ms; seeking the layer alone while the main
+// element plays lands it ~40 ms late, every time (restart latency). The layer
+// used to pause at volume 0 and re-seek alone when the guide came back up —
+// leaving the vocal 41-43 ms behind its own bleed in the instrumental, just
+// under the old 50 ms snap threshold, so it never got fixed: a smeared,
+// "bad call" sound until the next seek. So the layer now keeps playing
+// (silently) at volume 0, and a sustained drift re-seeks *both* elements.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+/** Vocal-vs-instrumental offset that counts as drift. Past ~20 ms the vocal
+ *  audibly doubles against its own bleed in the instrumental. */
+const DRIFT_TOL_S = 0.02;
+/** Drift must last this long before a resync (one-frame jitter isn't drift). */
+const DRIFT_SUSTAIN_MS = 300;
+/** A resync briefly re-buffers both elements; never do it more often. */
+const RESYNC_COOLDOWN_MS = 2000;
 
 export interface LoopWindow {
   start: number;
@@ -52,7 +69,8 @@ export interface AudioController {
    *  so mirrored currentTime keeps them musically aligned. null unloads.
    *  Idempotent for the same URL. */
   setLayer: (src: string | null) => void;
-  /** Overlay volume 0..1. 0 pauses the overlay element entirely. */
+  /** Overlay volume 0..1 (at 0 the overlay keeps playing silently, so it's
+   *  still in step when it comes back up). */
   setLayerGain: (gain: number) => void;
   layerGain: number;
 }
@@ -75,20 +93,48 @@ export function useAudio(): AudioController {
   const [src, setSrc] = useState<string | null>(null);
   const [layerGain, setLayerGainState] = useState(0);
 
-  /** Bring the overlay in line with the main element: paused/playing state,
-   *  and position when drifted past `tol` seconds (`0` forces a snap). */
-  const syncLayer = useCallback((tol: number) => {
+  /** When the current drift started (performance.now), or null. */
+  const driftSinceRef = useRef<number | null>(null);
+  const lastResyncRef = useRef(0);
+
+  /** Bring the overlay in line with the main element. `snap` (play, pause,
+   *  seek, new source): match play state and position now — the main
+   *  element is starting or seeking too, so they land together. Otherwise
+   *  (every frame): resync both elements when drift has lasted (module docs). */
+  const syncLayer = useCallback((snap: boolean) => {
     const el = audioRef.current;
     const l = layerRef.current;
     if (!el || !l || !l.src) return;
-    if (layerGainRef.current <= 0 || el.paused) {
+    if (el.paused) {
       if (!l.paused) l.pause();
+      driftSinceRef.current = null;
       return;
     }
-    if (Math.abs(l.currentTime - el.currentTime) > tol) {
+    if (snap) {
       l.currentTime = el.currentTime;
+      if (l.paused) l.play().catch(() => undefined);
+      driftSinceRef.current = null;
+      return;
     }
     if (l.paused) l.play().catch(() => undefined);
+    if (el.seeking || l.seeking || l.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+      driftSinceRef.current = null;
+      return;
+    }
+    if (Math.abs(l.currentTime - el.currentTime) <= DRIFT_TOL_S) {
+      driftSinceRef.current = null;
+      return;
+    }
+    const now = performance.now();
+    if (driftSinceRef.current == null) driftSinceRef.current = now;
+    if (now - driftSinceRef.current >= DRIFT_SUSTAIN_MS && now - lastResyncRef.current >= RESYNC_COOLDOWN_MS) {
+      // Seek both to where the listener is — a lone layer seek lands late.
+      const t = el.currentTime;
+      el.currentTime = t;
+      l.currentTime = t;
+      lastResyncRef.current = now;
+      driftSinceRef.current = null;
+    }
   }, []);
 
   // One element per hook instance, torn down with the component.
@@ -102,15 +148,15 @@ export function useAudio(): AudioController {
     };
     const onPlay = () => {
       setPlaying(true);
-      syncLayer(0);
+      syncLayer(true);
     };
     const onPause = () => {
       setPlaying(false);
-      syncLayer(0);
+      syncLayer(true);
     };
     const onEnded = () => {
       setPlaying(false);
-      syncLayer(0);
+      syncLayer(true);
     };
     const onErr = () => setError("audio failed to load — the file may have moved");
     el.addEventListener("loadedmetadata", onMeta);
@@ -147,11 +193,12 @@ export function useAudio(): AudioController {
       if (!el) return;
       const lw = loopRef.current;
       if (lw && el.currentTime >= lw.end) {
+        // The loop jump moves both elements in the same frame.
         el.currentTime = lw.start;
+        syncLayer(true);
+      } else {
+        syncLayer(false);
       }
-      // Keep the overlay within ~2 frames of the main element; media
-      // elements drift a little, and a loop snap above lands here too.
-      syncLayer(0.05);
       setTime(el.currentTime);
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -193,7 +240,7 @@ export function useAudio(): AudioController {
       if (!el) return;
       el.currentTime = Math.max(0, t);
       setTime(el.currentTime);
-      syncLayer(0);
+      syncLayer(true);
     },
     [syncLayer],
   );
@@ -222,7 +269,7 @@ export function useAudio(): AudioController {
         l.src = layerSrc;
         l.volume = Math.min(1, Math.max(0, layerGainRef.current));
         l.load();
-        syncLayer(0);
+        syncLayer(true);
       }
     },
     [syncLayer],
@@ -231,17 +278,14 @@ export function useAudio(): AudioController {
   const setLayerGain = useCallback(
     (gain: number) => {
       const g = Math.min(1, Math.max(0, gain));
-      const wasSilent = layerGainRef.current <= 0;
       layerGainRef.current = g;
       setLayerGainState(g);
       const l = layerRef.current;
+      // Volume only: the layer keeps playing at 0, so it's still in step
+      // when the guide comes back up (module docs).
       if (l) l.volume = g;
-      // Volume is the only thing a gain change touches. The transport needs
-      // a sync only at the 0 boundary (the layer pauses at 0 and must come
-      // back in position); an unconditional snap here was a seek per call.
-      if (wasSilent !== g <= 0) syncLayer(0);
     },
-    [syncLayer],
+    [],
   );
 
   const setLoop = useCallback((lw: LoopWindow | null) => {
