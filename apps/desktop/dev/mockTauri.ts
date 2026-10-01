@@ -218,8 +218,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return r({ jobs: items.map((i) => fakeJob({ audio_path: `C:/downloads/${i.title}`, title: i.title, artist: i.artist }, 0.4)), failures: [] });
     }
     case "find_lyrics":
-      return r({ text: LYRICS.join("
-"), track_name: String(args?.title ?? "Song"), artist_name: String(args?.artist ?? "Someone"), duration_s: 200, synced: true });
+      return r({ text: LYRICS.join("\n"), track_name: String(args?.title ?? "Song"), artist_name: String(args?.artist ?? "Someone"), duration_s: 200, synced: true });
     case "game_status":
       return r({ gaming: true, app: "RuneLite", gpu_percent: 18.7, supported: true });
     case "set_game_policy":
