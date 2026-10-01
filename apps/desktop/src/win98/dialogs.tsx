@@ -250,7 +250,7 @@ export function MessageBoxProvider(props: { children: ReactNode; appName?: strin
             {current && (
               <>
                 <TitleBar
-                  title={current.o.title ?? props.appName ?? "Karascape"}
+                  title={current.o.title ?? props.appName ?? "baritoad"}
                   titleAs={(t) => <AlertDialog.Title render={<span />}>{t}</AlertDialog.Title>}
                 >
                   <CaptionButton glyph="close" label="Close" onClick={() => finish(cancelId)} />

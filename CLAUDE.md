@@ -1,6 +1,7 @@
-# Karaoke App (name TBD)
+# baritoad
 
-Open-source (GPL-3.0) desktop karaoke app: any song (a file or a pasted link)
+Open-source (GPL-3.0) desktop karaoke app — the name is **baritoad**, always
+lowercase (PRODUCT.md): any song (a file or a pasted link)
 → AI vocal removal + word-synced lyrics + full-screen player. **PLAN.md is
 authoritative** for scope, legal, and licensing decisions — cite it by section
 when a decision traces to it.

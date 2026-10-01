@@ -1,4 +1,4 @@
-// Karascape 98 controls. Behaviour (focus, keyboard, ARIA) comes from Base UI
+// baritoad 98 controls. Behaviour (focus, keyboard, ARIA) comes from Base UI
 // primitives where one exists; every visible pixel comes from base.css.
 // §6 row: @base-ui/react (MIT).
 

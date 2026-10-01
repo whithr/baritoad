@@ -1,5 +1,5 @@
 ---
-name: Karascape 98
+name: baritoad 98
 description: The karaoke machine as a late-90s desktop program — bevelled silver chrome, navy title bars, menus for everything, and lyrics that stay big and smooth.
 colors:
   face: "#c0c0c0"
@@ -91,13 +91,13 @@ components:
     padding: "2px 5px"
 ---
 
-# Design System: Karascape 98
+# Design System: baritoad 98
 
 ## Overview
 
-**Creative North Star: "Karascape 98"**
+**Creative North Star: "baritoad 98"**
 
-Karascape looks and behaves like a well-made desktop program from 1998: a
+baritoad looks and behaves like a well-made desktop program from 1998: a
 silver window with a navy title bar, a menu bar that lists everything the
 program can do, a flat toolbar for the common jobs, a tree and a list view for
 the library, tabbed property sheets, wizards for multi-step jobs, message boxes
@@ -110,7 +110,7 @@ stage, the Bench word chips, the Text view — uses big, smooth Barlow, never
 the pixel face (PRODUCT.md: legible at ~3 m).
 
 Direction locked by the owner 2026-09-29 from the "Karascape 98" concept
-canvas; it replaces the Digital Dash (2026-08-05) and the hardware-panel chrome
+canvas (the app was named Karascape until 2026-10-01); it replaces the Digital Dash (2026-08-05) and the hardware-panel chrome
 (2026-09-03) in full.
 
 **Key characteristics:**
@@ -262,13 +262,14 @@ Separator · icons.
 
 ### Player Themes (user content zone)
 - **Model:** a theme is data (src/themes.ts) — background spec (cover blur / flat color / imported image with blur+dim), lyric colors (resting / sung / accent), glow strength, font, pips toggle, visualizer mode — applied to the player stage as CSS vars (`--th-*`) plus a static background layer. Resolution: song pin → app default → built-in fallback. Stored in one localStorage blob; built-in presets are code. Background images are imported into `%LOCALAPPDATA%\karaoke\themes` and served as data URLs (CSP allows `data:` only).
-- **Content exemption:** theme colors are user CONTENT inside the stage. The chrome around it (dock, captions, dialogs) stays Karascape 98.
+- **Content exemption:** theme colors are user CONTENT inside the stage. The chrome around it (dock, captions, dialogs) stays baritoad 98.
 - **Guardrails (code, not knobs):** text sizes are not themable; the editor shows a live WCAG AA contrast badge per text color.
 - **Visualizer (Off | Pulse | Bars):** a canvas layer behind the lyrics driven by the instrumental's precomputed peak envelope sampled through the player clock. Off under `prefers-reduced-motion`. One bounded canvas draw per frame joins the hook set.
 
 ### Deferred
 - Live stem VU meters await level data from the audio engine.
-- App icon (`src-tauri/icons/*`) should be regenerated from the pixel brand mark when bundling turns on.
+- App icon (`src-tauri/icons/*`) should be regenerated from the pixel brand mark — the 16-px toad face, `app` in win98/icons.tsx — when bundling turns on.
+- The toad appears only at 16 px — title bars and the Library root. Never scaled up: About, the wizard art, and message boxes don't carry it, and there is no full-body mascot in the app (owner, 2026-10-01).
 - Media-key handling in the player (PRODUCT.md commits to it).
 
 ## Do's and Don'ts
@@ -286,4 +287,5 @@ Separator · icons.
 - **Don't** touch the player's per-frame path beyond the Four-Hook contract.
 - **Don't** add corner radii, gradients (other than title bars), glows, or transitions to chrome.
 - **Don't** use Microsoft's icons, logo, fonts, or the word "Windows" in UI copy — the look is an homage, drawn in-house.
+- **Do** write the name **baritoad** in lowercase, everywhere — titles, menus, and the start of a sentence. Prefer wording where it doesn't open a sentence ("*Song* couldn't be finished.", not "baritoad couldn't finish *Song*.").
 - **Do** call the app open source (GPL-3.0), and be plain that party mode and the cloud library are the paid features (PLAN.md §1, §8).

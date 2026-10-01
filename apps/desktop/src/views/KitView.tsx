@@ -1,4 +1,4 @@
-// Dev-only parts bin (#/kit): every Karascape 98 control in one window, for
+// Dev-only parts bin (#/kit): every baritoad 98 control in one window, for
 // eyeballing against the concept boards and checking both schemes.
 
 import { useState } from "react";
@@ -61,7 +61,7 @@ export default function KitView() {
   const [loop, setLoop] = useState(true);
 
   return (
-    <AppFrame title="Karascape 98 - Parts bin" icon={<Icon name="app" />}>
+    <AppFrame title="baritoad 98 - Parts bin" icon={<Icon name="app" />}>
       <MenuBar
         menus={[
           {
@@ -143,8 +143,8 @@ export default function KitView() {
                 value={settings.scheme}
                 onChange={(v) => update({ scheme: v })}
                 options={[
-                  { value: "classic", label: "Karascape 98 (Teal)" },
-                  { value: "night", label: "Karascape 98 Night" },
+                  { value: "classic", label: "baritoad 98 (Teal)" },
+                  { value: "night", label: "baritoad 98 Night" },
                 ]}
               />
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

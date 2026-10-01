@@ -2,7 +2,7 @@
    preview). Moved here from the pre-98 styles.css with the rules intact:
    every per-frame hook keeps its selector, and nothing here adds a
    transition to a hooked property (DESIGN.md, the Four-Hook Rule).
-   Theme vars (--th-*, themes.ts) win; the fallbacks equal the Karascape 98
+   Theme vars (--th-*, themes.ts) win; the fallbacks equal the baritoad 98
    stage theme. Class-scoped only — this file can load in any window. */
 
 .player-stage {

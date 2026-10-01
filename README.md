@@ -1,4 +1,4 @@
-# Karaoke App (working title)
+# baritoad
 
 The karaoke machine for any song — local-first, no catalog.
 You bring the music: drop in a song or paste a link, get AI vocal removal,

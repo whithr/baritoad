@@ -1,4 +1,4 @@
-/* Karascape 98 — the chrome (DESIGN.md). Every rule hangs off a `w-` class
+/* baritoad 98 — the chrome (DESIGN.md). Every rule hangs off a `w-` class
    or the `.w98` root: no bare element selectors, so nothing here reaches
    the player stage, and Base UI popups (portalled to <body>) style
    themselves through their own classes. */

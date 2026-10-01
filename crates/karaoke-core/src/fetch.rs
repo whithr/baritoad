@@ -524,7 +524,7 @@ fn error_message(stderr: &str) -> String {
         None => raw.clone(),
     };
     if msg.contains("Requested format is not available") {
-        return "This link doesn't offer audio Karascape can read (AAC, MP3, FLAC, WAV or Vorbis), and there's no ffmpeg to convert it.".into();
+        return "This link doesn't offer audio baritoad can read (AAC, MP3, FLAC, WAV or Vorbis), and there's no ffmpeg to convert it.".into();
     }
     if msg.contains("Unsupported URL") {
         return "yt-dlp doesn't know how to get audio from this link.".into();
@@ -692,7 +692,7 @@ mod tests {
         let stderr = "WARNING: something\nERROR: [youtube] abc: Video unavailable. This video is private\n";
         assert_eq!(error_message(stderr), "Video unavailable. This video is private");
         let fmt = "ERROR: [archive.org] x: Requested format is not available. Use --list-formats";
-        assert!(error_message(fmt).contains("doesn't offer audio Karascape can read"));
+        assert!(error_message(fmt).contains("doesn't offer audio baritoad can read"));
         assert_eq!(error_message("plain failure\n"), "plain failure");
     }
 }

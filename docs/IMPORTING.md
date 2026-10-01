@@ -1,6 +1,6 @@
 # Importing many songs
 
-**File › Import Folder…** in Karascape (or dropping a folder on the Library)
+**File › Import Folder…** in baritoad (or dropping a folder on the Library)
 imports a whole folder of songs in one go. Before anything runs, a review list
 shows which lyrics each song picked up, which collection it goes in, and
 whether it's already in your library. This page describes the folder layout
@@ -40,7 +40,7 @@ For each song, in a folder, the first match wins:
 
 1. **An UltraStar song file** (`.txt` starting with `#TITLE:`, `#BPM:` …)
    whose `#MP3:` or `#AUDIO:` line names the song's file. The names needn't
-   match. UltraStar files carry hand-made timings, which Karascape uses as they
+   match. UltraStar files carry hand-made timings, which baritoad uses as they
    are, so these songs arrive ready to sing.
 2. **A lyrics file with the song's name**: `Song.txt`, `Song.lyrics.txt`
    or `Song.lrc` next to `Song.mp3`.
@@ -151,4 +151,4 @@ full workflow. Any agent should follow the same rules:
 - **Don't paste lyrics back into the chat.** Report file names, counts and
   warnings.
 - **Loop until clean:** `karaoke scan --json`, fix, scan again. Then the user
-  runs File › Import Folder… in Karascape.
+  runs File › Import Folder… in baritoad.

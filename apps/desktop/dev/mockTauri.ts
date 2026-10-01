@@ -156,7 +156,8 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       // The failed job ran with pasted lyrics; the rest transcribed.
       return r(args?.outDir === "j4" ? LYRICS.join("\n") : null);
     case "library_songs":
-      return r(SONGS);
+      // ?empty shows a first-run library.
+      return r(new URLSearchParams(location.search).has("empty") ? [] : SONGS);
     case "song_update_details": {
       const song = SONGS.find((s) => s.id === args?.songId) as Record<string, unknown> | undefined;
       const d = args?.details as { title: string; artist?: string | null; year?: number | null; genre?: string | null; language_tag?: string | null };
@@ -234,7 +235,8 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "stage_show_on":
       return r(undefined);
     case "player_load":
-      return r({ state: "playing", position: 0, duration: DURATION, loaded_seconds: DURATION, guide: 0.4, pitch: 0, tempo: 1, stretch_config: "default", song_id: args?.songId ?? null, single_source: false, device: "Mock output", callbacks: 0, stalls: 0, max_gap_ms: 0, stretch_engaged: false, mmcss: "n/a" });
+      // ?finished loads the song already over (the end-of-song box).
+      return r({ state: new URLSearchParams(location.search).has("finished") ? "finished" : "playing", position: 0, duration: DURATION, loaded_seconds: DURATION, guide: 0.4, pitch: 0, tempo: 1, stretch_config: "default", song_id: args?.songId ?? null, single_source: false, device: "Mock output", callbacks: 0, stalls: 0, max_gap_ms: 0, stretch_engaged: false, mmcss: "n/a" });
     default:
       return r(undefined);
   }
@@ -247,10 +249,10 @@ export function convertFileSrc(_path: string): string {
 
 // Events: an in-page bus (fake jobs report progress on it) bridged across
 // tabs with a BroadcastChannel, so the stage "window" (a popup tab named
-// karascape-player) and the main tab hear each other like two webviews.
+// baritoad-player) and the main tab hear each other like two webviews.
 const handlers = new Map<string, Set<(e: { payload: unknown }) => void>>();
-const LABEL = typeof window !== "undefined" && window.name === "karascape-player" ? "player" : "main";
-const bus = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("karascape-mock") : null;
+const LABEL = typeof window !== "undefined" && window.name === "baritoad-player" ? "player" : "main";
+const bus = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("baritoad-mock") : null;
 function deliver(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ payload }));
 }
@@ -278,12 +280,12 @@ function stageOpen(route: { song_id?: number | null; map_path?: string | null; m
   if (route.map_path) q.set("map", route.map_path);
   if (route.measure) q.set("measure", "1");
   const url = `${location.pathname}${location.search}#/play?${q.toString()}`;
-  const w = window.open(url, "karascape-player", "popup,width=1280,height=720");
+  const w = window.open(url, "baritoad-player", "popup,width=1280,height=720");
   if (!w) throw new Error("popup blocked");
-  void emitTo("main", "karascape://stage", { kind: "opened", route });
+  void emitTo("main", "baritoad://stage", { kind: "opened", route });
 }
 if (LABEL === "player" && typeof window !== "undefined") {
-  window.addEventListener("pagehide", () => void emitTo("main", "karascape://stage", { kind: "closed" }));
+  window.addEventListener("pagehide", () => void emitTo("main", "baritoad://stage", { kind: "closed" }));
 }
 
 // A fake pipeline run: ~8 s separating, ~4 s aligning, then done — or, when

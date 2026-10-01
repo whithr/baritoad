@@ -1,4 +1,4 @@
-// Karascape Properties — the app-wide preferences as a tabbed property sheet
+// baritoad Properties — the app-wide preferences as a tabbed property sheet
 // (OK / Cancel / Apply over a draft), plus the About box. Player stage themes
 // (including which one is the default) have their own dialog
 // (PlayerThemes.tsx), reachable from the Player tab. The Bench's view and
@@ -10,7 +10,7 @@ import { gameStatus, type GameStatus } from "../api";
 import { useSettings } from "../App";
 import type { Settings } from "../settings";
 import { loadDisplay, saveDisplay } from "../stage";
-import { Button, Checkbox, Dialog, DialogButtons, GroupBox, Icon, ListView, RadioGroup, Select, Tabs } from "../win98";
+import { Button, Checkbox, Dialog, DialogButtons, GroupBox, ListView, RadioGroup, Select, Tabs } from "../win98";
 
 type Tab = "appearance" | "player" | "processing";
 
@@ -82,7 +82,7 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
   };
 
   return (
-    <Dialog open={props.open} onClose={props.onClose} title="Karascape Properties" width={500}>
+    <Dialog open={props.open} onClose={props.onClose} title="baritoad Properties" width={500}>
       <div className="w-dialog-body">
         <Tabs
           ariaLabel="Properties"
@@ -116,8 +116,8 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
                   value={draft.scheme}
                   onChange={(v) => change({ scheme: v })}
                   options={[
-                    { value: "classic", label: "Karascape 98 (Teal)" },
-                    { value: "night", label: "Karascape 98 Night" },
+                    { value: "classic", label: "baritoad 98 (Teal)" },
+                    { value: "night", label: "baritoad 98 Night" },
                   ]}
                   style={{ flexGrow: 1 }}
                 />
@@ -204,7 +204,7 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
                       : !game
                         ? "Checking…"
                         : !game.supported
-                          ? "Karascape can't see what's using the graphics card on this computer."
+                          ? "This computer doesn't say what's using the graphics card."
                           : game.gaming
                             ? `Right now: ${game.app ?? "a game"} is using the graphics card${game.gpu_percent != null ? ` (${Math.round(game.gpu_percent)}%)` : ""}.`
                             : "Right now: no game is using the graphics card."}
@@ -265,15 +265,12 @@ export function AboutDialog(props: { open: boolean; onClose: () => void }) {
       .catch(() => setVersion(null));
   }, [props.open]);
   return (
-    <Dialog open={props.open} onClose={props.onClose} title="About Karascape" width={440}>
+    <Dialog open={props.open} onClose={props.onClose} title="About baritoad" width={440}>
       <div className="w-dialog-body" style={{ gap: 12 }}>
-        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-          <Icon name="app" size={48} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <b>Karascape</b>
-            <span>Version {version ?? "—"}</span>
-            <span>Free, open-source software (GPL-3.0).</span>
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <b>baritoad</b>
+          <span>Version {version ?? "—"}</span>
+          <span>Free, open-source software (GPL-3.0).</span>
         </div>
         <div style={{ lineHeight: "18px" }}>
           Karaoke from the songs you already own. Vocal separation and word timing run on this computer; nothing is uploaded.

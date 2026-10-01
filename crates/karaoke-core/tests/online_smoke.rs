@@ -15,7 +15,7 @@ const PD_URL: &str = "https://archive.org/details/78_take-me-out-to-the-ball-gam
 #[test]
 #[ignore = "network"]
 fn lrclib_finds_full_lyrics_for_the_1908_recording() {
-    let client = Client::new("Karascape-dev/0.1 (karaoke app; smoke test)");
+    let client = Client::new("baritoad-dev/0.1 (karaoke app; smoke test)");
     let q = Query {
         title: "Take Me Out To The Ball Game".into(),
         artist: Some("Harvey Hindermeyer".into()),
@@ -39,7 +39,7 @@ fn lrclib_finds_full_lyrics_for_the_1908_recording() {
 #[test]
 #[ignore = "network"]
 fn lrclib_near_misses_still_find_the_song() {
-    let client = Client::new("Karascape-dev/0.1 (karaoke app; smoke test)");
+    let client = Client::new("baritoad-dev/0.1 (karaoke app; smoke test)");
     // A version tag on the upload's title.
     let tagged = Query {
         title: "Take Me Out To The Ball Game v2".into(),

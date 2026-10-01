@@ -256,12 +256,12 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   }, []);
   useEffect(() => {
     loadQueue();
-    window.addEventListener("karascape:queue", loadQueue);
-    return () => window.removeEventListener("karascape:queue", loadQueue);
+    window.addEventListener("baritoad:queue", loadQueue);
+    return () => window.removeEventListener("baritoad:queue", loadQueue);
   }, [loadQueue]);
   const queueChanged = () => {
     loadQueue();
-    window.dispatchEvent(new Event("karascape:queue"));
+    window.dispatchEvent(new Event("baritoad:queue"));
   };
 
   const statuses = useMemo(() => {
@@ -357,7 +357,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           kind: "error",
           message: (
             <>
-              Karascape couldn't finish <b>{p.job.title}</b>.
+              <b>{p.job.title}</b> couldn't be finished.
             </>
           ),
           detail: p.failure ?? p.job.error ?? "The pipeline stopped without saying why.",
@@ -409,7 +409,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             kind: "info",
             title: "Import Songs",
             message: "No songs found there.",
-            detail: "Karascape looks for MP3, FLAC, WAV, M4A, OGG, AAC, AIFF and WMA files — in the folder and every folder inside it.",
+            detail: "Songs can be MP3, FLAC, WAV, M4A, OGG, AAC, AIFF or WMA files, in the folder or any folder inside it.",
           });
         } else {
           setImportScan(scan);
@@ -494,7 +494,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     batch.current = [];
     setProcOpen(false);
     const lines = [
-      b.done > 0 ? `${b.done === 1 ? "1 song is" : `${b.done} songs are`} in your library. Songs Karascape timed wait under Needs checking for a quick listen.` : "",
+      b.done > 0 ? `${b.done === 1 ? "1 song is" : `${b.done} songs are`} in your library. Songs baritoad timed wait under Needs checking for a quick listen.` : "",
       b.failed > 0
         ? `Couldn't finish: ${failed.map((p) => p!.job.title).slice(0, 8).join(", ")}${b.failed > 8 ? ", …" : ""}.`
         : "",
@@ -815,7 +815,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       items: [
         { label: "&Keyboard Shortcuts", accel: "F1", keys: "f1", run: () => void showShortcuts() },
         "-",
-        { label: "&About Karascape", run: () => dialogs.open("about") },
+        { label: "&About baritoad", run: () => dialogs.open("about") },
       ],
     },
   ];
@@ -995,7 +995,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   ];
 
   return (
-    <AppFrame title={`Karascape - ${place}`} icon={<Icon name="app" />}>
+    <AppFrame title={`baritoad - ${place}`} icon={<Icon name="app" />}>
       <MenuBar menus={menus} />
       <Hr />
       <Toolbar label="Library">

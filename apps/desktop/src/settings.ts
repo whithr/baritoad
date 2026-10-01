@@ -47,7 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lookupLyrics: false,
 };
 
-export const SETTINGS_KEY = "karascape.settings.v1";
+export const SETTINGS_KEY = "baritoad.settings.v1";
 
 const SCHEMES: Scheme[] = ["classic", "night"];
 const SCALES: UiScale[] = ["normal", "large"];
@@ -61,7 +61,7 @@ const pick = <T,>(allowed: readonly T[], v: unknown, fallback: T): T =>
 
 /** Parse a stored settings blob; unknown or malformed fields fall back to
  *  defaults so an old/corrupt blob never breaks startup. Blobs from before
- *  Karascape 98 carry `theme: light|dark`, which maps to classic/night. */
+ *  baritoad 98 carry `theme: light|dark`, which maps to classic/night. */
 export function parseSettings(raw: string | null | undefined): Settings {
   if (!raw) return { ...DEFAULT_SETTINGS };
   try {

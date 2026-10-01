@@ -1,6 +1,6 @@
 ---
 name: prep-song-import
-description: Prepare a folder of the user's own songs (audio plus lyrics text files) for Karascape's File › Import Folder… — pair stray lyrics files with their songs, split multi-song lyrics files, strip chords/HTML/timestamps, sort songs into collection folders, and verify with `karaoke scan`. Use when the user wants to bulk-add songs, tidy a music + lyrics folder before importing, or asks why songs didn't pick up their lyrics.
+description: Prepare a folder of the user's own songs (audio plus lyrics text files) for baritoad's File › Import Folder… — pair stray lyrics files with their songs, split multi-song lyrics files, strip chords/HTML/timestamps, sort songs into collection folders, and verify with `karaoke scan`. Use when the user wants to bulk-add songs, tidy a music + lyrics folder before importing, or asks why songs didn't pick up their lyrics.
 ---
 
 # Prepare a folder for bulk import
@@ -114,9 +114,9 @@ on those too.
    `scan --strict` exiting 0 means every lyrics file is clean and matched.
 
 6. **Hand off.** Report the changes and what's left. Then tell the user: in
-   Karascape, choose **File › Import Folder…** (Ctrl+Shift+O), pick the
+   baritoad, choose **File › Import Folder…** (Ctrl+Shift+O), pick the
    folder, check the review list, and click **Import**. Afterwards:
-   - songs Karascape timed itself wait under **Needs checking**;
+   - songs baritoad timed itself wait under **Needs checking**;
    - UltraStar songs arrive ready;
    - unbroken lyrics can be tidied with **Timing › Reflow lines to fit the
      TV** in the Bench.

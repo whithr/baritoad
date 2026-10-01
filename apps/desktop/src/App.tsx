@@ -2,7 +2,7 @@
 // Stage window (stage.ts), and a tiny hash router — no router dependency
 // (three routes don't justify a package and its §6 row).
 //
-// Chrome is Karascape 98 (win98/, DESIGN.md). Each view draws its own
+// Chrome is baritoad 98 (win98/, DESIGN.md). Each view draws its own
 // window frame, menus and status bar; Properties, Player Themes and About
 // are dialogs (views/AppDialogs.tsx), not routes.
 

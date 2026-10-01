@@ -1,3 +1,4 @@
+import "./legacyStorage"; // first: moves pre-rename storage keys before anything reads them
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";

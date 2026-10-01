@@ -849,10 +849,10 @@ export default function PlayerView(props: {
         .catch(() => undefined);
     load();
     window.addEventListener("focus", load);
-    window.addEventListener("karascape:queue", load);
+    window.addEventListener("baritoad:queue", load);
     return () => {
       window.removeEventListener("focus", load);
-      window.removeEventListener("karascape:queue", load);
+      window.removeEventListener("baritoad:queue", load);
     };
   }, [songId]);
   const upNext = queue.find((e) => e.song.id !== songId) ?? null;
@@ -879,7 +879,7 @@ export default function PlayerView(props: {
     askedEnd.current = true;
     void ask({
       kind: "info",
-      title: "Karascape Player",
+      title: "baritoad Player",
       message: "That's the song!",
       detail: upNext ? `Up next: ${upNext.song.title}${upNext.song.artist ? ` — ${upNext.song.artist}` : ""}` : undefined,
       buttons: [
@@ -913,7 +913,7 @@ export default function PlayerView(props: {
                 ["[ ]", "Slower / faster"],
                 ["0", "Reset key and tempo"],
                 ["F", "Full screen"],
-                ...(ROLE === "player" ? [["F6", "Back to Karascape"]] : []),
+                ...(ROLE === "player" ? [["F6", "Back to baritoad"]] : []),
                 ["Esc", ROLE === "player" ? "Close the stage" : "Back"],
               ] as [string, string][]
             ).map(([k, v]) => (
@@ -1052,7 +1052,7 @@ export default function PlayerView(props: {
   return (
     <div className="w98" style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "#000010" }}>
       {ROLE === "player" && !fullscreen && (
-        <StageTitleBar title={song ? `${song.title} - Karascape Stage` : "Karascape Stage"} active={windowActive} onClose={exit} />
+        <StageTitleBar title={song ? `${song.title} - baritoad Stage` : "baritoad Stage"} active={windowActive} onClose={exit} />
       )}
       <div style={{ position: "relative", flexGrow: 1, minHeight: 0 }}>
         <div
@@ -1101,7 +1101,7 @@ export default function PlayerView(props: {
 
           {error && (
             <div className="pk-caption left w98 w-window" style={{ top: 110, maxWidth: 520 }} role="alert">
-              <TitleBar title="Karascape Player" active />
+              <TitleBar title="baritoad Player" active />
               <div style={{ display: "flex", gap: 10, alignItems: "center", padding: 10, userSelect: "text" }}>
                 <Icon name="error" size={32} />
                 <span>{error}</span>
@@ -1131,7 +1131,7 @@ export default function PlayerView(props: {
           </div>
 
           <div className="pk-dock w98 w-window" onPointerMove={pokeControls}>
-            <TitleBar title="Karascape Player" icon={<Icon name="app" />} active>
+            <TitleBar title="baritoad Player" icon={<Icon name="app" />} active>
               <CaptionButton glyph="close" label={ROLE === "player" ? "Close the stage (Esc)" : "Back (Esc)"} onClick={exit} />
             </TitleBar>
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 6px 4px" }}>

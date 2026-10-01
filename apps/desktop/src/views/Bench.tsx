@@ -10,7 +10,7 @@
 // State is the tested editorState reducer (undo/redo/dirty, timing-map
 // invariants); playback is the review-screen <audio> hook (original-song
 // time — PLAN.md §5); waveforms are the vocal stem's peak envelope.
-// Chrome is Karascape 98: every command sits in the menu bar; the toolbar,
+// Chrome is baritoad 98: every command sits in the menu bar; the toolbar,
 // right-click menu and keys are shortcuts to it.
 
 import {
@@ -148,7 +148,7 @@ const DROP_RUNUP_S = 1.5;
 const NUDGE_SETTLE_MS = 600;
 const LINE_LOOP_PAD_S = 0.3;
 const REALIGN_PAD_S = 1.0;
-const VOCAL_GUIDE_KEY = "karascape.bench.vocalGuide";
+const VOCAL_GUIDE_KEY = "baritoad.bench.vocalGuide";
 
 
 interface Props {
@@ -251,7 +251,7 @@ export default function Bench(props: Props) {
   if (error || !map || !sources) {
     const title = props.title ?? "Song";
     return (
-      <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
+      <AppFrame title={`${title} - baritoad Bench`} icon={<Icon name="app" />}>
         <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <GroupBox label={error ? "Couldn't open this song" : "Opening"} style={{ width: 420 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, lineHeight: "18px" }}>
@@ -799,7 +799,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     if (!dirty) return true;
     const r = await ask({
       kind: "warning",
-      title: "Karascape Bench",
+      title: "baritoad Bench",
       message: (
         <>
           Save changes to <b>{title}</b>?
@@ -962,7 +962,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       items: [
         { label: "&Keyboard Shortcuts", accel: "F1", keys: "f1", run: () => void showKeys() },
         "-",
-        { label: "&About Karascape", run: () => dialogs.open("about") },
+        { label: "&About baritoad", run: () => dialogs.open("about") },
       ],
     },
   ];
@@ -1056,7 +1056,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
   const scopeName = { word: "Word", line: "Line", tail: "From here on" }[scope];
 
   return (
-    <AppFrame title={`${title} - Karascape Bench`} icon={<Icon name="app" />}>
+    <AppFrame title={`${title} - baritoad Bench`} icon={<Icon name="app" />}>
       <MenuBar menus={menus} />
       <Hr />
       <Toolbar label="Bench">

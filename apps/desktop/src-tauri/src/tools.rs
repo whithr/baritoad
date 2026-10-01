@@ -52,7 +52,7 @@ impl ToolsState {
         let mut dirs = vec![data_dir()];
         dirs.extend(bundled);
         let tools = Tools::locate(&dirs).ok_or_else(|| {
-            "Add from URL needs yt-dlp, and Karascape couldn't find it. Reinstalling the app puts it back \
+            "Add from URL needs yt-dlp, and baritoad couldn't find it. Reinstalling the app puts it back \
              (in a dev checkout: run `pnpm fetch-tools` in apps/desktop)."
                 .to_string()
         })?;
@@ -131,7 +131,7 @@ pub fn lyrics_client(app: &AppHandle) -> lrclib::Client {
 }
 
 pub fn user_agent(app: &AppHandle) -> String {
-    format!("Karascape/{} (desktop karaoke app)", app.package_info().version)
+    format!("baritoad/{} (desktop karaoke app)", app.package_info().version)
 }
 
 fn unix_now() -> u64 {

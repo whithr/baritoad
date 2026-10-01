@@ -1,4 +1,4 @@
-//! The Stage: the TV player's own window (Karascape 98).
+//! The Stage: the TV player's own window (baritoad 98).
 //!
 //! "Sing" opens — or reuses and focuses — a second frameless window (label
 //! [`STAGE_LABEL`]) that can be dragged or sent to the TV while the main
@@ -31,7 +31,7 @@ use crate::player::PlayerHandle;
 pub const STAGE_LABEL: &str = "player";
 pub const MAIN_LABEL: &str = "main";
 /// Stage lifecycle events: `load` → the stage, `opened` / `closed` → main.
-pub const STAGE_EVENT: &str = "karascape://stage";
+pub const STAGE_EVENT: &str = "baritoad://stage";
 
 /// What the stage should play — the same fields as the `#/play` route.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

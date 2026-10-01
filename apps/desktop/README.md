@@ -1,7 +1,7 @@
 # Karaoke desktop app
 
 Tauri 2 shell over `karaoke-core`, styled as a late-90s desktop program
-("Karascape 98", DESIGN.md): a main window that moves between the Library
+("baritoad 98", DESIGN.md): a main window that moves between the Library
 (`views/Home.tsx` — places tree, sortable song list, Up next, Add Song
 wizard) and the Bench (`views/Bench.tsx` — the timing editor, Text / Lanes /
 Focus), and a separate Stage window for the TV player
@@ -14,7 +14,7 @@ and ships no music or lyrics. The app is open source
 
 - `src/` — React 19 + TypeScript frontend (Vite). Plain CSS; behaviour
   (menus, dialogs, tabs, sliders…) from `@base-ui/react` primitives.
-- `src/win98/` — the Karascape 98 kit: tokens (Classic + Night schemes),
+- `src/win98/` — the baritoad 98 kit: tokens (Classic + Night schemes),
   class-scoped base CSS, pixel icons, controls, menu bar / context menus
   from one command model, list + tree views, dialogs, wizard, message boxes,
   the frameless window frame; `stage.css` holds the TV stage's lyric CSS

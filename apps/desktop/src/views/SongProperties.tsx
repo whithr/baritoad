@@ -1,5 +1,5 @@
 // Song › Properties (Alt+Enter): the details a person can fix — title,
-// artist, year, genre, language — plus the facts Karascape measured, read
+// artist, year, genre, language — plus the facts baritoad measured, read
 // only. Year and genre are what the Library's Browse folders and Group by
 // read; an edit here always beats the file's tags on a later re-import.
 
@@ -10,7 +10,7 @@ import { fmtDuration } from "../libraryState";
 import { Button, Dialog, DialogButtons, FieldLabel, GroupBox, Icon, Select, TextField } from "../win98";
 
 const LYRICS_SOURCE: Record<string, string> = {
-  pasted: "Pasted lyrics, timed by Karascape",
+  pasted: "Pasted lyrics, timed by baritoad",
   transcribed: "Transcribed from the vocals",
   imported: "UltraStar file (hand-made timings)",
 };

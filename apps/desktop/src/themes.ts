@@ -55,11 +55,11 @@ export const DIGITAL_DASH: ThemeSpec = {
   visualizer: "off",
 };
 
-/** Karascape 98's own stage: near-black with cyan sung words — the
+/** baritoad 98's own stage: near-black with cyan sung words — the
  *  default and the fallback for everything (DESIGN.md). */
-export const KARASCAPE_98: ThemeSpec = {
-  id: "karascape-98",
-  name: "Karascape 98",
+export const BARITOAD_98: ThemeSpec = {
+  id: "baritoad-98",
+  name: "baritoad 98",
   builtin: true,
   background: { kind: "color", color: "#000010" },
   resting: "#ffffff",
@@ -71,10 +71,10 @@ export const KARASCAPE_98: ThemeSpec = {
   visualizer: "off",
 };
 
-export const DEFAULT_THEME = KARASCAPE_98;
+export const DEFAULT_THEME = BARITOAD_98;
 
 export const BUILTIN_THEMES: ThemeSpec[] = [
-  KARASCAPE_98,
+  BARITOAD_98,
   DIGITAL_DASH,
   {
     id: "neon-stage",
@@ -134,7 +134,7 @@ export const BUILTIN_THEMES: ThemeSpec[] = [
 // store
 // ---------------------------------------------------------------------------
 
-export const THEME_STORE_KEY = "karascape.themes.v1";
+export const THEME_STORE_KEY = "baritoad.themes.v1";
 const STORE_KEY = THEME_STORE_KEY;
 
 export interface ThemeStore {
@@ -199,7 +199,7 @@ export function themeById(store: ThemeStore, id: string | null | undefined): The
   return allThemes(store).find((t) => t.id === id) ?? null;
 }
 
-/** Song override → app default → Karascape 98. Never returns null. */
+/** Song override → app default → baritoad 98. Never returns null. */
 export function resolveTheme(store: ThemeStore, songId?: number | null): ThemeSpec {
   const pin = songId != null ? themeById(store, store.songOverrides[String(songId)]) : null;
   return pin ?? themeById(store, store.defaultId) ?? DEFAULT_THEME;
@@ -248,7 +248,7 @@ const slug = (s: string) =>
 
 // ---------------------------------------------------------------------------
 // CSS application — the theme as a var bag on .player-stage. Fallbacks in
-// win98/stage.css equal the Karascape 98 theme, so "no theme" renders the same.
+// win98/stage.css equal the baritoad 98 theme, so "no theme" renders the same.
 // ---------------------------------------------------------------------------
 
 /** rgba() step of a hex color — the theme's glow halo (mirrors the token

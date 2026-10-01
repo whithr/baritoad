@@ -24,9 +24,9 @@ const emptyStore = (): ThemeStore => ({
 });
 
 describe("resolveTheme", () => {
-  it("falls through: song pin → default → Karascape 98", () => {
+  it("falls through: song pin → default → baritoad 98", () => {
     let s = emptyStore();
-    expect(resolveTheme(s, 7).id).toBe("karascape-98");
+    expect(resolveTheme(s, 7).id).toBe("baritoad-98");
     s = { ...s, defaultId: "neon-stage" };
     expect(resolveTheme(s, 7).id).toBe("neon-stage");
     s = { ...s, songOverrides: { "7": "sunset-vhs" } };
@@ -41,14 +41,14 @@ describe("resolveTheme", () => {
       defaultId: "deleted-user-theme",
       songOverrides: { "7": "also-gone" },
     };
-    expect(resolveTheme(s, 7).id).toBe("karascape-98");
+    expect(resolveTheme(s, 7).id).toBe("baritoad-98");
   });
 });
 
 describe("built-ins", () => {
-  it("Karascape 98 is the default and listed first; Digital Dash stays selectable", () => {
-    expect(DEFAULT_THEME.id).toBe("karascape-98");
-    expect(BUILTIN_THEMES[0].id).toBe("karascape-98");
+  it("baritoad 98 is the default and listed first; Digital Dash stays selectable", () => {
+    expect(DEFAULT_THEME.id).toBe("baritoad-98");
+    expect(BUILTIN_THEMES[0].id).toBe("baritoad-98");
     expect(BUILTIN_THEMES.some((b) => b.id === DIGITAL_DASH.id)).toBe(true);
   });
 });
@@ -101,7 +101,7 @@ describe("store persistence", () => {
     const back = loadThemeStore();
     expect(back.themes).toHaveLength(1);
     expect(back.themes[0].name).toMatch(/Sunset VHS copy/);
-    localStorage.setItem("karascape.themes.v1", "{not json");
+    localStorage.setItem("baritoad.themes.v1", "{not json");
     expect(loadThemeStore().defaultId).toBe(DEFAULT_THEME.id);
   });
 });

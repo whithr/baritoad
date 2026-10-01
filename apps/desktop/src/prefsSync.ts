@@ -6,7 +6,7 @@
 
 import { emit, listen } from "@tauri-apps/api/event";
 
-export const PREFS_EVENT = "karascape://prefs";
+export const PREFS_EVENT = "baritoad://prefs";
 
 interface PrefsPayload {
   key: string;

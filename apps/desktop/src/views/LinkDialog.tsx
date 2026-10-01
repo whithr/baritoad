@@ -212,7 +212,7 @@ export default function LinkDialog(props: {
                 <Icon name="globe" size={32} />
                 <span>
                   Paste links to songs — a music video, a song page, or a playlist's own link for all its songs (a video
-                  you opened from a playlist adds just that video). Karascape downloads each one to this computer, then
+                  you opened from a playlist adds just that video). Each one downloads to this computer, then baritoad
                   separates the vocals and lines up the lyrics like any song you add.
                 </span>
               </div>
@@ -244,7 +244,7 @@ export default function LinkDialog(props: {
             <>
               <div style={{ lineHeight: "18px" }}>
                 {links.length === 0 ? (
-                  "None of the links had songs Karascape could get."
+                  "None of the links had songs baritoad could get."
                 ) : (
                   <>
                     Found <b>{links.length === 1 ? "1 song" : `${links.length} songs`}</b>. Uncheck any you don't want, and

@@ -1,4 +1,4 @@
-// Karascape 98 icons — in-house pixel art (no Microsoft assets, DESIGN.md).
+// baritoad 98 icons — in-house pixel art (no Microsoft assets, DESIGN.md).
 // Two families:
 //   Glyph — tiny one-colour marks for caption buttons, arrows, transport and
 //           menu checks; drawn in currentColor so schemes recolour them.
@@ -89,24 +89,59 @@ const DISC = (
   </>
 );
 
-const ICONS: Record<string, { crisp: boolean; body: ReactNode }> = {
-  // brand: VU bars rising into a note (the bar-graph note, redrawn in pixels)
-  app: {
-    crisp: true,
-    body: (
-      <>
-        <rect x="1" y="11" width="2" height="4" fill="#00c000" />
-        <rect x="4" y="8" width="2" height="7" fill="#e0e000" />
-        <rect x="7" y="5" width="2" height="10" fill="#ff4040" />
-        <rect x="12" y="1" width="1" height="11" fill="#ff00ff" />
-        <rect x="13" y="2" width="1" height="1" fill="#ff00ff" />
-        <rect x="14" y="3" width="1" height="3" fill="#ff00ff" />
-        <rect x="10" y="10" width="3" height="1" fill="#ff00ff" />
-        <rect x="9" y="11" width="4" height="2" fill="#ff00ff" />
-        <rect x="9" y="13" width="3" height="1" fill="#ff00ff" />
-      </>
-    ),
+/** Pixel art from rows of palette keys ("." is clear); runs of one key merge
+ *  into a single rect. */
+function pixels(rows: readonly string[], palette: Record<string, string>): ReactNode {
+  const out: ReactNode[] = [];
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; ) {
+      const k = row[x];
+      let w = 1;
+      while (row[x + w] === k) w++;
+      if (k !== ".") out.push(<rect key={`${x},${y}`} x={x} y={y} width={w} height={1} fill={palette[k]} />);
+      x += w;
+    }
+  });
+  return <>{out}</>;
+}
+
+// brand: baritoad mid-note — gold eyes, wide-open mouth. The app's mark
+// (owner-approved 2026-10-01); there is no larger mascot art. No mic: at
+// 16 px a round head on a stick reads as the magnifier (search).
+const TOAD = pixels(
+  [
+    "................",
+    "..KKKK....KKKK..",
+    ".KWOOOK..KWOOOK.",
+    ".KOPPOKKKKOPPOK.",
+    ".KOOOOKGGKOOOOK.",
+    "KGGGGLGGGGLGGGGK",
+    "KGLGGGGGGGGGGLGK",
+    "KGKKKKKKKKKKKKGK",
+    "KKRRRRRRRRRRRRKK",
+    "KCKRRRRRRRRRRKCK",
+    "KCCKRRTTTTRRKCCK",
+    "KCCCKKTTTTKKCCCK",
+    ".KCCCCKKKKCCCCK.",
+    "..KCCCCCCCCCCK..",
+    "...KKKKKKKKKK...",
+    "................",
+  ],
+  {
+    K: "#000000",
+    W: "#ffffff",
+    O: "#ffa800",
+    P: "#000000",
+    G: "#4c9420",
+    L: "#8cd048",
+    C: "#f8e0a0",
+    R: "#a00000",
+    T: "#ff6868",
   },
+);
+
+const ICONS: Record<string, { crisp: boolean; body: ReactNode }> = {
+  app: { crisp: true, body: TOAD },
   disc: { crisp: false, body: DISC },
   globe: {
     crisp: false,

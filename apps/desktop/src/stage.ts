@@ -27,7 +27,7 @@ export type StageEvent =
   | { kind: "load"; route: StageRoute }
   | { kind: "closed" };
 
-export const STAGE_EVENT = "karascape://stage";
+export const STAGE_EVENT = "baritoad://stage";
 
 /** Which window this webview is. */
 export const ROLE: "main" | "player" = (() => {
@@ -40,7 +40,7 @@ export const ROLE: "main" | "player" = (() => {
 
 // The TV display choice is per machine, in its own key: the main window
 // rewrites the whole settings blob and must not clobber it.
-const DISPLAY_KEY = "karascape.stage.v1";
+const DISPLAY_KEY = "baritoad.stage.v1";
 
 export function loadDisplay(): StageDisplay | null {
   try {

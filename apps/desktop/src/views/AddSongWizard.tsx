@@ -84,7 +84,7 @@ export default function AddSongWizard(props: {
         const msg = String(e);
         setError(
           again && msg.includes("file not found")
-            ? "Karascape can't find this song's audio file. If you moved it, add it from its new place with File › Add Song — the library updates this song instead of adding a copy."
+            ? "This song's audio file isn't where it used to be. If you moved it, add it from its new place with File › Add Song — the library updates this song instead of adding a copy."
             : msg,
         );
       });
@@ -195,15 +195,15 @@ export default function AddSongWizard(props: {
             <>
               <div style={{ fontWeight: 700 }}>Process this song again</div>
               <p style={{ margin: 0, lineHeight: "18px" }}>
-                Karascape keeps whatever already finished — usually the separated vocals — and redoes the rest. Check
+                Whatever already finished — usually the separated vocals — is kept, and only the rest is redone. Check
                 the details, then paste or fix the lyrics on the next page.
               </p>
             </>
           ) : (
             <>
-              <div style={{ fontWeight: 700 }}>Tell Karascape about this song</div>
+              <div style={{ fontWeight: 700 }}>Tell baritoad about this song</div>
               <p style={{ margin: 0, lineHeight: "18px" }}>
-                Karascape pulls the vocals away from the music and lines each word up with the singing. The title and
+                It pulls the vocals away from the music and lines each word up with the singing. The title and
                 artist help you find it later.
               </p>
             </>
@@ -301,9 +301,6 @@ function WizardArt() {
       </div>
       <div style={{ position: "absolute", left: 70, top: 150 }}>
         <Icon name="mic" size={64} />
-      </div>
-      <div style={{ position: "absolute", left: 14, top: 280 }}>
-        <Icon name="app" size={48} />
       </div>
     </>
   );

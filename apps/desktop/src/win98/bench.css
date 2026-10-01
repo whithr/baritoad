@@ -1,4 +1,4 @@
-/* Karascape 98 — the Bench (timing editor). Lanes are sunken tracks with the
+/* baritoad 98 — the Bench (timing editor). Lanes are sunken tracks with the
    vocal waveform above raised word chips; lyric text is Barlow (DESIGN.md:
    lyrics never pixel). Geometry (lane heights, chip positions) is computed
    in Bench.tsx; this file only paints it. */
