@@ -10,22 +10,24 @@
 
 import type { JobEvent, JobSnapshot, PipelineEvent, PrepStep, StageId } from "./api";
 
-export type DisplayStage = "downloading" | "lyrics" | "separating" | "aligning";
+export type DisplayStage = "downloading" | "lyrics" | "waiting" | "separating" | "aligning";
 
-/** Display stages in the order a job goes through them. */
-export const STAGE_ORDER: DisplayStage[] = ["downloading", "lyrics", "separating", "aligning"];
+/** Display stages in the order a job goes through them ("waiting": gaming
+ *  mode paused the job until a game lets go of the graphics card). */
+export const STAGE_ORDER: DisplayStage[] = ["downloading", "lyrics", "waiting", "separating", "aligning"];
 
 export function displayStage(stage: StageId): DisplayStage {
   return stage === "separate" ? "separating" : "aligning";
 }
 
 export function prepStage(step: PrepStep): DisplayStage {
-  return step === "fetch" ? "downloading" : "lyrics";
+  return step === "fetch" ? "downloading" : step === "wait" ? "waiting" : "lyrics";
 }
 
 export const DISPLAY_LABELS: Record<DisplayStage, string> = {
   downloading: "Downloading",
   lyrics: "Finding lyrics",
+  waiting: "Paused for a game",
   separating: "Separating vocals",
   aligning: "Aligning lyrics",
 };

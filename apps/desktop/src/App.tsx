@@ -7,7 +7,7 @@
 // are dialogs (views/AppDialogs.tsx), not routes.
 
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { listJobs, measurePlan, onJobEvent } from "./api";
+import { listJobs, measurePlan, onJobEvent, setGamePolicy } from "./api";
 import { emptyJobsState, reduceJobEvent, seedFromSnapshots, type JobsState } from "./jobEvents";
 import { applyAppearance, loadSettings, parseSettings, saveSettings, SETTINGS_KEY, type Settings } from "./settings";
 import { publishPrefs, subscribePrefs } from "./prefsSync";
@@ -112,6 +112,12 @@ export default function App() {
       }),
     [],
   );
+
+  // Gaming mode's choice lives in the import worker (gaming.rs); the main
+  // window tells it at startup and whenever it changes.
+  useEffect(() => {
+    if (!stage) void setGamePolicy(settings.whileGaming).catch(() => undefined);
+  }, [settings.whileGaming, stage]);
 
   const update = useCallback((patch: Partial<Settings>) => {
     setSettings((s) => ({ ...s, ...patch }));

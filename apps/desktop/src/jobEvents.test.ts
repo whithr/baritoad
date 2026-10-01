@@ -2,7 +2,7 @@
 // event stream and the two-stage honest display (PLAN.md §4).
 
 import { describe, expect, it } from "vitest";
-import type { JobEvent, JobSnapshot, PipelineEvent } from "./api";
+import type { JobEvent, JobSnapshot, PipelineEvent, PrepStep } from "./api";
 import {
   displayStage,
   emptyJobsState,
@@ -215,7 +215,7 @@ describe("reduceJobEvent", () => {
 });
 
 describe("prep steps (Add from URL, LRCLIB lookup)", () => {
-  const prep = (step: "fetch" | "lyrics", fraction?: number, message?: string): JobEvent => ({
+  const prep = (step: PrepStep, fraction?: number, message?: string): JobEvent => ({
     kind: "prep",
     job_id: 1,
     step,
@@ -247,6 +247,14 @@ describe("prep steps (Add from URL, LRCLIB lookup)", () => {
     const s = feed([lifecycle({ ...linkJob, status: "running" }), prep("lyrics", undefined, "Lyrics from LRCLIB"), prep("lyrics", 1)]);
     expect(s.jobs[1].message).toBe("Lyrics from LRCLIB");
     expect(s.jobs[1].fraction).toBe(1);
+  });
+
+  it("gaming mode's pause shows as its own stage until separation starts", () => {
+    const s = feed([lifecycle({ status: "running" }), prep("wait", undefined, "Paused while RuneLite is using the graphics card")]);
+    expect(progressHeadline(s.jobs[1])).toBe("Paused for a game");
+    expect(s.jobs[1].message).toContain("RuneLite");
+    const t = feed([pipe({ type: "stage_started", stage: "separate" })], s);
+    expect(t.jobs[1].stage).toBe("separating");
   });
 
   it("a file job that looks lyrics up starts there; a plain one on separating", () => {

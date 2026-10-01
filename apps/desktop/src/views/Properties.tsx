@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { gameStatus, type GameStatus } from "../api";
 import { useSettings } from "../App";
 import type { Settings } from "../settings";
 import { loadDisplay, saveDisplay } from "../stage";
@@ -45,6 +46,23 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
   const [draft, setDraft] = useState<Settings>(settings);
   const [display, setDisplay] = useState(() => loadDisplay());
   const [dirty, setDirty] = useState(false);
+  const [game, setGame] = useState<GameStatus | null>(null);
+
+  // Gaming mode's live verdict, while the Processing tab is showing.
+  useEffect(() => {
+    if (!props.open || tab !== "processing") return;
+    let alive = true;
+    const poll = () =>
+      gameStatus()
+        .then((s) => alive && setGame(s))
+        .catch(() => undefined);
+    void poll();
+    const t = window.setInterval(poll, 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [props.open, tab]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -165,6 +183,33 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
                     { value: "cpu", label: "&Processor only — slower, keeps the graphics card free" },
                   ]}
                 />
+              </GroupBox>
+              <GroupBox label="While a game is using the graphics card">
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <RadioGroup
+                    ariaLabel="While a game is using the graphics card"
+                    column
+                    disabled={draft.importOn === "cpu"}
+                    value={draft.whileGaming}
+                    onChange={(v) => change({ whileGaming: v })}
+                    options={[
+                      { value: "cpu", label: "Switch to the p&rocessor — slower, the game stays smooth" },
+                      { value: "pause", label: "Pa&use importing until the game closes" },
+                      { value: "gpu", label: "&Keep using the graphics card" },
+                    ]}
+                  />
+                  <div className="w-muted" style={{ lineHeight: "16px" }}>
+                    {draft.importOn === "cpu"
+                      ? "Imports already run on the processor."
+                      : !game
+                        ? "Checking…"
+                        : !game.supported
+                          ? "Karascape can't see what's using the graphics card on this computer."
+                          : game.gaming
+                            ? `Right now: ${game.app ?? "a game"} is using the graphics card${game.gpu_percent != null ? ` (${Math.round(game.gpu_percent)}%)` : ""}.`
+                            : "Right now: no game is using the graphics card."}
+                  </div>
+                </div>
               </GroupBox>
             </>
           )}

@@ -4,6 +4,7 @@
 //! no cloud, no telemetry, no hosting of user audio (CLAUDE.md hard rules).
 
 mod commands;
+mod gaming;
 mod library;
 mod player;
 mod queue;
@@ -36,12 +37,15 @@ pub fn run() {
     let library_handle = LibraryHandle::open_default().expect("open library store");
     // yt-dlp / Deno for Add from URL (tools.rs), found on first use.
     let tools_state = Arc::new(ToolsState::default());
+    // Gaming mode: watches for a game using the graphics card (gaming.rs).
+    let game_watch = gaming::GameWatch::spawn();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(job_queue.clone())
         .manage(library_handle.clone())
         .manage(tools_state.clone())
+        .manage(game_watch.clone())
         // Windowed re-aligner (review screen): lazy-loaded wav2vec2 session,
         // CPU EP only (review.rs).
         .manage(review::RealignState::default())
@@ -59,9 +63,10 @@ pub fn run() {
             let worker_queue = job_queue.clone();
             let worker_library = library_handle.clone();
             let worker_tools = tools_state.clone();
+            let worker_game = game_watch.clone();
             std::thread::Builder::new()
                 .name("pipeline-worker".into())
-                .spawn(move || worker_queue.run_worker(handle, worker_library, worker_tools))
+                .spawn(move || worker_queue.run_worker(handle, worker_library, worker_tools, worker_game))
                 .expect("spawn pipeline worker");
             // Performance-player host: Player holds a cpal::Stream (!Send),
             // so the whole engine lives on this thread behind a command
@@ -81,6 +86,8 @@ pub fn run() {
             library::song_update_details,
             commands::cancel_job,
             commands::retry_job,
+            commands::set_game_policy,
+            commands::game_status,
             commands::list_jobs,
             commands::read_timing_map,
             commands::clean_lyrics_preview,

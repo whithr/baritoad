@@ -38,8 +38,9 @@ export interface JobSnapshot {
   lookup_lyrics: boolean;
 }
 
-/** A step before the pipeline: download from a link, look lyrics up. */
-export type PrepStep = "fetch" | "lyrics";
+/** A step before the pipeline: download from a link, look lyrics up, or
+ *  (gaming mode's pause) wait for a game to let go of the graphics card. */
+export type PrepStep = "fetch" | "lyrics" | "wait";
 
 export type JobEvent =
   | { kind: "lifecycle"; job: JobSnapshot }
@@ -238,6 +239,24 @@ export const findLyrics = (q: { title: string; artist?: string; duration_s?: num
     artist: q.artist ?? null,
     durationS: q.duration_s ?? null,
   });
+
+// ---------------------------------------------------------------------------
+// gaming mode (src-tauri/src/gaming.rs)
+// ---------------------------------------------------------------------------
+
+export type GamePolicy = "cpu" | "pause" | "gpu";
+
+export interface GameStatus {
+  gaming: boolean;
+  /** The app in front ("RuneLite") while one is detected. */
+  app?: string;
+  gpu_percent?: number;
+  /** False where detection isn't available. */
+  supported: boolean;
+}
+
+export const setGamePolicy = (policy: GamePolicy) => invoke<void>("set_game_policy", { policy });
+export const gameStatus = () => invoke<GameStatus>("game_status");
 
 /** Run a failed or cancelled job again (a link whose download failed). */
 export const retryJob = (jobId: number) => invoke<JobSnapshot>("retry_job", { jobId });

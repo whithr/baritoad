@@ -104,6 +104,14 @@ pub struct GenerateRequest {
     /// Jobs registry dir (default [`manifest::default_jobs_dir`]).
     pub jobs_dir: Option<PathBuf>,
     pub ep: EpChoice,
+    /// Where separation runs *if it has to run*, without changing the job's
+    /// identity: the separate stage's fingerprint keeps `ep`, so finished
+    /// stems stay valid. The desktop's gaming mode sets this to the CPU while
+    /// a game is using the graphics card — GPU and CPU stems are
+    /// parity-checked equivalents, as `Auto` already treats them. `None` ⇒
+    /// `ep`.
+    #[serde(default)]
+    pub sep_run_on: Option<EpChoice>,
     /// Separation quality knobs (overlap / pinned shifts); default = the
     /// standard single pass.
     pub sep_options: separation::SeparateOptions,
@@ -134,6 +142,7 @@ impl GenerateRequest {
             model_dir: None,
             jobs_dir: None,
             ep: EpChoice::Auto,
+            sep_run_on: None,
             sep_options: separation::SeparateOptions::default(),
             sep_model: separation::ModelKind::default(),
             exports: vec![Format::Lrc, Format::Ass, Format::UltraStar],
@@ -368,7 +377,7 @@ pub fn generate_with(
             &audio_path,
             &stems_dir,
             &model_paths,
-            req.ep,
+            req.sep_run_on.unwrap_or(req.ep),
             req.sep_options,
             cache,
             on_event,

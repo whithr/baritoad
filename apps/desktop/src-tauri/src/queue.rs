@@ -24,6 +24,11 @@
 //! look its lyrics up on LRCLIB when it has none. Each step's result is
 //! written back to the saved job, so a restart neither downloads nor looks
 //! up twice. Progress goes out as [`JobEventPayload::Prep`].
+//!
+//! Last before the pipeline, gaming mode ([`crate::gaming`]): when the app in
+//! front is a game using the graphics card, separation runs on the processor
+//! (or the job waits, per the person's choice). The verdict is taken once per
+//! song — a game started mid-separation doesn't move that song.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -40,6 +45,7 @@ use karaoke_core::library::tags::{self, CoverArt};
 use karaoke_core::lrclib;
 use karaoke_core::pipeline::{self, manifest, GenerateRequest, PipelineEvent};
 
+use crate::gaming::{GamePolicy, GameWatch};
 use crate::library::LibraryHandle;
 use crate::tools::{self, ToolsState};
 use crate::worker::{JobEnd, Worker};
@@ -125,6 +131,8 @@ pub enum JobEventPayload {
 pub enum PrepStep {
     Fetch,
     Lyrics,
+    /// Gaming mode's "pause": waiting for the game to let go of the GPU.
+    Wait,
 }
 
 /// Steps a job takes before the pipeline (module docs).
@@ -433,7 +441,13 @@ impl JobQueue {
     /// On completion the job registers in the library (PLAN.md §4 step 6:
     /// the song lands in the library marked ready) *before* the completed
     /// lifecycle event fires, so a UI refetch on that event sees the row.
-    pub fn run_worker(self: Arc<Self>, app: AppHandle, library: Arc<LibraryHandle>, tools: Arc<ToolsState>) {
+    pub fn run_worker(
+        self: Arc<Self>,
+        app: AppHandle,
+        library: Arc<LibraryHandle>,
+        tools: Arc<ToolsState>,
+        game: Arc<GameWatch>,
+    ) {
         let mut worker: Option<Worker> = None;
         loop {
             let (id, request, cancel, started, prep) = {
@@ -474,7 +488,10 @@ impl JobQueue {
             };
             emit_lifecycle(&app, &started);
 
-            let outcome = match self.prepare(&app, &tools, id, request, &prep, &started, &cancel) {
+            let outcome = match self
+                .prepare(&app, &tools, id, request, &prep, &started, &cancel)
+                .and_then(|request| mind_the_game(&app, &game, id, request, &cancel))
+            {
                 Ok(request) => run_one(&app, id, &request, &cancel, &mut worker),
                 Err(end) => end,
             };
@@ -684,6 +701,60 @@ impl JobQueue {
         }
         Ok(request)
     }
+}
+
+/// Gaming mode, just before the pipeline: with a game using the graphics
+/// card, separate on the processor or wait, per the person's choice.
+fn mind_the_game(
+    app: &AppHandle,
+    game: &GameWatch,
+    id: u64,
+    mut request: GenerateRequest,
+    cancel: &Arc<AtomicBool>,
+) -> Result<GenerateRequest, RunOutcome> {
+    if request.ep == karaoke_core::separation::EpChoice::Cpu {
+        return Ok(request); // already off the graphics card
+    }
+    let who = |st: &crate::gaming::GameStatus| st.app.clone().unwrap_or_else(|| "A game".into());
+    match game.policy() {
+        GamePolicy::Gpu => {}
+        GamePolicy::Cpu => {
+            let st = game.status();
+            if st.gaming {
+                request.sep_run_on = Some(karaoke_core::separation::EpChoice::Cpu);
+                let _ = app.emit(
+                    JOB_EVENT,
+                    JobEventPayload::Pipeline {
+                        job_id: id,
+                        event: PipelineEvent::Note {
+                            message: format!(
+                                "{} is using the graphics card, so this song separates on the processor (slower; keeps the game smooth)",
+                                who(&st)
+                            ),
+                        },
+                    },
+                );
+            }
+        }
+        GamePolicy::Pause => {
+            let mut told = false;
+            loop {
+                let st = game.status();
+                if !st.gaming {
+                    break;
+                }
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(RunOutcome::Cancelled);
+                }
+                if !told {
+                    emit_prep(app, id, PrepStep::Wait, None, &format!("Paused while {} is using the graphics card", who(&st)));
+                    told = true;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+    Ok(request)
 }
 
 /// Write an LRCLIB record's lyrics (and synced LRC, and provenance) into the

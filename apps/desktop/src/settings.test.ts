@@ -41,9 +41,16 @@ describe("parseSettings", () => {
       benchView: "text",
       shiftScope: "line",
       importOn: "cpu",
+      whileGaming: "cpu",
       libraryGroupBy: "none",
       lookupLyrics: false,
     });
+  });
+
+  it("remembers what to do while gaming and drops a bogus choice", () => {
+    expect(parseSettings(null).whileGaming).toBe("cpu");
+    expect(parseSettings(JSON.stringify({ whileGaming: "pause" })).whileGaming).toBe("pause");
+    expect(parseSettings(JSON.stringify({ whileGaming: "explode" })).whileGaming).toBe("cpu");
   });
 
   it("keeps online lyrics lookup off until it's switched on", () => {

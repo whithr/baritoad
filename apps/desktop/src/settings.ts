@@ -23,6 +23,10 @@ export interface Settings {
    *  timing, each falling back to the CPU on its own) or the processor only,
    *  leaving the GPU free. */
   importOn: "gpu" | "cpu";
+  /** Gaming mode: what import does while the app in front is a game using
+   *  the graphics card — separate on the processor (default), pause, or
+   *  keep using the graphics card. Only matters with importOn "gpu". */
+  whileGaming: "cpu" | "pause" | "gpu";
   /** Library › View › Group by (the song list's group headers). */
   libraryGroupBy: GroupBy;
   /** Look songs' lyrics up online (LRCLIB) when they have none — off until
@@ -38,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
   benchView: "lanes",
   shiftScope: "line",
   importOn: "gpu",
+  whileGaming: "cpu",
   libraryGroupBy: "none",
   lookupLyrics: false,
 };
@@ -49,6 +54,7 @@ const SCALES: UiScale[] = ["normal", "large"];
 const VIEWS: Settings["benchView"][] = ["text", "lanes"];
 const SCOPES: Settings["shiftScope"][] = ["word", "line", "tail"];
 const IMPORT_ON: Settings["importOn"][] = ["gpu", "cpu"];
+const WHILE_GAMING: Settings["whileGaming"][] = ["cpu", "pause", "gpu"];
 
 const pick = <T,>(allowed: readonly T[], v: unknown, fallback: T): T =>
   allowed.includes(v as T) ? (v as T) : fallback;
@@ -68,6 +74,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
       benchView: pick(VIEWS, v.benchView, DEFAULT_SETTINGS.benchView),
       shiftScope: pick(SCOPES, v.shiftScope, DEFAULT_SETTINGS.shiftScope),
       importOn: pick(IMPORT_ON, v.importOn, DEFAULT_SETTINGS.importOn),
+      whileGaming: pick(WHILE_GAMING, v.whileGaming, DEFAULT_SETTINGS.whileGaming),
       libraryGroupBy: pick(GROUP_BYS, v.libraryGroupBy, DEFAULT_SETTINGS.libraryGroupBy),
       lookupLyrics: typeof v.lookupLyrics === "boolean" ? v.lookupLyrics : DEFAULT_SETTINGS.lookupLyrics,
     };

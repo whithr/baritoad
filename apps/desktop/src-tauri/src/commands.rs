@@ -26,6 +26,7 @@ use karaoke_core::pipeline::{self, GenerateRequest};
 use karaoke_core::separation;
 use karaoke_core::timing::WordTimingMap;
 
+use crate::gaming::{GamePolicy, GameStatus, GameWatch};
 use crate::library::LibraryHandle;
 use crate::queue::{self, JobQueue, JobSnapshot, LinkPrep, PostImport, Prep};
 use crate::tools::{self, ToolsState};
@@ -593,6 +594,20 @@ pub async fn job_lyrics(out_dir: String) -> Result<Option<String>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("cannot read lyrics {}: {e}", path.display())),
     }
+}
+
+/// What import does while a game is using the graphics card (Properties ›
+/// Processing; the webview pushes it at startup and on change).
+#[tauri::command]
+pub async fn set_game_policy(game: State<'_, Arc<GameWatch>>, policy: GamePolicy) -> Result<(), String> {
+    game.set_policy(policy);
+    Ok(())
+}
+
+/// Gaming mode's latest verdict — the Properties sheet shows it live.
+#[tauri::command]
+pub async fn game_status(game: State<'_, Arc<GameWatch>>) -> Result<GameStatus, String> {
+    Ok(game.status())
 }
 
 /// Run a failed or cancelled job again (a link whose download failed).
