@@ -4,17 +4,28 @@
 // export), but the progress screen shows the two the user was promised
 // (PLAN.md §4): "Separating vocals → Aligning lyrics". clean_lyrics/align/
 // export fold into the second display stage — clean_lyrics is milliseconds
-// and export is instant, so this stays honest.
+// and export is instant, so this stays honest. A link job (Add from URL)
+// downloads first, and a job that looks its lyrics up on LRCLIB does that
+// before separating — two more display stages ahead of the pipeline's.
 
-import type { JobEvent, JobSnapshot, PipelineEvent, StageId } from "./api";
+import type { JobEvent, JobSnapshot, PipelineEvent, PrepStep, StageId } from "./api";
 
-export type DisplayStage = "separating" | "aligning";
+export type DisplayStage = "downloading" | "lyrics" | "separating" | "aligning";
+
+/** Display stages in the order a job goes through them. */
+export const STAGE_ORDER: DisplayStage[] = ["downloading", "lyrics", "separating", "aligning"];
 
 export function displayStage(stage: StageId): DisplayStage {
   return stage === "separate" ? "separating" : "aligning";
 }
 
+export function prepStage(step: PrepStep): DisplayStage {
+  return step === "fetch" ? "downloading" : "lyrics";
+}
+
 export const DISPLAY_LABELS: Record<DisplayStage, string> = {
+  downloading: "Downloading",
+  lyrics: "Finding lyrics",
   separating: "Separating vocals",
   aligning: "Aligning lyrics",
 };
@@ -46,7 +57,7 @@ export const emptyJobsState: JobsState = { order: [], jobs: {} };
 function freshProgress(job: JobSnapshot): JobProgress {
   return {
     job,
-    stage: "separating",
+    stage: job.source_url ? "downloading" : job.lookup_lyrics ? "lyrics" : "separating",
     fraction: null,
     message: null,
     cleanupSummary: null,
@@ -142,7 +153,23 @@ export function reduceJobEvent(state: JobsState, e: JobEvent): JobsState {
     };
   }
   const existing = state.jobs[e.job_id];
-  if (!existing) return state; // pipeline event for a job we never saw queued
+  if (!existing) return state; // event for a job we never saw queued
+  if (e.kind === "prep") {
+    const stage = prepStage(e.step);
+    return {
+      ...state,
+      jobs: {
+        ...state.jobs,
+        [e.job_id]: {
+          ...existing,
+          stage,
+          // a new step starts its own bar
+          fraction: e.fraction ?? (existing.stage === stage ? existing.fraction : null),
+          message: e.message ?? existing.message,
+        },
+      },
+    };
+  }
   return {
     ...state,
     jobs: { ...state.jobs, [e.job_id]: applyPipeline(existing, e.event) },

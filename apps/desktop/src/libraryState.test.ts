@@ -188,6 +188,7 @@ describe("statusFor (library Status column)", () => {
     title: "Harvest Moon",
     out_dir: "C:/music/moon-karaoke",
     status,
+    lookup_lyrics: false,
     cancel_requested: false,
     queued_unix: 0,
     ...over,

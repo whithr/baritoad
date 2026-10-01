@@ -31,11 +31,20 @@ export interface JobSnapshot {
   error?: string;
   cancel_requested: boolean;
   queued_unix: number;
+  /** The link the audio comes from (Add from URL). Until the download
+   *  finishes, `audio` is the planned path without an extension. */
+  source_url?: string;
+  /** Looks its lyrics up on LRCLIB before the pipeline runs. */
+  lookup_lyrics: boolean;
 }
+
+/** A step before the pipeline: download from a link, look lyrics up. */
+export type PrepStep = "fetch" | "lyrics";
 
 export type JobEvent =
   | { kind: "lifecycle"; job: JobSnapshot }
-  | { kind: "pipeline"; job_id: number; event: PipelineEvent };
+  | { kind: "pipeline"; job_id: number; event: PipelineEvent }
+  | { kind: "prep"; job_id: number; step: PrepStep; fraction?: number; message?: string };
 
 export interface RegistryJob {
   job_id: string;
@@ -151,9 +160,87 @@ export interface ImportQueued {
 /** Find the songs in dropped/picked folders and files, paired with lyrics. */
 export const scanImport = (paths: string[]) => invoke<ImportScan>("scan_import", { paths });
 
-/** Queue a reviewed import, one job per song. */
-export const importSongs = (items: ImportSongItem[], opts: { hq_separation: boolean; cpu_only: boolean }) =>
-  invoke<ImportQueued>("import_songs", { items, hqSeparation: opts.hq_separation, cpuOnly: opts.cpu_only });
+/** Queue a reviewed import, one job per song. `lookup_lyrics`: songs that
+ *  brought no lyrics look them up on LRCLIB first. */
+export const importSongs = (
+  items: ImportSongItem[],
+  opts: { hq_separation: boolean; cpu_only: boolean; lookup_lyrics?: boolean },
+) =>
+  invoke<ImportQueued>("import_songs", {
+    items,
+    hqSeparation: opts.hq_separation,
+    cpuOnly: opts.cpu_only,
+    lookupLyrics: opts.lookup_lyrics ?? false,
+  });
+
+// ---------------------------------------------------------------------------
+// add from URL (commands.rs — yt-dlp via karaoke-core fetch.rs) and LRCLIB
+// lyrics lookup (karaoke-core lrclib.rs)
+// ---------------------------------------------------------------------------
+
+/** One song a checked link points at. */
+export interface FoundLink {
+  url: string;
+  id: string;
+  title: string;
+  artist?: string | null;
+  duration_s?: number | null;
+  /** yt-dlp's name for the site ("Youtube", "ArchiveOrg"). */
+  site: string;
+  thumbnail?: string | null;
+  /** Fetched before — the library has it. */
+  in_library: boolean;
+}
+
+export interface LinksChecked {
+  links: FoundLink[];
+  failures: { url: string; message: string }[];
+}
+
+/** What pasted links point at (a playlist lists its songs). Takes a few
+ *  seconds per link. */
+export const checkLinks = (urls: string[]) => invoke<LinksChecked>("check_links", { urls });
+
+export interface LinkItem {
+  url: string;
+  id: string;
+  title: string;
+  artist?: string;
+  duration_s?: number;
+  thumbnail?: string;
+}
+
+/** Queue reviewed links: each downloads, finds its lyrics, then imports. */
+export const queueLinks = (
+  items: LinkItem[],
+  opts: { collection?: string; lookup_lyrics: boolean; hq_separation: boolean; cpu_only: boolean },
+) =>
+  invoke<ImportQueued>("queue_links", {
+    items,
+    collection: opts.collection ?? null,
+    lookupLyrics: opts.lookup_lyrics,
+    hqSeparation: opts.hq_separation,
+    cpuOnly: opts.cpu_only,
+  });
+
+export interface FoundLyrics {
+  text: string;
+  track_name: string;
+  artist_name: string;
+  duration_s?: number | null;
+  synced: boolean;
+}
+
+/** Look a song's lyrics up on LRCLIB; null when it has none that fit. */
+export const findLyrics = (q: { title: string; artist?: string; duration_s?: number }) =>
+  invoke<FoundLyrics | null>("find_lyrics", {
+    title: q.title,
+    artist: q.artist ?? null,
+    durationS: q.duration_s ?? null,
+  });
+
+/** Run a failed or cancelled job again (a link whose download failed). */
+export const retryJob = (jobId: number) => invoke<JobSnapshot>("retry_job", { jobId });
 
 /** The lyrics the job in `outDir` last ran with; null when it transcribed
  *  (or never got as far as saving them). */

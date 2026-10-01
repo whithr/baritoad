@@ -2,9 +2,11 @@
 // as a step list and a block progress bar. "Run in background" hides it;
 // the Library's status bar keeps reporting. During a bulk import it follows
 // the batch — the song in progress on top, the songs still waiting below.
+// A song from a link downloads first, and one that looks its lyrics up
+// online does that before separating; both show as their own steps.
 
-import type { JobProgress } from "../jobEvents";
-import { progressHeadline } from "../jobEvents";
+import type { DisplayStage, JobProgress } from "../jobEvents";
+import { progressHeadline, STAGE_ORDER } from "../jobEvents";
 import { Button, Dialog, Glyph, Icon, ListView, ProgressBar } from "../win98";
 
 type StepState = "done" | "active" | "todo";
@@ -22,12 +24,20 @@ export default function ProcessingDialog(props: {
   const waiting = props.waiting ?? [];
   const status = job?.job.status;
   const running = status === "queued" || status === "running";
-  const separating = job?.stage === "separating";
+  const at = job ? STAGE_ORDER.indexOf(job.stage) : 0;
+  const stateOf = (stage: DisplayStage): StepState => {
+    if (status === "completed") return "done";
+    if (status === "queued") return "todo";
+    const i = STAGE_ORDER.indexOf(stage);
+    return i < at ? "done" : i === at ? "active" : "todo";
+  };
   const steps: [string, StepState][] = [
-    ["Read the audio", status === "queued" ? "active" : "done"],
-    ["Separate the vocals", status === "queued" ? "todo" : separating ? "active" : "done"],
-    ["Line the words up with the singing", status === "queued" || separating ? "todo" : status === "completed" ? "done" : "active"],
+    job?.job.source_url ? ["Download the audio", stateOf("downloading")] : ["Read the audio", status === "queued" ? "active" : "done"],
+    ...(job?.job.lookup_lyrics ? [["Find the lyrics online", stateOf("lyrics")] as [string, StepState]] : []),
+    ["Separate the vocals", stateOf("separating")],
+    ["Line the words up with the singing", stateOf("aligning")],
   ];
+  if (status === "queued") steps[0] = [steps[0][0], "active"];
   const fileName = job?.job.audio.split(/[\\/]/).pop() ?? "";
 
   return (

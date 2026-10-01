@@ -15,9 +15,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use karaoke_core::fetch;
 use karaoke_core::formats::{self, ExportMeta, Format};
 use karaoke_core::import;
 use karaoke_core::library::store::SongQuery;
+use karaoke_core::lrclib;
 use karaoke_core::lyrics;
 use karaoke_core::pipeline::manifest::{self, StageId};
 use karaoke_core::pipeline::{self, GenerateRequest};
@@ -25,7 +27,8 @@ use karaoke_core::separation;
 use karaoke_core::timing::WordTimingMap;
 
 use crate::library::LibraryHandle;
-use crate::queue::{self, JobQueue, JobSnapshot, PostImport};
+use crate::queue::{self, JobQueue, JobSnapshot, LinkPrep, PostImport, Prep};
+use crate::tools::{self, ToolsState};
 
 /// Wizard → pipeline request. Lyrics arrive as pasted *text* (the paste box is
 /// the golden path — PLAN.md §4); the command persists them beside the job's
@@ -80,7 +83,7 @@ pub async fn generate_song(
     request: GenerateSongRequest,
 ) -> Result<JobSnapshot, String> {
     let job = build_job(request)?;
-    Ok(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, PostImport::default()))
+    Ok(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, PostImport::default(), Prep::default()))
 }
 
 /// A wizard/import request resolved into what the queue runs.
@@ -152,19 +155,7 @@ fn build_job(request: GenerateSongRequest) -> Result<BuiltJob, String> {
     }
 
     if request.hq_separation {
-        // ~3x standard cost either way, always ONE resident session (the
-        // DirectML-safe profile — four resident ft sessions once hung the
-        // GPU; see ModelKind::HtdemucsFt docs). The pipeline only needs the
-        // vocals + instrumental outputs, so "the ft model" here is just its
-        // vocals-specialized sub-model.
-        req.sep_options = separation::SeparateOptions {
-            overlap: 0.5,
-            shifts: 2,
-        };
-        let model_dir = separation::default_model_dir();
-        if separation::ModelKind::HtdemucsFt.available_for_default(&model_dir) {
-            req.sep_model = separation::ModelKind::HtdemucsFt;
-        }
+        hq_options(&mut req);
     }
 
     Ok(BuiltJob {
@@ -173,6 +164,22 @@ fn build_job(request: GenerateSongRequest) -> Result<BuiltJob, String> {
         artist,
         out_dir,
     })
+}
+
+/// High-quality separation. ~3x standard cost either way, always ONE
+/// resident session (the DirectML-safe profile — four resident ft sessions
+/// once hung the GPU; see ModelKind::HtdemucsFt docs). The pipeline only
+/// needs the vocals + instrumental outputs, so "the ft model" here is just
+/// its vocals-specialized sub-model.
+fn hq_options(req: &mut GenerateRequest) {
+    req.sep_options = separation::SeparateOptions {
+        overlap: 0.5,
+        shifts: 2,
+    };
+    let model_dir = separation::default_model_dir();
+    if separation::ModelKind::HtdemucsFt.available_for_default(&model_dir) {
+        req.sep_model = separation::ModelKind::HtdemucsFt;
+    }
 }
 
 // ---------------------------------------------------------------- bulk import
@@ -299,7 +306,9 @@ pub async fn import_songs(
     items: Vec<ImportSongItem>,
     hq_separation: bool,
     cpu_only: bool,
+    lookup_lyrics: Option<bool>,
 ) -> Result<ImportQueued, String> {
+    let lookup_lyrics = lookup_lyrics.unwrap_or(false);
     let mut jobs = Vec::new();
     let mut failures = Vec::new();
     for item in items {
@@ -337,12 +346,231 @@ pub async fn import_songs(
                     genre: item.genre.clone(),
                     language: item.language.clone(),
                 };
-                jobs.push(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, post));
+                // Songs that brought no lyrics look them up first (when asked).
+                let prep = Prep {
+                    lookup_lyrics: lookup_lyrics && job.request.lyrics.is_none() && job.request.timings.is_none(),
+                    ..Prep::default()
+                };
+                jobs.push(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, post, prep));
             }
             Err(message) => failures.push(ImportFailure { audio_path, message }),
         }
     }
     Ok(ImportQueued { jobs, failures })
+}
+
+// ------------------------------------------------------------- add from URL
+
+/// Where fetched songs (and, beside each, its job folder) live:
+/// `%LOCALAPPDATA%\karaoke\downloads\`. Not the Music folder — that's
+/// often cloud-synced, and job folders hold large stem files.
+pub fn downloads_dir() -> PathBuf {
+    karaoke_core::library::store::default_library_path().with_file_name("downloads")
+}
+
+/// One song a checked link points at, as the review list shows it.
+#[derive(Debug, Serialize)]
+pub struct FoundLink {
+    #[serde(flatten)]
+    pub link: fetch::Link,
+    /// The library already has this song from an earlier fetch.
+    pub in_library: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LinkFailure {
+    pub url: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LinksChecked {
+    pub links: Vec<FoundLink>,
+    pub failures: Vec<LinkFailure>,
+}
+
+/// Links checked at once (each is a yt-dlp run of a few seconds).
+const CHECK_PARALLEL: usize = 4;
+
+/// What pasted links point at — one song each, or a playlist's songs — so
+/// the review list can show titles before anything downloads.
+#[tauri::command]
+pub async fn check_links(
+    app: AppHandle,
+    tools: State<'_, Arc<ToolsState>>,
+    library: State<'_, Arc<LibraryHandle>>,
+    urls: Vec<String>,
+) -> Result<LinksChecked, String> {
+    let mut wanted: Vec<String> = Vec::new();
+    for u in urls.iter().map(|u| u.trim()).filter(|u| !u.is_empty()) {
+        if !wanted.iter().any(|w| w == u) {
+            wanted.push(u.to_string());
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(LinksChecked { links: Vec::new(), failures: Vec::new() });
+    }
+    let tools = tools.inner().clone();
+    let t = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || tools.get(&app)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        let mut out: Vec<(String, Result<Vec<fetch::Link>, String>)> = Vec::new();
+        for chunk in wanted.chunks(CHECK_PARALLEL) {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|u| {
+                    let (t, u) = (t.clone(), u.clone());
+                    std::thread::spawn(move || {
+                        let r = t.check_link(&u).map_err(|e| e.to_string());
+                        (u, r)
+                    })
+                })
+                .collect();
+            for h in handles {
+                out.push(h.join().unwrap_or_else(|_| (String::new(), Err("checking the link crashed".into()))));
+            }
+        }
+        out
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let known: std::collections::HashSet<String> = {
+        let store = library.lock()?;
+        store
+            .list_songs(&SongQuery::default())
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|s| path_key(&s.audio_path.with_extension("")))
+            .collect()
+    };
+    let mut links = Vec::new();
+    let mut failures = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (url, result) in results {
+        match result {
+            Ok(found) if found.is_empty() => failures.push(LinkFailure { url, message: "No songs found at this link.".into() }),
+            Ok(found) => {
+                for link in found {
+                    if !seen.insert(link.url.clone()) {
+                        continue;
+                    }
+                    let stem = downloads_dir().join(fetch::file_stem(&link.title, link.artist.as_deref(), &link.id));
+                    links.push(FoundLink { in_library: known.contains(&path_key(&stem)), link });
+                }
+            }
+            Err(message) => failures.push(LinkFailure { url, message }),
+        }
+    }
+    Ok(LinksChecked { links, failures })
+}
+
+/// A reviewed link to queue (the check's fields, title/artist editable).
+#[derive(Debug, Deserialize)]
+pub struct LinkItem {
+    pub url: String,
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub artist: Option<String>,
+    #[serde(default)]
+    pub duration_s: Option<f64>,
+    #[serde(default)]
+    pub thumbnail: Option<String>,
+}
+
+/// Queue reviewed links: one job each, which downloads its audio, looks its
+/// lyrics up (when asked), then runs the pipeline like any import.
+#[tauri::command]
+pub async fn queue_links(
+    app: AppHandle,
+    queue: State<'_, Arc<JobQueue>>,
+    items: Vec<LinkItem>,
+    collection: Option<String>,
+    lookup_lyrics: bool,
+    hq_separation: bool,
+    cpu_only: bool,
+) -> Result<ImportQueued, String> {
+    let dir = downloads_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    let mut jobs = Vec::new();
+    let failures = Vec::new();
+    for item in items {
+        let title = item.title.trim().to_string();
+        let title = if title.is_empty() { item.url.clone() } else { title };
+        let artist = item.artist.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(String::from);
+        let stem = fetch::file_stem(&title, artist.as_deref(), &item.id);
+        let stem_path = dir.join(&stem);
+        // Not pipeline::default_out_dir(stem_path): a title with a dot in it
+        // would read as an extension. Once downloaded, "<stem>.<ext>" gives
+        // the same folder.
+        let out_dir = dir.join(format!("{stem}-karaoke"));
+        let mut req = GenerateRequest::new(stem_path.clone());
+        req.out_dir = Some(out_dir.clone());
+        req.title = Some(title.clone());
+        req.artist = artist.clone();
+        if cpu_only {
+            req.ep = separation::EpChoice::Cpu;
+        }
+        if hq_separation {
+            hq_options(&mut req);
+        }
+        let post = PostImport {
+            collection: collection.clone().filter(|c| !c.trim().is_empty()),
+            ..PostImport::default()
+        };
+        let prep = Prep {
+            link: Some(LinkPrep {
+                url: item.url.clone(),
+                stem_path,
+                duration_s: item.duration_s,
+                thumbnail: item.thumbnail.clone(),
+            }),
+            lookup_lyrics,
+            lyrics_looked_up: false,
+        };
+        jobs.push(queue.enqueue(&app, req, title, artist, out_dir, post, prep));
+    }
+    Ok(ImportQueued { jobs, failures })
+}
+
+/// Lyrics LRCLIB has for a song — the wizard's Find Lyrics button.
+#[derive(Debug, Serialize)]
+pub struct FoundLyrics {
+    pub text: String,
+    pub track_name: String,
+    pub artist_name: String,
+    pub duration_s: Option<f64>,
+    pub synced: bool,
+}
+
+#[tauri::command]
+pub async fn find_lyrics(
+    app: AppHandle,
+    title: String,
+    artist: Option<String>,
+    duration_s: Option<f64>,
+) -> Result<Option<FoundLyrics>, String> {
+    let client = tools::lyrics_client(&app);
+    let query = lrclib::Query { title, artist, album: None, duration_s };
+    let found = tauri::async_runtime::spawn_blocking(move || client.lookup(&query))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(found.and_then(|r| {
+        Some(FoundLyrics {
+            text: r.lyrics_text()?,
+            synced: r.synced_lyrics.is_some(),
+            track_name: r.track_name,
+            artist_name: r.artist_name,
+            duration_s: r.duration,
+        })
+    }))
 }
 
 /// The lyrics the job in `out_dir` last ran with — what the wizard's
@@ -365,6 +593,18 @@ pub async fn job_lyrics(out_dir: String) -> Result<Option<String>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("cannot read lyrics {}: {e}", path.display())),
     }
+}
+
+/// Run a failed or cancelled job again (a link whose download failed).
+#[tauri::command]
+pub async fn retry_job(
+    app: AppHandle,
+    queue: State<'_, Arc<JobQueue>>,
+    job_id: u64,
+) -> Result<JobSnapshot, String> {
+    queue
+        .retry(&app, job_id)
+        .ok_or_else(|| format!("job {job_id} isn't finished, or is unknown"))
 }
 
 #[tauri::command]

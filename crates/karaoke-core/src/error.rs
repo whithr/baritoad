@@ -20,6 +20,12 @@ pub enum Error {
     Db(String),
     /// Audio output device / stream failure (playback engine).
     Device(String),
+    /// A web request failed (LRCLIB lyrics lookup, cover art).
+    Network(String),
+    /// yt-dlp couldn't fetch a link (Add from URL).
+    Fetch(String),
+    /// Stopped on request (a cancelled download).
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -35,6 +41,9 @@ impl fmt::Display for Error {
             Error::InvalidInput(m) => write!(f, "invalid input: {m}"),
             Error::Db(m) => write!(f, "library db error: {m}"),
             Error::Device(m) => write!(f, "audio device error: {m}"),
+            Error::Network(m) => write!(f, "network error: {m}"),
+            Error::Fetch(m) => write!(f, "{m}"),
+            Error::Cancelled => write!(f, "cancelled"),
         }
     }
 }

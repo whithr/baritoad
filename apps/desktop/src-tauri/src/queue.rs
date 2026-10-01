@@ -18,6 +18,12 @@
 //! [`queue_store_path`], and [`JobQueue::restore`] re-queues them at launch,
 //! where each resumes from its manifest. A job carries [`PostImport`] steps
 //! (collection, mark checked) that run once it registers in the library.
+//!
+//! Before the pipeline, a job can have [`Prep`] steps (PLAN.md §3 Add from
+//! URL / LRCLIB lookup): download its audio from a link with yt-dlp, then
+//! look its lyrics up on LRCLIB when it has none. Each step's result is
+//! written back to the saved job, so a restart neither downloads nor looks
+//! up twice. Progress goes out as [`JobEventPayload::Prep`].
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -30,9 +36,12 @@ use tauri::{AppHandle, Emitter};
 
 use karaoke_core::library::register_completed_job;
 use karaoke_core::library::store::LibraryStore;
+use karaoke_core::library::tags::{self, CoverArt};
+use karaoke_core::lrclib;
 use karaoke_core::pipeline::{self, manifest, GenerateRequest, PipelineEvent};
 
 use crate::library::LibraryHandle;
+use crate::tools::{self, ToolsState};
 use crate::worker::{JobEnd, Worker};
 
 /// An idle worker process keeps its models loaded this long for the next
@@ -41,6 +50,15 @@ const WORKER_IDLE: Duration = Duration::from_secs(90);
 
 /// Single event channel the frontend subscribes to.
 pub const JOB_EVENT: &str = "karaoke://job";
+
+/// What an LRCLIB lookup leaves in the job's folder: the lyrics the pipeline
+/// aligns against, the line-timed LRC when LRCLIB has one, and which record
+/// they came from.
+pub const LRCLIB_LYRICS: &str = "lrclib.lyrics.txt";
+const LRCLIB_SYNCED: &str = "lrclib.lrc";
+const LRCLIB_RECORD: &str = "lrclib.json";
+/// A fetched song's thumbnail, applied as cover art once it registers.
+const FETCHED_COVER: &str = "fetched-cover";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,6 +93,11 @@ pub struct JobSnapshot {
     /// is stopped (the manifest stays resumable).
     pub cancel_requested: bool,
     pub queued_unix: u64,
+    /// The link the audio comes from (Add from URL).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    /// The job looks its lyrics up on LRCLIB before the pipeline runs.
+    pub lookup_lyrics: bool,
 }
 
 /// Everything emitted on [`JOB_EVENT`].
@@ -86,6 +109,48 @@ pub enum JobEventPayload {
     /// A pipeline event, tagged with the job it belongs to. `event` is the
     /// serde-tagged JSON karaoke-core already defines.
     Pipeline { job_id: u64, event: PipelineEvent },
+    /// Progress of a [`Prep`] step (before the pipeline starts).
+    Prep {
+        job_id: u64,
+        step: PrepStep,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fraction: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrepStep {
+    Fetch,
+    Lyrics,
+}
+
+/// Steps a job takes before the pipeline (module docs).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Prep {
+    /// Download the audio from this link first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<LinkPrep>,
+    /// Look the lyrics up on LRCLIB when the job has none.
+    #[serde(default)]
+    pub lookup_lyrics: bool,
+    /// The lookup ran (found or not) — a resumed job doesn't ask again.
+    #[serde(default)]
+    pub lyrics_looked_up: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkPrep {
+    pub url: String,
+    /// Where the audio goes, without its extension (yt-dlp picks it).
+    pub stem_path: PathBuf,
+    #[serde(default)]
+    pub duration_s: Option<f64>,
+    /// JPEG/PNG thumbnail for cover art.
+    #[serde(default)]
+    pub thumbnail: Option<String>,
 }
 
 /// Library steps a job takes once its song registers (bulk import).
@@ -118,6 +183,8 @@ struct PersistedJob {
     out_dir: PathBuf,
     #[serde(default)]
     post: PostImport,
+    #[serde(default)]
+    prep: Prep,
 }
 
 /// `%LOCALAPPDATA%\karaoke\import-queue.json`, beside the library.
@@ -187,8 +254,9 @@ impl JobQueue {
         let Ok(jobs) = serde_json::from_str::<Vec<PersistedJob>>(&raw) else { return 0 };
         let n = jobs.len();
         for j in jobs {
-            if j.request.audio.is_file() {
-                self.enqueue(app, j.request, j.title, j.artist, j.out_dir, j.post);
+            // A link job whose download never finished fetches again.
+            if j.request.audio.is_file() || j.prep.link.is_some() {
+                self.enqueue(app, j.request, j.title, j.artist, j.out_dir, j.post, j.prep);
             }
         }
         self.persist(); // drops entries whose audio has gone
@@ -233,6 +301,7 @@ impl JobQueue {
 
     /// Enqueue a job; returns the queued snapshot and emits its lifecycle
     /// event. Never blocks on pipeline work.
+    #[allow(clippy::too_many_arguments)]
     pub fn enqueue(
         &self,
         app: &AppHandle,
@@ -241,14 +310,18 @@ impl JobQueue {
         artist: Option<String>,
         out_dir: PathBuf,
         post: PostImport,
+        prep: Prep,
     ) -> JobSnapshot {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let source_url = prep.link.as_ref().map(|l| l.url.clone());
+        let lookup_lyrics = prep.lookup_lyrics;
         let saved = PersistedJob {
             request: request.clone(),
             title: title.clone(),
             artist: artist.clone(),
             out_dir: out_dir.clone(),
             post,
+            prep,
         };
         let snapshot = JobSnapshot {
             id,
@@ -262,6 +335,8 @@ impl JobQueue {
             error: None,
             cancel_requested: false,
             queued_unix: unix_now(),
+            source_url,
+            lookup_lyrics,
         };
         {
             let mut inner = self.inner.lock().unwrap();
@@ -329,6 +404,21 @@ impl JobQueue {
         Some(snapshot)
     }
 
+    /// Queue a failed or cancelled job again, as it was saved — a download or
+    /// lyrics lookup that already finished isn't repeated, and the pipeline
+    /// resumes from its manifest. `None` for a job that isn't finished.
+    pub fn retry(&self, app: &AppHandle, id: u64) -> Option<JobSnapshot> {
+        let saved = {
+            let inner = self.inner.lock().unwrap();
+            let e = inner.jobs.get(&id)?;
+            if !matches!(e.snapshot.status, JobStatus::Failed | JobStatus::Cancelled) {
+                return None;
+            }
+            e.saved.clone()
+        };
+        Some(self.enqueue(app, saved.request, saved.title, saved.artist, saved.out_dir, saved.post, saved.prep))
+    }
+
     /// Snapshots of every job this process knows, oldest first.
     pub fn snapshots(&self) -> Vec<JobSnapshot> {
         let inner = self.inner.lock().unwrap();
@@ -343,10 +433,10 @@ impl JobQueue {
     /// On completion the job registers in the library (PLAN.md §4 step 6:
     /// the song lands in the library marked ready) *before* the completed
     /// lifecycle event fires, so a UI refetch on that event sees the row.
-    pub fn run_worker(self: Arc<Self>, app: AppHandle, library: Arc<LibraryHandle>) {
+    pub fn run_worker(self: Arc<Self>, app: AppHandle, library: Arc<LibraryHandle>, tools: Arc<ToolsState>) {
         let mut worker: Option<Worker> = None;
         loop {
-            let (id, request, cancel, started) = {
+            let (id, request, cancel, started, prep) = {
                 let mut inner = self.inner.lock().unwrap();
                 loop {
                     if let Some(id) = inner.pending.pop_front() {
@@ -358,7 +448,13 @@ impl JobQueue {
                             continue; // cancelled while queued
                         };
                         entry.snapshot.status = JobStatus::Running;
-                        break (id, request, entry.cancel.clone(), entry.snapshot.clone());
+                        break (
+                            id,
+                            request,
+                            entry.cancel.clone(),
+                            entry.snapshot.clone(),
+                            entry.saved.prep.clone(),
+                        );
                     }
                     if worker.is_none() {
                         inner = self.cv.wait(inner).unwrap();
@@ -378,7 +474,10 @@ impl JobQueue {
             };
             emit_lifecycle(&app, &started);
 
-            let outcome = run_one(&app, id, &request, &cancel, &mut worker);
+            let outcome = match self.prepare(&app, &tools, id, request, &prep, &started, &cancel) {
+                Ok(request) => run_one(&app, id, &request, &cancel, &mut worker),
+                Err(end) => end,
+            };
 
             // Library registration happens outside the queue lock (it reads
             // the manifest + tags from disk) and must not fail the job — the
@@ -408,6 +507,14 @@ impl JobQueue {
                         )
                         .map_err(|e| e.to_string())?;
                         post_error = apply_post_import(&store, song.id, &post).err();
+                        // A fetched song's thumbnail, when its file brought no art.
+                        if let Some(cover) = fetched_cover(&out_dir) {
+                            if let Err(e) = tags::save_cover(&cover, library.covers_dir())
+                                .and_then(|p| store.set_cover_if_missing(song.id, &p))
+                            {
+                                eprintln!("import queue: cover art not applied: {e}");
+                            }
+                        }
                         Ok(song)
                     });
                     if let Some(msg) = post_error {
@@ -465,6 +572,161 @@ impl JobQueue {
             emit_lifecycle(&app, &snapshot);
         }
     }
+}
+
+impl JobQueue {
+    /// Change a job's entry (and its saved copy), then save the queue file.
+    fn update_entry(&self, id: u64, f: impl FnOnce(&mut JobEntry)) -> Option<JobSnapshot> {
+        let snap = {
+            let mut inner = self.inner.lock().unwrap();
+            let entry = inner.jobs.get_mut(&id)?;
+            f(entry);
+            entry.snapshot.clone()
+        };
+        self.persist();
+        Some(snap)
+    }
+
+    /// Run a job's [`Prep`] steps; returns the request the pipeline should
+    /// run, or how the job ended (failed download, cancel).
+    #[allow(clippy::too_many_arguments)]
+    fn prepare(
+        &self,
+        app: &AppHandle,
+        tools: &ToolsState,
+        id: u64,
+        mut request: GenerateRequest,
+        prep: &Prep,
+        job: &JobSnapshot,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<GenerateRequest, RunOutcome> {
+        let out_dir = job.out_dir.clone();
+        if let Some(link) = prep.link.as_ref().filter(|_| !request.audio.is_file()) {
+            emit_prep(app, id, PrepStep::Fetch, None, "Getting ready to download");
+            let t = tools.get(app).map_err(|message| RunOutcome::Failed { message })?;
+            if let Some(msg) = tools.update_if_due(&t) {
+                emit_prep(app, id, PrepStep::Fetch, None, &format!("yt-dlp: {msg}"));
+            }
+            let mut on_progress =
+                |fraction: Option<f64>, message: &str| emit_prep(app, id, PrepStep::Fetch, fraction, message);
+            let audio = t
+                .download(&link.url, &link.stem_path, &mut on_progress, &|| cancel.load(Ordering::Relaxed))
+                .map_err(|e| match e {
+                    karaoke_core::Error::Cancelled => RunOutcome::Cancelled,
+                    e => RunOutcome::Failed { message: e.to_string() },
+                })?;
+            if let Some(thumb) = &link.thumbnail {
+                let png = thumb.split(['?', '#']).next().unwrap_or("").to_lowercase().ends_with(".png");
+                let dest = out_dir.join(format!("{FETCHED_COVER}.{}", if png { "png" } else { "jpg" }));
+                if !dest.exists() {
+                    if let Err(e) = karaoke_core::fetch::download_small(thumb, &dest, &tools::user_agent(app)) {
+                        eprintln!("import queue: no cover art: {e}");
+                    }
+                }
+            }
+            request.audio = audio.clone();
+            if let Some(snap) = self.update_entry(id, |e| {
+                e.saved.request.audio = audio.clone();
+                e.snapshot.audio = audio.clone();
+            }) {
+                emit_lifecycle(app, &snap);
+            }
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return Err(RunOutcome::Cancelled);
+        }
+        // A song fetched (or looked up) before keeps the lyrics LRCLIB gave it
+        // then, rather than transcribing — the folder is ours, nothing is asked
+        // online. (The wizard's own jobs have no prep: an empty box there
+        // still means "transcribe".)
+        let earlier = out_dir.join(LRCLIB_LYRICS);
+        if (prep.link.is_some() || prep.lookup_lyrics)
+            && request.lyrics.is_none()
+            && request.timings.is_none()
+            && earlier.is_file()
+        {
+            request.lyrics = Some(earlier.clone());
+            emit_prep(app, id, PrepStep::Lyrics, Some(1.0), "Using the lyrics LRCLIB found for this song before");
+            self.update_entry(id, |e| {
+                e.saved.prep.lyrics_looked_up = true;
+                e.saved.request.lyrics = Some(earlier.clone());
+            });
+        }
+        if prep.lookup_lyrics && !prep.lyrics_looked_up && request.lyrics.is_none() && request.timings.is_none() {
+            emit_prep(app, id, PrepStep::Lyrics, None, "Looking the lyrics up on LRCLIB");
+            let query = lrclib::Query {
+                title: job.title.clone(),
+                artist: job.artist.clone(),
+                album: None,
+                duration_s: prep
+                    .link
+                    .as_ref()
+                    .and_then(|l| l.duration_s)
+                    .or_else(|| tags::read_tags(&request.audio).ok().and_then(|t| t.duration_s)),
+            };
+            let note = match tools::lyrics_client(app).lookup(&query) {
+                Ok(Some(rec)) => match save_lrclib(&out_dir, &rec) {
+                    Ok(path) => {
+                        request.lyrics = Some(path);
+                        format!("Lyrics from LRCLIB: \u{201c}{}\u{201d} by {}", rec.track_name, rec.artist_name)
+                    }
+                    Err(e) => format!("Found lyrics on LRCLIB but couldn't save them ({e}) — transcribing instead"),
+                },
+                Ok(None) => "LRCLIB has no lyrics for this song — transcribing them instead".to_string(),
+                Err(e) => format!("Couldn't reach LRCLIB ({e}) — transcribing instead"),
+            };
+            emit_prep(app, id, PrepStep::Lyrics, Some(1.0), &note);
+            let lyrics = request.lyrics.clone();
+            self.update_entry(id, |e| {
+                e.saved.prep.lyrics_looked_up = true;
+                e.saved.request.lyrics = lyrics;
+            });
+        }
+        Ok(request)
+    }
+}
+
+/// Write an LRCLIB record's lyrics (and synced LRC, and provenance) into the
+/// job folder; returns the lyrics file the pipeline aligns against.
+fn save_lrclib(out_dir: &Path, rec: &lrclib::Record) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(out_dir)?;
+    let text = rec.lyrics_text().unwrap_or_default();
+    let path = out_dir.join(LRCLIB_LYRICS);
+    std::fs::write(&path, text)?;
+    if let Some(synced) = rec.synced_lyrics.as_deref().filter(|s| !s.trim().is_empty()) {
+        std::fs::write(out_dir.join(LRCLIB_SYNCED), synced)?;
+    }
+    let provenance = serde_json::json!({
+        "source": "lrclib.net",
+        "id": rec.id,
+        "track_name": rec.track_name,
+        "artist_name": rec.artist_name,
+        "album_name": rec.album_name,
+        "duration": rec.duration,
+    });
+    std::fs::write(out_dir.join(LRCLIB_RECORD), serde_json::to_vec_pretty(&provenance).unwrap_or_default())?;
+    Ok(path)
+}
+
+/// The thumbnail a link job saved in its folder, as cover art.
+fn fetched_cover(out_dir: &Path) -> Option<CoverArt> {
+    ["jpg", "png"].iter().find_map(|ext| {
+        let data = std::fs::read(out_dir.join(format!("{FETCHED_COVER}.{ext}"))).ok()?;
+        let mime = if *ext == "png" { "image/png" } else { "image/jpeg" };
+        (!data.is_empty()).then(|| CoverArt { data, mime: Some(mime.into()) })
+    })
+}
+
+fn emit_prep(app: &AppHandle, job_id: u64, step: PrepStep, fraction: Option<f64>, message: &str) {
+    let _ = app.emit(
+        JOB_EVENT,
+        JobEventPayload::Prep {
+            job_id,
+            step,
+            fraction,
+            message: Some(message.to_string()),
+        },
+    );
 }
 
 /// A registered song's [`PostImport`] steps.
@@ -684,6 +946,7 @@ mod tests {
                 mark_checked: true,
                 ..PostImport::default()
             },
+            prep: Prep::default(),
         };
         let json = serde_json::to_string(&vec![saved]).unwrap();
         let back: Vec<PersistedJob> = serde_json::from_str(&json).unwrap();

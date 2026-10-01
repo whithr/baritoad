@@ -10,6 +10,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "fetch-tools": "node scripts/fetch-tools.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

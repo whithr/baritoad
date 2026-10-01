@@ -65,7 +65,7 @@ describe("import review", () => {
 
 describe("batch progress", () => {
   const job = (id: number, status: JobSnapshot["status"]): JobProgress => ({
-    job: { id, audio: "a", title: "t", out_dir: "o", status, cancel_requested: false, queued_unix: 0 },
+    job: { id, audio: "a", title: "t", out_dir: "o", status, cancel_requested: false, queued_unix: 0, lookup_lyrics: false },
     stage: "separating",
     fraction: null,
     message: null,

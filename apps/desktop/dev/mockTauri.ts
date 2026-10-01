@@ -197,6 +197,31 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "cancel_job":
       cancelled.add(args?.jobId as number);
       return r(true);
+    case "check_links": {
+      // Every link is one song; a link with "fail" in it doesn't work.
+      const urls = (args?.urls as string[]) ?? [];
+      return new Promise((res) =>
+        setTimeout(
+          () =>
+            res({
+              links: urls
+                .filter((u) => !/fail/i.test(u))
+                .map((u, i) => ({ url: u, id: `v${i}`, title: `Linked Song ${i + 1}`, artist: "Some Band", duration_s: 180 + i * 7, site: "Youtube", in_library: false })),
+              failures: urls.filter((u) => /fail/i.test(u)).map((u) => ({ url: u, message: "Video unavailable" })),
+            }),
+          900,
+        ),
+      );
+    }
+    case "queue_links": {
+      const items = (args?.items as { url: string; title: string; artist?: string }[]) ?? [];
+      return r({ jobs: items.map((i) => fakeJob({ audio_path: `C:/downloads/${i.title}`, title: i.title, artist: i.artist }, 0.4)), failures: [] });
+    }
+    case "find_lyrics":
+      return r({ text: LYRICS.join("
+"), track_name: String(args?.title ?? "Song"), artist_name: String(args?.artist ?? "Someone"), duration_s: 200, synced: true });
+    case "retry_job":
+      return r(fakeJob({ audio_path: "C:/music/retry.mp3", title: "Retried song" }));
     case "stage_open":
       stageOpen(args?.route as { song_id?: number | null; map_path?: string | null; measure?: boolean });
       return r(undefined);
@@ -308,6 +333,7 @@ function fakeJob(req: { audio_path: string; title?: string; artist?: string; out
     status: "queued",
     cancel_requested: false,
     queued_unix: 0,
+    lookup_lyrics: false,
   };
   const life = (over: Record<string, unknown>) => emit("karaoke://job", { kind: "lifecycle", job: { ...snap, ...over } });
   const pipe = (event: Record<string, unknown>) => emit("karaoke://job", { kind: "pipeline", job_id: id, event });

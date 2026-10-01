@@ -35,17 +35,20 @@
 //!   and the device-frame-derived player clock with the stretch-translation
 //!   seam (PLAN.md §5 "lyric sync"; stretch itself is milestone 2)
 //!
-//! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg only ever
-//! as a subprocess (not used by these stages at all), no GPL/AGPL dependencies.
+//! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg and
+//! yt-dlp only ever as subprocesses, nothing compiled in that isn't
+//! GPL-3.0-compatible.
 
 pub mod accuracy;
 pub mod alignment;
 pub mod audio;
 pub mod compute;
 pub mod error;
+pub mod fetch;
 pub mod formats;
 pub mod import;
 pub mod library;
+pub mod lrclib;
 pub mod lyrics;
 pub mod output;
 pub mod pipeline;

@@ -26,7 +26,7 @@ export default function ImportDialog(props: {
 }) {
   const { scan } = props;
   const items = useMemo(() => scan?.items ?? [], [scan]);
-  const { settings } = useSettings();
+  const { settings, update } = useSettings();
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [useCollections, setUseCollections] = useState(true);
@@ -67,6 +67,7 @@ export default function ImportDialog(props: {
       const result = await importSongs(importItems(items, checked, useCollections), {
         hq_separation: hq,
         cpu_only: settings.importOn === "cpu",
+        lookup_lyrics: settings.lookupLyrics,
       });
       props.onQueued(result);
     } catch (e) {
@@ -175,7 +176,7 @@ export default function ImportDialog(props: {
           ]}
           empty="No songs found."
         />
-        <div style={{ lineHeight: "18px" }}>{summaryText(summary)}</div>
+        <div style={{ lineHeight: "18px" }}>{summaryText(summary, settings.lookupLyrics)}</div>
         {scan && scan.unmatched_lyrics.length > 0 && (
           <div className="w-muted" style={{ lineHeight: "16px" }} title={scan.unmatched_lyrics.join("\n")}>
             {scan.unmatched_lyrics.length === 1 ? "1 lyrics file" : `${scan.unmatched_lyrics.length} lyrics files`} didn't
@@ -185,6 +186,13 @@ export default function ImportDialog(props: {
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 2 }}>
           {anyCollections && (
             <Checkbox checked={useCollections} onChange={setUseCollections} label="Put songs in &collections named after their folders" />
+          )}
+          {summary.transcribe > 0 && (
+            <Checkbox
+              checked={settings.lookupLyrics}
+              onChange={(v) => update({ lookupLyrics: v })}
+              label="Find missing &lyrics online (LRCLIB) — sends only the title, artist and length"
+            />
           )}
           <Checkbox checked={hq} onChange={setHq} label="&High-quality separation (cleaner, about 3× slower)" />
         </div>

@@ -42,7 +42,14 @@ describe("parseSettings", () => {
       shiftScope: "line",
       importOn: "cpu",
       libraryGroupBy: "none",
+      lookupLyrics: false,
     });
+  });
+
+  it("keeps online lyrics lookup off until it's switched on", () => {
+    expect(parseSettings(null).lookupLyrics).toBe(false);
+    expect(parseSettings(JSON.stringify({ lookupLyrics: true })).lookupLyrics).toBe(true);
+    expect(parseSettings(JSON.stringify({ lookupLyrics: "yes" })).lookupLyrics).toBe(false);
   });
 
   it("remembers a valid Group by and drops a bogus one", () => {

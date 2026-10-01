@@ -10,6 +10,7 @@ mod queue;
 mod review;
 mod stage;
 mod theme;
+mod tools;
 mod worker;
 
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use std::sync::Arc;
 use library::LibraryHandle;
 use queue::JobQueue;
 use tauri::Manager;
+use tools::ToolsState;
 
 pub use worker::WORKER_ARG;
 
@@ -32,11 +34,14 @@ pub fn run() {
     // a failure here is unrecoverable-by-design (the DB lives in our own
     // %LOCALAPPDATA% dir).
     let library_handle = LibraryHandle::open_default().expect("open library store");
+    // yt-dlp / Deno for Add from URL (tools.rs), found on first use.
+    let tools_state = Arc::new(ToolsState::default());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(job_queue.clone())
         .manage(library_handle.clone())
+        .manage(tools_state.clone())
         // Windowed re-aligner (review screen): lazy-loaded wav2vec2 session,
         // CPU EP only (review.rs).
         .manage(review::RealignState::default())
@@ -53,9 +58,10 @@ pub fn run() {
             library::spawn_meta_backfill(handle.clone(), library_handle.clone());
             let worker_queue = job_queue.clone();
             let worker_library = library_handle.clone();
+            let worker_tools = tools_state.clone();
             std::thread::Builder::new()
                 .name("pipeline-worker".into())
-                .spawn(move || worker_queue.run_worker(handle, worker_library))
+                .spawn(move || worker_queue.run_worker(handle, worker_library, worker_tools))
                 .expect("spawn pipeline worker");
             // Performance-player host: Player holds a cpal::Stream (!Send),
             // so the whole engine lives on this thread behind a command
@@ -69,8 +75,12 @@ pub fn run() {
             commands::job_lyrics,
             commands::scan_import,
             commands::import_songs,
+            commands::check_links,
+            commands::queue_links,
+            commands::find_lyrics,
             library::song_update_details,
             commands::cancel_job,
+            commands::retry_job,
             commands::list_jobs,
             commands::read_timing_map,
             commands::clean_lyrics_preview,

@@ -443,6 +443,16 @@ impl LibraryStore {
         Ok(())
     }
 
+    /// Give a song cover art it doesn't have yet (a fetched song's thumbnail —
+    /// art from the file's own tags, or set earlier, wins).
+    pub fn set_cover_if_missing(&self, id: i64, cover_path: &Path) -> Result<()> {
+        self.conn.execute(
+            "UPDATE songs SET cover_path = ?2 WHERE id = ?1 AND cover_path IS NULL",
+            params![id, path_str(cover_path)],
+        )?;
+        Ok(())
+    }
+
     /// Set (or clear) the review timestamp — "Looks good" on the preview
     /// screen, or a timing-fix save (PLAN.md §4 step 4).
     pub fn set_reviewed(&self, id: i64, reviewed: bool) -> Result<()> {

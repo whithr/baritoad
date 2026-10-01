@@ -118,6 +118,15 @@ It also lists lyrics files that matched no song. `--strict` passes once every
 lyrics file is clean and matched. Songs without lyrics don't fail it, since
 they get transcribed; add `--require-lyrics` to fail on those too.
 
+## Songs without lyrics
+
+The review list marks songs that brought no lyrics file. Tick **Find missing
+lyrics online (LRCLIB)** and those songs look their lyrics up on lrclib.net
+before they're timed (only the title, artist and length are sent); the
+setting is remembered. Songs LRCLIB doesn't have are transcribed from the
+vocals, as before. The same lookup runs for songs added with **File › Add from
+URL…**.
+
 ## Preparing a folder with an AI agent
 
 An agent can do the tedious part: pair stray lyrics files with their songs,

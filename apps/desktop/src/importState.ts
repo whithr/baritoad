@@ -50,13 +50,14 @@ export function importSummary(items: ImportCandidate[], checked: Set<string>, us
   };
 }
 
-/** "31 songs · 26 with lyrics · 5 will be transcribed · into 3 collections · 1 already in your library" */
-export function summaryText(s: ImportSummary): string {
+/** "31 songs · 26 with lyrics · 5 will be transcribed · into 3 collections · 1 already in your library"
+ *  (`lookup`: songs without lyrics look them up online first). */
+export function summaryText(s: ImportSummary, lookup = false): string {
   const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   const parts = [plural(s.count, "song")];
   if (s.count > 0) {
     if (s.withLyrics > 0) parts.push(`${s.withLyrics} with lyrics`);
-    if (s.transcribe > 0) parts.push(`${s.transcribe} will be transcribed`);
+    if (s.transcribe > 0) parts.push(lookup ? `${s.transcribe} will look lyrics up online` : `${s.transcribe} will be transcribed`);
     if (s.collections > 0) parts.push(`into ${plural(s.collections, "collection")}`);
   }
   if (s.skipped > 0) parts.push(`${s.skipped} already in your library`);

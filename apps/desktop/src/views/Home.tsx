@@ -32,6 +32,7 @@ import {
   queueMoveEntry,
   queueRemove,
   onLibraryChanged,
+  retryJob,
   scanImport,
   songCollections,
   songSetReviewed,
@@ -84,6 +85,8 @@ import { openStage } from "../stage";
 import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
+import LinkDialog from "./LinkDialog";
+import { parseLinks } from "../linkState";
 import ProcessingDialog from "./ProcessingDialog";
 import SongProperties from "./SongProperties";
 
@@ -190,6 +193,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const [procOpen, setProcOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [importScan, setImportScan] = useState<ImportScan | null>(null);
+  /** Add from URL: open with this text in its box (null = closed). */
+  const [linkText, setLinkText] = useState<string | null>(null);
   const [propsSong, setPropsSong] = useState<Song | null>(null);
   const { settings, update } = useSettings();
   /** What a running folder scan is looking through. */
@@ -345,6 +350,9 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       } else if (p.job.status === "failed") {
         announced.current.add(id);
         if (procJob === id) setProcOpen(false);
+        // A link whose download failed has no file to process again — it
+        // tries the download again instead.
+        const undownloaded = !!p.job.source_url && !isAudioPath(p.job.audio);
         void ask({
           kind: "error",
           message: (
@@ -354,10 +362,20 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           ),
           detail: p.failure ?? p.job.error ?? "The pipeline stopped without saying why.",
           buttons: [
-            { id: "again", label: "&Process again…" },
+            undownloaded ? { id: "retry", label: "&Try again" } : { id: "again", label: "&Process again…" },
             { id: "ok", label: "OK", isDefault: true, cancel: true },
           ],
         }).then((r) => {
+          if (r === "retry") {
+            void retryJob(p.job.id)
+              .then((s) => {
+                watched.current.add(s.id);
+                setProcJob(s.id);
+                setProcOpen(true);
+              })
+              .catch((e) => setError(String(e)));
+            return;
+          }
           if (r !== "again") return;
           const known = allSongs.find((s) => s.audio_path === p.job.audio);
           setWizard({
@@ -406,6 +424,21 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   );
   const startImportRef = useRef(startImport);
   startImportRef.current = startImport;
+  // Links pasted anywhere on the Library (not into a field or a dialog)
+  // open Add from URL with them.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (t?.closest("input, textarea, [contenteditable='true'], [role='dialog'], [role='alertdialog']")) return;
+      const text = e.clipboardData?.getData("text") ?? "";
+      if (parseLinks(text).length === 0) return;
+      e.preventDefault();
+      setLinkText(text.trim());
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, []);
+
   const importFolder = useCallback(async () => {
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked === "string") void startImport([picked]);
@@ -463,7 +496,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     const lines = [
       b.done > 0 ? `${b.done === 1 ? "1 song is" : `${b.done} songs are`} in your library. Songs Karascape timed wait under Needs checking for a quick listen.` : "",
       b.failed > 0
-        ? `Couldn't finish: ${failed.map((p) => p!.job.title).slice(0, 8).join(", ")}${b.failed > 8 ? ", …" : ""}. Import the folder again to retry them.`
+        ? `Couldn't finish: ${failed.map((p) => p!.job.title).slice(0, 8).join(", ")}${b.failed > 8 ? ", …" : ""}.`
         : "",
       b.cancelled > 0 ? `${b.cancelled} cancelled.` : "",
     ].filter(Boolean);
@@ -475,15 +508,30 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           ? `Imported ${b.total === 1 ? "1 song" : `${b.total} songs`}.`
           : `Imported ${b.done} of ${b.total === 1 ? "1 song" : `${b.total} songs`}.`,
       detail: lines.join("\n\n"),
-      buttons:
-        b.done > 0
+      buttons: [
+        ...(b.failed > 0 ? [{ id: "retry", label: "&Try those again" }] : []),
+        ...(b.done > 0
           ? [
               { id: "review", label: "Show &Needs checking", isDefault: true },
               { id: "ok", label: "OK", cancel: true },
             ]
-          : [{ id: "ok", label: "OK", isDefault: true, cancel: true }],
+          : [{ id: "ok", label: "OK", isDefault: true, cancel: true }]),
+      ],
     }).then((r) => {
       if (r === "review") setNode("review");
+      else if (r === "retry") {
+        // Failed songs run again as a new batch; a finished download or
+        // lyrics lookup isn't repeated (queue.rs retry).
+        void Promise.all(failed.map((p) => retryJob(p!.job.id)))
+          .then((snaps) => {
+            batch.current = snaps.map((s) => s.id);
+            if (snaps[0]) {
+              setProcJob(snaps[0].id);
+              setProcOpen(true);
+            }
+          })
+          .catch((e) => setError(String(e)));
+      }
     });
   }, [jobs, ask]);
 
@@ -705,6 +753,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       items: [
         { label: "&Add Song…", accel: "Ctrl+O", keys: "ctrl+o", run: () => void addSong() },
         { label: "&Import Folder…", accel: "Ctrl+Shift+O", keys: "ctrl+shift+o", run: () => void importFolder(), disabled: scanning != null },
+        { label: "Add from &URL…", accel: "Ctrl+L", keys: "ctrl+l", run: () => setLinkText("") },
         { label: "&New Collection…", run: () => void newCollection() },
         "-",
         { label: "E&xit", accel: "Alt+F4", run: () => void getCurrentWindow().close().catch(() => undefined) },
@@ -953,6 +1002,9 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         <ToolButton icon={<Icon name="disc" />} onClick={() => void addSong()} tip="Add a song (Ctrl+O)">
           Add song…
         </ToolButton>
+        <ToolButton icon={<Icon name="globe" />} onClick={() => setLinkText("")} tip="Add songs from links — paste a link anywhere, or Ctrl+L">
+          From URL…
+        </ToolButton>
         <Vr />
         <ToolButton icon={<Icon name="tv" />} onClick={() => sing()} disabled={!canOpen} tip="Sing the selected song (F5)">
           Sing
@@ -1188,6 +1240,14 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       />
       {dialogs.element}
       <ImportDialog scan={importScan} onClose={() => setImportScan(null)} onQueued={onImportQueued} />
+      <LinkDialog
+        initialText={linkText}
+        onClose={() => setLinkText(null)}
+        onQueued={(r) => {
+          setLinkText(null);
+          onImportQueued(r);
+        }}
+      />
       <SongProperties
         song={propsSong}
         bands={cctx.bands}

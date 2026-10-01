@@ -19,7 +19,8 @@ and ships no music or lyrics. The app is open source
   from one command model, list + tree views, dialogs, wizard, message boxes,
   the frameless window frame; `stage.css` holds the TV stage's lyric CSS
   (the player's per-frame hooks) and `bench.css` the Bench lanes.
-- `src/views/` — `Home` (Library), `AddSongWizard`, `ProcessingDialog`,
+- `src/views/` — `Home` (Library), `AddSongWizard`, `LinkDialog` (Add from
+  URL), `ImportDialog`, `ProcessingDialog`,
   `Bench`, `PlayerView` (stage), `Properties` (+ About), `PlayerThemes`,
   `AppDialogs`; `KitView` is a dev-only parts bin at `#/kit`.
 - `src/stage.ts` / `src/prefsSync.ts` — opening the Stage window and keeping
@@ -28,13 +29,14 @@ and ships no music or lyrics. The app is open source
   invariants), `lineEdit`/`docEdit` (line surgery), `previewEditor`
   (shift scopes), `benchLayout` (lane windows, view axis),
   `highlight`, `levels`, `playerClock`/`playerView`, `jobEvents`,
-  `settings`.
+  `settings`, `importState`, `linkState`.
 - `dev/mockTauri.ts` + `vite.mock.config.ts` — browser-only harness
   (`pnpm exec vite --config vite.mock.config.ts`) that runs the real UI over a
   fake Tauri layer for layout work and screenshots; never part of a build.
 - `src-tauri/` — the Rust shell crate (`karaoke-desktop`, a workspace member).
   It links `karaoke-core` directly — the pipeline runs in-process on a worker
-  thread, not via the CLI.
+  thread, not via the CLI. `src-tauri/tools/` holds the programs Add from URL
+  runs (yt-dlp, Deno) — fetched, never committed.
 
 ## Dev setup (Windows)
 
@@ -54,6 +56,7 @@ Then:
 ```
 cd apps/desktop
 pnpm install
+pnpm fetch-tools   # yt-dlp + Deno for Add from URL (checksum-verified)
 pnpm tauri dev
 ```
 

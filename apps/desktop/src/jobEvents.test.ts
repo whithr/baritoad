@@ -20,6 +20,7 @@ const job = (over: Partial<JobSnapshot> = {}): JobSnapshot => ({
   status: "queued",
   cancel_requested: false,
   queued_unix: 1_700_000_000,
+  lookup_lyrics: false,
   ...over,
 });
 
@@ -210,5 +211,46 @@ describe("reduceJobEvent", () => {
     const s = seedFromSnapshots([job({ id: 3, status: "running" }), job({ id: 4 })]);
     expect(s.order).toEqual([3, 4]);
     expect(progressHeadline(s.jobs[4])).toBe("Queued");
+  });
+});
+
+describe("prep steps (Add from URL, LRCLIB lookup)", () => {
+  const prep = (step: "fetch" | "lyrics", fraction?: number, message?: string): JobEvent => ({
+    kind: "prep",
+    job_id: 1,
+    step,
+    fraction,
+    message,
+  });
+  const linkJob = { source_url: "https://example.org/song", lookup_lyrics: true, audio: "C:\\dl\\A - Song [x]" };
+
+  it("a link job starts on downloading and shows the download's percent", () => {
+    const s = feed([lifecycle({ ...linkJob, status: "running" }), prep("fetch", 0.4, "Downloading")]);
+    expect(s.jobs[1].stage).toBe("downloading");
+    expect(progressHeadline(s.jobs[1])).toBe("Downloading — 40%");
+  });
+
+  it("each step starts its own bar, and separation takes over after", () => {
+    const s = feed([
+      lifecycle({ ...linkJob, status: "running" }),
+      prep("fetch", 1, "Downloading"),
+      prep("lyrics", undefined, "Looking the lyrics up on LRCLIB"),
+    ]);
+    expect(s.jobs[1].stage).toBe("lyrics");
+    expect(s.jobs[1].fraction).toBeNull();
+    expect(progressHeadline(s.jobs[1])).toBe("Finding lyrics");
+    const t = feed([pipe({ type: "stage_started", stage: "separate" })], s);
+    expect(t.jobs[1].stage).toBe("separating");
+  });
+
+  it("keeps the step's last message when a tick has none", () => {
+    const s = feed([lifecycle({ ...linkJob, status: "running" }), prep("lyrics", undefined, "Lyrics from LRCLIB"), prep("lyrics", 1)]);
+    expect(s.jobs[1].message).toBe("Lyrics from LRCLIB");
+    expect(s.jobs[1].fraction).toBe(1);
+  });
+
+  it("a file job that looks lyrics up starts there; a plain one on separating", () => {
+    expect(feed([lifecycle({ lookup_lyrics: true })]).jobs[1].stage).toBe("lyrics");
+    expect(feed([lifecycle()]).jobs[1].stage).toBe("separating");
   });
 });

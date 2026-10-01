@@ -20,6 +20,7 @@ sha2.workspace = true
 rusqlite.workspace = true
 lofty.workspace = true
 cpal.workspace = true
+ureq.workspace = true
 # Key/tempo shift: vendored Signalsmith Stretch (MIT) via hand-written FFI
 # (PLAN.md §5/§6; never Rubber Band).
 karaoke-stretch-sys = { path = "../karaoke-stretch-sys" }

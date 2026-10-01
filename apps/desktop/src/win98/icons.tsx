@@ -108,6 +108,17 @@ const ICONS: Record<string, { crisp: boolean; body: ReactNode }> = {
     ),
   },
   disc: { crisp: false, body: DISC },
+  globe: {
+    crisp: false,
+    body: (
+      <>
+        <circle cx="8" cy="8" r="7" fill="#0000ff" stroke="#000080" strokeWidth="0.6" />
+        <path d="M3.6 3.8c1 .2 1.7 1 1.4 2-.3.9-1.5.9-1.7 1.9-.2.8.6 1.4.4 2.3-.2.7-1 .9-1.6.6A6.4 6.4 0 0 1 3.6 3.8z" fill="#00c000" />
+        <path d="M9 2.1c1.5.2 2.3 1.2 2 2.2-.3.8-1.3.6-1.6 1.5-.3 1 .9 1.5 1.9 1.3 1-.2 1.8.6 1.6 1.7-.2 1.3-1.4 2-2.3 3-.6.7-1.6.5-1.7-.4-.2-1.3.8-2.1.2-3.2-.5-.8-1.7-.6-2-1.6-.3-1.2 1-1.3 1.2-2.4.2-.9-.2-1.8.7-2.1z" fill="#00c000" />
+        <ellipse cx="5.8" cy="4.8" rx="2" ry="1.1" fill="#fff" opacity="0.35" />
+      </>
+    ),
+  },
   folder: {
     crisp: true,
     body: (

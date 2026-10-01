@@ -10,10 +10,10 @@
 // audio's hash — a second run never adds a copy).
 
 import { useEffect, useRef, useState } from "react";
-import { cleanLyricsPreview, generateSong, jobLyrics, probeAudio, type CleanPreview, type ProbeResult } from "../api";
+import { cleanLyricsPreview, findLyrics, generateSong, jobLyrics, probeAudio, type CleanPreview, type ProbeResult } from "../api";
 import { useSettings } from "../App";
 import { fmtDuration } from "../libraryState";
-import { Checkbox, FieldLabel, Icon, TextArea, TextField, Wizard } from "../win98";
+import { Button, Checkbox, FieldLabel, Icon, TextArea, TextField, Wizard } from "../win98";
 
 const PAGES = ["details", "lyrics"] as const;
 
@@ -49,6 +49,10 @@ export default function AddSongWizard(props: {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const debounce = useRef(0);
+  /** LRCLIB lookup: what it found (and the text it replaced, for Undo). */
+  const [finding, setFinding] = useState(false);
+  const [found, setFound] = useState<{ note: string; undo?: string } | null>(null);
+  const autoLooked = useRef(false);
 
   // fresh wizard per file
   useEffect(() => {
@@ -62,6 +66,9 @@ export default function AddSongWizard(props: {
     setPreview(null);
     setHq(false);
     setError(null);
+    setFinding(false);
+    setFound(null);
+    autoLooked.current = false;
     let alive = true;
     probeAudio(target.path)
       .then((p) => {
@@ -129,7 +136,43 @@ export default function AddSongWizard(props: {
     }
   };
 
+  // Find Lyrics: LRCLIB by title, artist and length — only these leave the
+  // computer. The result lands in the box for a look before Finish.
+  const lookUp = async () => {
+    if (finding || title.trim() === "") return;
+    setFinding(true);
+    try {
+      const r = await findLyrics({
+        title: title.trim(),
+        artist: artist.trim() || undefined,
+        duration_s: probe?.duration_s ?? undefined,
+      });
+      if (!r) {
+        setFound({ note: "LRCLIB has no lyrics for this song. Paste them, or leave the box empty to transcribe." });
+        return;
+      }
+      const before = lyrics;
+      setLyrics(r.text);
+      setFound({
+        note: `From LRCLIB: \u201c${r.track_name}\u201d by ${r.artist_name}. Check they're for this song.`,
+        undo: before.trim() ? before : undefined,
+      });
+    } catch (e) {
+      setFound({ note: `Couldn't reach LRCLIB: ${String(e)}` });
+    } finally {
+      setFinding(false);
+    }
+  };
+
   const which = PAGES[page];
+
+  // With online lookup on (an import dialog's checkbox), reaching an empty
+  // lyrics page looks them up once.
+  useEffect(() => {
+    if (which !== "lyrics" || again || !settings.lookupLyrics || autoLooked.current || lyrics.trim() !== "") return;
+    autoLooked.current = true;
+    void lookUp();
+  }, [which]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileName = path?.split(/[\\/]/).pop() ?? "";
   const last = page === PAGES.length - 1;
   const next = () => (last ? void finish() : setPage((p) => p + 1));
@@ -194,7 +237,12 @@ export default function AddSongWizard(props: {
       )}
       {which === "lyrics" && (
         <>
-          <div style={{ fontWeight: 700 }}>Paste the lyrics (optional)</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontWeight: 700, flexGrow: 1 }}>Paste the lyrics (optional)</div>
+            <Button onClick={() => void lookUp()} disabled={finding || title.trim() === ""} tip="Look the lyrics up on LRCLIB by title, artist and length">
+              {finding ? "Looking…" : "Look &up Online"}
+            </Button>
+          </div>
           <FieldLabel htmlFor="add-lyrics" text="&Lyrics — one line per sung line, a blank line between verses:" />
           <TextArea
             id="add-lyrics"
@@ -210,6 +258,23 @@ export default function AddSongWizard(props: {
               ? `${preview.lines_kept} lines · ${preview.words_kept} words${preview.summary ? ` · ${preview.summary}` : ""}`
               : "Pasted lyrics give the best sync."}
           </div>
+          {found && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", lineHeight: "18px" }}>
+              <Icon name="globe" />
+              <span style={{ flexGrow: 1 }}>{found.note}</span>
+              {found.undo !== undefined && (
+                <Button
+                  slim
+                  onClick={() => {
+                    setLyrics(found.undo ?? "");
+                    setFound(null);
+                  }}
+                >
+                  Undo
+                </Button>
+              )}
+            </div>
+          )}
           <Checkbox checked={hq} onChange={setHq} label="&High-quality separation (cleaner, about 3× slower)" />
         </>
       )}

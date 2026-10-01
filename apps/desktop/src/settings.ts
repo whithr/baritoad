@@ -25,6 +25,10 @@ export interface Settings {
   importOn: "gpu" | "cpu";
   /** Library › View › Group by (the song list's group headers). */
   libraryGroupBy: GroupBy;
+  /** Look songs' lyrics up online (LRCLIB) when they have none — off until
+   *  the person ticks it once in an import dialog (PLAN.md §2: features
+   *  reach out only when asked); remembered after. */
+  lookupLyrics: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -35,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shiftScope: "line",
   importOn: "gpu",
   libraryGroupBy: "none",
+  lookupLyrics: false,
 };
 
 export const SETTINGS_KEY = "karascape.settings.v1";
@@ -64,6 +69,7 @@ export function parseSettings(raw: string | null | undefined): Settings {
       shiftScope: pick(SCOPES, v.shiftScope, DEFAULT_SETTINGS.shiftScope),
       importOn: pick(IMPORT_ON, v.importOn, DEFAULT_SETTINGS.importOn),
       libraryGroupBy: pick(GROUP_BYS, v.libraryGroupBy, DEFAULT_SETTINGS.libraryGroupBy),
+      lookupLyrics: typeof v.lookupLyrics === "boolean" ? v.lookupLyrics : DEFAULT_SETTINGS.lookupLyrics,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
