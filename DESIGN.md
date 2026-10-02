@@ -153,7 +153,7 @@ Night overrides the same names under `:root[data-scheme="night"]`.
   there is no per-word confidence or "unsung" styling.
 - **DSEG7 Classic** (OFL) for numeric readouts only (clock, key, tempo, wait
   seconds) — never words.
-- Access keys are underlined in menus, buttons and labels (`&File`).
+- Access keys are underlined in menus, buttons and labels (`&File`). In a dialog, Alt+letter — or the bare letter while one of its buttons has focus — presses that button, checkbox or label (win98/accessKeys.ts); the menu bar stands aside while the keyboard is in a dialog.
 
 ## Layout
 
@@ -282,7 +282,8 @@ Separator · icons.
 
 ### Full-Screen Player (signature)
 - **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform.** **One row per lyric line:** lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame); a rare line past the 0.55 fit floor keeps the floor size and wraps (`data-overlong`). Never animate font-size. Sung words take the theme's sung colour with its glow; the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat. Position of the fill edge and luminance carry the state; hue never carries it alone. During a pause the finished word holds through the 0.25s grace, then the upcoming word's glow eases in (`--glow-in`) across the last 0.6s before its onset. The scroll pre-rolls the next line only once the current line's last word is sung.
-- **Wait cues:** gaps ≥5 s get a wait row — a draining block meter and a whole-second DSEG7 readout, dim at rest, voiced in the theme accent while counting. Lines after ≥2.5 s of silence carry three square **lead-in pips** counting 3-2-1. Logic in playerView.ts (`gapCues`/`cueLineFlags`/`pipsLitAt`).
+- **Wait cues:** gaps ≥5 s get a wait row — a draining block meter and a whole-second DSEG7 readout, dim at rest, voiced in the theme accent while counting. Lines after ≥2.5 s of silence carry three square **lead-in pips** counting 3-2-1. Logic in playerView.ts (`gapCues`/`cueLineFlags`/`pipsLitAt`). Couch-sized (read from ~3 m): the wait word in the pixel font at an exact 2× (32 px), the readout 30 px, the meter 24 px tall, the pips 22 px. On a window ≥1600 px wide the Now singing / Up next captions zoom an exact 2×, crisp.
+- **Reduced motion** (`prefers-reduced-motion`): the scroll jumps to the line, line and wait-row changes land at once, the approach glow doesn't fade in, the visualizer is off. The wipe stays — its fill edge is the timing.
 - **Named Rule — The Four-Hook Rule.** The player's per-frame mutation contract is load-bearing and measured (60fps spike): each frame may touch only (1) `transform` on `.pk-scroller`, (2) the `--wipe`/`--wipe-n` CSS vars on the active word — or, in a pause when that hook is idle, `--glow-in` on the single word being approached — (3) `width` on `.pk-timebar-fill`, and (4) direct classNames on `.k-word`/`.pk-line`. No CSS transitions on those properties and no React renders may be added to those hooks. *Amended 2026-08-07 for the wait cues:* (5) `width` + whole-second `textContent` on the counting gap row's meter/readout and its `counting` class at gap boundaries, and (6) `data-lit` on the upcoming line's pip anchor, mutated only on count change. Any restyle of the stage must re-run the player measurement harness and report song length, hardware and frame-time numbers.
 
 ### Player Themes (user content zone)

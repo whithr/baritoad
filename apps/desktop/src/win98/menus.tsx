@@ -10,6 +10,7 @@ import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu } from "@base-ui/react/menu";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Glyph } from "./icons";
+import { activeDialog } from "./accessKeys";
 import { AccessLabel, accessKeyOf, stripAccess } from "./label";
 
 export interface Command {
@@ -203,6 +204,12 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
     let altAlone = false;
     const onDown = (e: KeyboardEvent) => {
       altAlone = e.key === "Alt" && !e.repeat;
+      // A dialog owns the keyboard: its buttons take the Alt+letters
+      // (accessKeys.ts), and a lone Alt doesn't reach behind it.
+      if (activeDialog()) {
+        altAlone = false;
+        return;
+      }
       // A menu is open but focus hasn't reached its items yet (it moves on
       // the next frame): its access keys still work.
       const popup = openPopup();

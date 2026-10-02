@@ -159,6 +159,8 @@ export default function PlayerView(props: {
   // CSS vars + a static background layer; the console stays app chrome. The
   // advanced panel can re-pin the song's theme live.
   const [theme, setTheme] = useState<ThemeSpec>(() => resolveTheme(loadThemeStore(), songId));
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   const [themeBg, setThemeBg] = useState<string | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -526,7 +528,8 @@ export default function PlayerView(props: {
       // (the active-word hook is idle whenever this one runs).
       if (frame.approachWord != null) {
         const el = wordEls.current[frame.approachWord];
-        if (el) el.style.setProperty("--glow-in", frame.approach.toFixed(3));
+        // Reduced motion: no fade toward it; the glow arrives with the word.
+        if (el) el.style.setProperty("--glow-in", reducedMotion ? "0" : frame.approach.toFixed(3));
       }
       prevFrame.current = frame;
 
@@ -591,7 +594,8 @@ export default function PlayerView(props: {
       // Critically damped glide — velocity survives retargeting, so a line
       // switch bends the scroll's trajectory instead of kicking it (owner
       // asked for smoother motion; pace ≈ the old 260 ms glide).
-      const glide = scrollStep(scrollY.current, scrollVel.current, target, dt);
+      // Reduced motion: straight to the line, no glide.
+      const glide = reducedMotion ? { pos: target, vel: 0 } : scrollStep(scrollY.current, scrollVel.current, target, dt);
       scrollY.current = glide.pos;
       scrollVel.current = glide.vel;
       if (scrollerRef.current) {
@@ -695,6 +699,7 @@ export default function PlayerView(props: {
         tempo: finalStatus.tempo,
       },
       viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
+      theme: { id: themeRef.current.id, visualizer: themeRef.current.visualizer, glow: themeRef.current.glow },
     };
     try {
       await measureWrite(JSON.stringify(result, null, 2));
@@ -721,7 +726,11 @@ export default function PlayerView(props: {
       }
       if (plan?.pitch != null) await playerSetPitch(plan.pitch).catch(() => undefined);
       if (plan?.tempo != null) await playerSetTempo(plan.tempo).catch(() => undefined);
-      if (plan?.pitch != null || plan?.tempo != null || plan?.fullscreen) {
+      // Optional theme (e.g. the heaviest built-in, DESIGN.md Four-Hook Rule):
+      // applied for this run only, given the same settle time.
+      const measureTheme = plan?.theme ? themeById(loadThemeStore(), plan.theme) : undefined;
+      if (measureTheme) setTheme(measureTheme);
+      if (plan?.pitch != null || plan?.tempo != null || plan?.fullscreen || measureTheme) {
         await new Promise((r) => window.setTimeout(r, 750));
       }
       let base: { stalls: number; callbacks: number } | null = null;

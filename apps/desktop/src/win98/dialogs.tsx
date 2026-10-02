@@ -18,7 +18,10 @@ import {
 import { Button } from "./controls";
 import { CaptionButton, TitleBar } from "./frame";
 import { Icon } from "./icons";
+import { installDialogAccessKeys } from "./accessKeys";
 import { AccessLabel } from "./label";
+
+installDialogAccessKeys();
 
 // ------------------------------------------------------------------ dialog
 
@@ -45,6 +48,7 @@ export function Dialog(props: {
         {!props.modeless && <BaseDialog.Backdrop className="w-backdrop" />}
         <BaseDialog.Popup
           className="w98 w-popup w-window w-dialog"
+          data-modal={props.modeless ? undefined : ""}
           style={{ width: props.width, zIndex: 900, ...props.style }}
           initialFocus={props.initialFocus}
         >
@@ -240,7 +244,7 @@ export function MessageBoxProvider(props: { children: ReactNode; appName?: strin
       >
         <AlertDialog.Portal>
           <AlertDialog.Backdrop className="w-backdrop" />
-          <AlertDialog.Popup className="w98 w-popup w-window w-dialog" style={{ zIndex: 950, minWidth: 320 }} initialFocus={defaultRef}
+          <AlertDialog.Popup className="w98 w-popup w-window w-dialog" data-modal="" style={{ zIndex: 950, minWidth: 320 }} initialFocus={defaultRef}
             finalFocus={() => {
               // back to where the user was — never the menu bar (its keys
               // would swallow the window's shortcuts)

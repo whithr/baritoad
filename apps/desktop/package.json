@@ -14,6 +14,7 @@
     "icons": "node scripts/icons.mjs",
     "notices": "node scripts/notices.mjs",
     "package": "node scripts/package.mjs",
+    "measure-player": "node scripts/measure-player.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

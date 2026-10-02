@@ -185,8 +185,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 16px 0;
+  gap: 18px;
+  padding: 20px 0;
   opacity: 0.3;
   transition: opacity 340ms ease-out;
 }
@@ -195,18 +195,20 @@
   opacity: 1;
 }
 
+/* Couch-sized (read from ~3 m on a TV, PLAN.md §9 v1.0 item 5): the pixel
+   font at an exact 2×, the readout and lamps at half the lyric line. */
 .pk-gap-word {
   font-family: "Pixel Operator", Tahoma, sans-serif;
-  font-size: 16px;
+  font-size: 32px;
   -webkit-font-smoothing: none;
   color: var(--stage-faint);
 }
 
 .pk-gap-meter {
   position: relative;
-  width: clamp(160px, 22vw, 280px);
-  height: 14px;
-  padding: 2px;
+  width: clamp(240px, 26vw, 420px);
+  height: 24px;
+  padding: 3px;
   background: #000;
   box-shadow: inset 1px 1px #404050, inset -1px -1px #a0a0b0;
   overflow: hidden;
@@ -215,12 +217,12 @@
 .pk-gap-meter-fill {
   height: 100%;
   width: 100%;
-  background: repeating-linear-gradient(90deg, var(--th-accent, var(--stage-accent)) 0 8px, transparent 8px 10px);
+  background: repeating-linear-gradient(90deg, var(--th-accent, var(--stage-accent)) 0 12px, transparent 12px 15px);
 }
 
 .pk-gap-secs {
   font-family: DSEG7, "DSEG7 Classic", ui-monospace, monospace;
-  font-size: 15px;
+  font-size: 30px;
   min-width: 2ch;
   text-align: right;
   color: var(--stage-faint);
@@ -229,7 +231,7 @@
 .pk-gap.counting .pk-gap-word,
 .pk-gap.counting .pk-gap-secs {
   color: var(--th-accent, var(--stage-accent));
-  text-shadow: 0 0 10px var(--th-accent-glow, var(--stage-accent-glow));
+  text-shadow: 0 0 14px var(--th-accent-glow, var(--stage-accent-glow));
 }
 
 /* Lead-in pips: three square lamps counting 3-2-1 into a line that follows
@@ -243,11 +245,11 @@
 
 .pk-cue-pips {
   position: absolute;
-  right: 22px;
+  right: 34px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
-  gap: 8px;
+  gap: 12px;
   opacity: 0;
   transition: opacity 120ms ease-out;
 }
@@ -259,10 +261,10 @@
 }
 
 .pk-cue-pips i {
-  width: 13px;
-  height: 13px;
+  width: 22px;
+  height: 22px;
   background: #000;
-  border: 1px solid #505060;
+  border: 2px solid #505060;
 }
 
 .pk-cue[data-lit="3"] .pk-cue-pips i:nth-last-child(-n + 3),
@@ -270,7 +272,7 @@
 .pk-cue[data-lit="1"] .pk-cue-pips i:nth-last-child(-n + 1) {
   background: var(--th-accent, var(--stage-accent));
   border-color: var(--th-accent, var(--stage-accent));
-  box-shadow: 0 0 8px var(--th-accent-glow, var(--stage-accent-glow));
+  box-shadow: 0 0 12px var(--th-accent-glow, var(--stage-accent-glow));
 }
 
 /* ---- 98 chrome floating over the stage ----------------------------------- */
@@ -296,6 +298,14 @@
   transform: translateX(-50%);
   width: min(1000px, calc(100% - 40px));
   z-index: 3;
+}
+
+/* On a TV-sized window the captions read from the couch at an exact 2×
+   (crisp pixel font). Wins over Large text's 1.25×, which would make 2.5×. */
+@media (min-width: 1600px) {
+  :root .player-stage .pk-caption.w98 {
+    zoom: 2;
+  }
 }
 
 .controls-hidden .pk-caption,
@@ -421,4 +431,15 @@
 
 .pk-clock {
   font-family: var(--w-font-lcd);
+}
+
+/* Reduced motion: line, wait-row and pip changes land at once (the scroll
+   and the approach glow do the same in PlayerView), and the visualizer is
+   off. The wipe stays: its fill edge is the timing, not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .pk-line,
+  .pk-gap,
+  .pk-cue-pips {
+    transition: none;
+  }
 }

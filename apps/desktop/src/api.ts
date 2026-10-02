@@ -672,6 +672,8 @@ export interface MeasurePlan {
   pitch?: number | null;
   tempo?: number | null;
   fullscreen?: boolean;
+  /** A Player Theme id to measure under. */
+  theme?: string | null;
 }
 
 export const measurePlan = () => invoke<MeasurePlan | null>("measure_plan");

@@ -561,6 +561,9 @@ pub struct MeasurePlan {
     pub tempo: Option<f64>,
     /// Measure in fullscreen (the TV-output configuration).
     pub fullscreen: bool,
+    /// A Player Theme to measure under (its id) — the Four-Hook Rule asks
+    /// for the heaviest built-in one (glow + visualizer) after a restyle.
+    pub theme: Option<String>,
 }
 
 #[tauri::command]
@@ -596,6 +599,7 @@ pub async fn measure_plan() -> Result<Option<MeasurePlan>, String> {
         fullscreen: std::env::var("KARAOKE_MEASURE_FULLSCREEN")
             .map(|v| v == "1")
             .unwrap_or(false),
+        theme: std::env::var("KARAOKE_MEASURE_THEME").ok().filter(|s| !s.is_empty()),
     }))
 }
 
