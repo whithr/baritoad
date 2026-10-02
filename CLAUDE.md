@@ -6,7 +6,9 @@ lowercase (PRODUCT.md): any song (a file or a pasted link)
 authoritative** for scope, legal, and licensing decisions — cite it by section
 when a decision traces to it.
 
-Current phase: **Phase 0 — de-risk spikes** (PLAN.md §9, spikes/README.md).
+Current phase: **Phase 3 — player, collections, polish**, finishing v1.0
+(PLAN.md §9). Party mode (Phase 4) is designed in docs/PARTY.md and starts
+after v1.0 ships.
 
 ## Hard rules — never violate, not even in a prototype
 
@@ -75,3 +77,5 @@ Current phase: **Phase 0 — de-risk spikes** (PLAN.md §9, spikes/README.md).
 - `docs/IMPORTING.md` — the folder layout bulk import reads;
   `.claude/skills/prep-song-import/` — the agent workflow for getting a
   user's audio + lyrics files into it (`karaoke scan` is the check)
+- `docs/PARTY.md`, `docs/PARTY-PROTOCOL.md` — party mode's design and the
+  app ⇄ relay wire protocol (the relay itself lives in a private repo)

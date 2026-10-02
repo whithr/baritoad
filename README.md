@@ -4,9 +4,9 @@ The karaoke machine for any song — local-first, no catalog.
 You bring the music: drop in a song or paste a link, get AI vocal removal,
 word-synced scrolling lyrics, and a full-screen player.
 
-**Status:** pre-alpha. Currently in Phase 0 (feasibility spikes) — see
-[PLAN.md](PLAN.md) for the full plan and [spikes/](spikes/README.md) for what's
-being de-risked.
+**Status:** pre-alpha, working toward v1.0 — Phase 3 (player, collections,
+polish) of [PLAN.md](PLAN.md). The Phase 0 feasibility spikes came back GO
+([spikes/](spikes/README.md)).
 
 **License:** open source, [GPL-3.0-or-later](LICENSE). The app is free —
 build it, use it, change it, share it, binaries included. The paid things

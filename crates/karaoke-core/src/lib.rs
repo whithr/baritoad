@@ -1,7 +1,7 @@
 //! karaoke-core — pipeline stages, inference, and format I/O for the karaoke
 //! app (GPL-3.0-or-later; see PLAN.md).
 //!
-//! Phase 1 scope so far:
+//! Phase 1 (done):
 //! - separation stage (htdemucs via ONNX Runtime), ported from
 //!   spikes/separation with the hardening its REPORT.md called for: Symphonia
 //!   decode of the user's file directly, streamed overlap-add, and a
@@ -32,8 +32,9 @@
 //! Phase 3 (in progress):
 //! - playback audio engine ([`player`]): cpal output stream, dual-stem
 //!   mixing with click-free vocal-guide blend, sample-accurate transport,
-//!   and the device-frame-derived player clock with the stretch-translation
-//!   seam (PLAN.md §5 "lyric sync"; stretch itself is milestone 2)
+//!   the device-frame-derived player clock with the stretch-translation
+//!   seam (PLAN.md §5 "lyric sync"), and key/tempo shift through Signalsmith
+//!   Stretch (`karaoke-stretch-sys`); queue auto-advance is still to come
 //!
 //! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg and
 //! yt-dlp only ever as subprocesses, nothing compiled in that isn't
