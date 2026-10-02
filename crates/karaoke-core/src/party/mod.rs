@@ -152,15 +152,16 @@ pub struct SharedEntry {
     pub guest: Option<String>,
 }
 
-/// The queue as guests see it, and what's playing. Entries whose song isn't
-/// listed (no timings any more) are left out.
+/// The queue as guests see it, and the entry on the Stage (its shared id —
+/// the same song can be queued twice). Entries whose song isn't listed (no
+/// timings any more) are left out.
 pub fn shared_queue(entries: &[QueueEntry], listing: &Listing, playing: Option<i64>) -> (Vec<SharedEntry>, Option<String>) {
     let mut now = None;
     let mut out = Vec::new();
     for e in entries {
         let Some(song) = listing.party_id(e.song.id) else { continue };
         if Some(e.id) == playing {
-            now = Some(song.to_string());
+            now = Some(format!("e{}", e.id));
         }
         out.push(SharedEntry {
             id: format!("e{}", e.id),

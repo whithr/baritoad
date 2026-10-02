@@ -26,7 +26,7 @@ wire, and a fork can run its own relay.
 |---|---|---|
 | `hello` | `app` (version), `resume?` (`room`, `secret`) | first frame |
 | `listing` | `songs: [{id, title, artist, duration, collections}]` | after `room`, and when the library changes |
-| `queue` | `entries: [{id, song, singer?, toad?, guest?}]`, `nowPlaying?` (song id) | after every queue change |
+| `queue` | `entries: [{id, song, singer?, toad?, guest?}]`, `nowPlaying?` (the entry on the Stage) | after every queue change |
 | `request_result` | `req`, `ok` or `code` (`limit`, `unknown_song`, `not_ready`) | answering a `request` |
 | `kick` | `guest` | host removes a guest |
 | `new_code` | — | host rotates the join link |
@@ -61,3 +61,35 @@ a host's own picks have no `singer`, `toad` or `guest`.
   host's setting), `unknown_song`, `not_ready` (lost its timings).
 - Song list size: measure for a 500-song library before choosing whether to
   page it.
+
+## Guest page ⇄ relay
+
+The guest page (served by the relay at `/j/ROOM/KEY`) has its own socket at
+`/g/ROOM/KEY`. Plain JSON frames, no version field — the relay serves the
+page, so the two always match. Guests never see each other's guest ids: the
+relay strips `guest` from queue entries and marks a guest's own with
+`mine: true`.
+
+| Guest → relay | Fields |
+|---|---|
+| `join` | `name`, `toad`, `guest?` (to come back as the same guest after a reload) |
+| `pick` | `song` |
+| `withdraw` | `entry` |
+
+| Relay → guest | Fields |
+|---|---|
+| `welcome` | `guest`, `name`, `toad`, `songs`, `entries`, `nowPlaying?`, `hostHere` |
+| `listing` | `songs` |
+| `queue` | `entries` (with `mine`), `nowPlaying?` |
+| `picked` | `ok`, `code?` (`limit`, `unknown_song`, `not_ready`, `host_away`, `not_joined`) |
+| `host` | `here` — the app dropped or came back |
+| `bye` | `why`: `kicked`, `closed`, `gone` (ended, or the code changed), `full`, `invalid` (no name / bad toad) |
+
+## Routes
+
+- `GET /host` — the app's socket for a new party; `GET /host?room=ROOM` to
+  resume its own after a drop (`hello` must carry the room's secret).
+- `GET /j/ROOM/KEY` — the guest page. `GET /g/ROOM/KEY` — a guest's socket.
+- Room ids are 10 characters, keys 6, from `a–z` and `2–9` without look-alikes.
+  New code (`new_code`) changes the key; old links stop working, guests already
+  in stay.

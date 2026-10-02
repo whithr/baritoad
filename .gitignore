@@ -47,6 +47,10 @@ apps/desktop/src-tauri/tools/*
 # download, the license and the generated third-party notices.
 apps/desktop/src-tauri/runtime/
 
+# The party relay's build output and local wrangler state (services/relay).
+services/relay/public/
+services/relay/.wrangler/
+
 # Tauri build-time generated files (recreated by tauri-build on every build)
 apps/desktop/src-tauri/gen/
 

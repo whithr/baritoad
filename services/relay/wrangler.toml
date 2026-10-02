@@ -1,0 +1,28 @@
+# baritoad's party relay — Cloudflare Workers (docs/PARTY.md).
+# `pnpm dev` runs it locally (no Cloudflare account needed); `pnpm deploy`
+# publishes it to the account wrangler is signed in to. No secrets live here.
+name = "baritoad-relay"
+main = "src/worker.ts"
+compatibility_date = "2025-09-01"
+
+# The guest page's script, styles and font (built by scripts/build-guest.mjs).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[durable_objects.bindings]]
+name = "LIMITS"
+class_name = "Limiter"
+
+# SQLite-backed Durable Objects: the kind the free plan offers.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room", "Limiter"]
+
+[vars]
+# The address join links use; empty means the address the app connected to.
+PUBLIC_ORIGIN = ""
