@@ -441,6 +441,38 @@ fn queue_persists_across_reopen_mid_party() {
 }
 
 #[test]
+fn queue_add_many_keeps_order_and_skips_songs_without_timings() {
+    let mut store = LibraryStore::open_in_memory().unwrap();
+    let timed = |hash: &str, title: &str| SongUpsert {
+        timing_map_path: Some(PathBuf::from(format!("C:/music/{title}-karaoke/map.json"))),
+        ..upsert(hash, title, None)
+    };
+    let a = store.upsert_song(&timed("h1", "A")).unwrap();
+    let untimed = store.upsert_song(&upsert("h2", "Untimed", None)).unwrap();
+    let c = store.upsert_song(&timed("h3", "C")).unwrap();
+    let first = store.queue_add(c.id, None).unwrap();
+    let coll = store.create_collection("party").unwrap();
+
+    let n = store
+        .queue_add_many(&[c.id, untimed.id, a.id, 9999], Some(coll.id))
+        .unwrap();
+    assert_eq!(n, 2, "the untimed song and the missing id are skipped");
+    let entries = store.queue_list().unwrap();
+    assert_eq!(
+        entries.iter().map(|e| e.song.title.as_str()).collect::<Vec<_>>(),
+        vec!["C", "C", "A"],
+        "appended after what was queued, in the order given"
+    );
+    assert_eq!(entries[0].id, first.id);
+    assert_eq!(
+        entries.iter().map(|e| e.position).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    assert_eq!(entries[2].added_from_collection, Some(coll.id));
+    assert_eq!(store.queue_add_many(&[], None).unwrap(), 0);
+}
+
+#[test]
 fn settings_roundtrip() {
     let store = LibraryStore::open_in_memory().unwrap();
     assert!(store.setting("sort").unwrap().is_none());

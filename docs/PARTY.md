@@ -110,9 +110,9 @@ crates it brings) and `qrcodegen`.
 
 ## Milestones (after v1.0)
 
-1. Queue groundwork, if v1.0's queue auto-advance work didn't already do it:
-   schema v4, `karaoke://queue`, the Singer column, the between-songs Stage
-   screen.
+1. Queue groundwork: schema v4 and the Singer column. (`karaoke://queue`
+   and the between-songs Stage screen came with v1.0; the join code goes
+   beside its card.)
 2. The `party` core module, the protocol doc filled in, tests.
 3. Relay and guest page MVP with a development token (private repo).
 4. Relay client, Party menu and dialog, QR, Stage join screen, toads —

@@ -56,18 +56,32 @@ import {
   playerSetTempo,
   playerStatus,
   playerUnload,
-  queueList,
-  queueRemove,
+  onQueueChanged,
+  queueFinish,
+  queuePlay,
+  queueState,
+  queueStop,
   readCover,
   readThemeImage,
   readTimingMap,
   vocalLevels,
   type PlayerStatus,
+  type QueueState,
   type Song,
   type StretchConfigName,
   type TimingMap,
   type QueueEntry,
 } from "../api";
+import {
+  EMPTY_QUEUE,
+  due,
+  startCountdown,
+  tick,
+  toggleHold,
+  upNextOf,
+  waiting,
+  type Countdown,
+} from "../queueView";
 import { drawVisualizerFrame } from "../visualizer";
 import {
   loadThemeStore,
@@ -95,7 +109,7 @@ import {
   type LyricFrame,
 } from "../playerView";
 import { fmtTime } from "../format";
-import type { Route } from "../App";
+import { useSettings, type Route } from "../App";
 import { publishPrefs, subscribePrefs } from "../prefsSync";
 import { ROLE, loadDisplay, saveDisplay, stageFocus, stageShowOn } from "../stage";
 import {
@@ -108,6 +122,7 @@ import {
   GroupBox,
   Icon,
   Lcd,
+  LcdText,
   Select,
   Spinner,
   Tip,
@@ -125,6 +140,9 @@ const SEEK_STEP_BIG_S = 30;
 const GUIDE_STEP = 0.1;
 const TEMPO_STEP = 0.05;
 const CONTROLS_HIDE_MS = 3500;
+/** With stretch on, `finished` can lead the audible end by ≤ ~120 ms, and
+ *  loading the next song tears the stream down (player.rs "Song end"). */
+const TAIL_MS = 150;
 
 export default function PlayerView(props: {
   songId?: number;
@@ -334,11 +352,9 @@ export default function PlayerView(props: {
             rec.current.errsMs.push(Math.abs(after.lastErrorMs));
           }
           setStatus(st);
-        } else if (e.kind === "completed") {
-          // Paused-at-end state. NOTE for milestone 4 (queue auto-advance —
-          // not built here, deliberately): with stretch active this event
-          // leads the audible end by ≤ ~120 ms (ff9ff15 / stretch.rs docs).
         }
+        // "completed" needs nothing here: the "finished" status that comes
+        // with it drives the end of the song (below), TAIL_MS after it.
       });
     })();
     return () => {
@@ -813,6 +829,8 @@ export default function PlayerView(props: {
   }, []);
 
   const exit = useCallback(() => {
+    // Leaving mid-song: the queued entry stays first in Up next, unmarked.
+    queueStop().catch(() => undefined);
     if (ROLE === "player") {
       // Closing the stage unloads the engine (Rust) and hands focus back.
       getCurrentWindow()
@@ -840,59 +858,139 @@ export default function PlayerView(props: {
     [],
   );
 
-  // ---- queue: "Up next" caption + Sing next at the end -------------------
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
+  // ---- queue: the "Up next" caption and what comes after this song -------
+  // Rust owns the queue (library.rs) and emits it on every change, from
+  // either window; the focus refetch is only a fallback.
+  const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
     const load = () =>
-      queueList()
-        .then((q) => setQueue(q ?? []))
+      queueState()
+        .then((q) => !disposed && setQueue(q ?? EMPTY_QUEUE))
         .catch(() => undefined);
     load();
+    onQueueChanged((q) => !disposed && setQueue(q))
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
     window.addEventListener("focus", load);
-    window.addEventListener("baritoad:queue", load);
     return () => {
+      disposed = true;
+      unlisten?.();
       window.removeEventListener("focus", load);
-      window.removeEventListener("baritoad:queue", load);
     };
-  }, [songId]);
-  const upNext = queue.find((e) => e.song.id !== songId) ?? null;
+  }, []);
+  const upNext = waiting(queue).find((e) => e.song.id !== songId) ?? null;
 
+  const finishedAt = useRef<number | null>(null);
   const singEntry = useCallback(
     async (e: QueueEntry) => {
-      await queueRemove(e.id).catch(() => undefined);
-      if (ROLE === "player") window.location.hash = `#/play?id=${e.song.id}`;
+      const since = finishedAt.current == null ? Infinity : performance.now() - finishedAt.current;
+      if (since < TAIL_MS) await new Promise((r) => window.setTimeout(r, TAIL_MS - since));
+      try {
+        await queuePlay(e.id);
+      } catch (err) {
+        setError(String(err));
+        return;
+      }
+      // The same song queued twice: no new route, so play it from here.
+      if (e.song.id === songId) playerPlay().catch(() => undefined);
+      else if (ROLE === "player") window.location.hash = `#/play?id=${e.song.id}`;
       else go({ view: "play", songId: e.song.id });
     },
-    [go],
+    [go, songId],
   );
 
   // ---- the end of the song ------------------------------------------------
+  // The between-songs screen: something queued → it counts down to it (or
+  // waits, when automatic advance is off); nothing queued → "That's the
+  // song!", until someone queues a song in the Library. It belongs to this
+  // view, so it never outlives the song (a message box would).
   const ask = useMessageBox();
+  const { settings } = useSettings();
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const exitRef = useRef(exit);
+  exitRef.current = exit;
+  const [between, setBetween] = useState<{ next: QueueEntry | null; cd: Countdown } | null>(null);
   const finished = status?.state === "finished";
   const askedEnd = useRef(false);
+  const freshCountdown = () => startCountdown(settingsRef.current.advanceSeconds, settingsRef.current.autoAdvance);
+
   useEffect(() => {
     if (!finished) {
       askedEnd.current = false;
+      finishedAt.current = null;
+      setBetween(null);
       return;
     }
     if (askedEnd.current || props.measure) return;
     askedEnd.current = true;
-    void ask({
-      kind: "info",
-      title: "baritoad Player",
-      message: "That's the song!",
-      detail: upNext ? `Up next: ${upNext.song.title}${upNext.song.artist ? ` — ${upNext.song.artist}` : ""}` : undefined,
-      buttons: [
-        { id: "again", label: "Sing it &again" },
-        ...(upNext ? [{ id: "next", label: "Sing &next", isDefault: true }] : []),
-        { id: "done", label: "&Done", isDefault: !upNext, cancel: true },
-      ],
-    }).then((r) => {
-      if (r === "again") playerPlay().catch(() => undefined);
-      else if (r === "next" && upNext) void singEntry(upNext);
-      else exit();
-    });
-  }, [finished, ask, upNext, singEntry, exit, props.measure]);
+    finishedAt.current = performance.now();
+    void (async () => {
+      let q = queueRef.current;
+      if (songId != null) q = await queueFinish(songId).catch(() => q);
+      setQueue(q);
+      setBetween({ next: upNextOf(q), cd: freshCountdown() });
+    })();
+    // Runs once per finish; the rest is read through refs.
+  }, [finished, props.measure]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Up next changed while the screen is up (someone queued or removed a
+  // song in the Library): follow it. A song arriving after "That's the
+  // song!" gets a fresh countdown.
+  useEffect(() => {
+    if (!between) return;
+    const next = upNextOf(queue);
+    if (next?.id === between.next?.id) return;
+    setBetween((b) => b && { next, cd: next && !b.next ? freshCountdown() : b.cd });
+  }, [queue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!between?.next || between.cd.held) return;
+    if (due(between.cd)) {
+      const next = between.next;
+      setBetween(null);
+      void singEntry(next);
+      return;
+    }
+    const t = window.setTimeout(() => setBetween((b) => b && { ...b, cd: tick(b.cd) }), 1000);
+    return () => window.clearTimeout(t);
+  }, [between, singEntry]);
+
+  const betweenRef = useRef(between);
+  betweenRef.current = between;
+  const singNow = useCallback(() => {
+    const b = betweenRef.current;
+    if (!b?.next) return;
+    setBetween(null);
+    void singEntry(b.next);
+  }, [singEntry]);
+  const holdOrGo = useCallback(() => setBetween((b) => b && { ...b, cd: toggleHold(b.cd) }), []);
+  const singAgain = useCallback(() => {
+    setBetween(null);
+    playerPlay().catch(() => undefined);
+  }, []);
+  const doneSinging = useCallback(() => {
+    setBetween(null);
+    exitRef.current();
+  }, []);
+
+  const [nextCover, setNextCover] = useState<string | null>(null);
+  const nextCoverPath = between?.next?.song.cover_path ?? null;
+  useEffect(() => {
+    setNextCover(null);
+    if (!nextCoverPath) return;
+    let alive = true;
+    readCover(nextCoverPath)
+      .then((url) => alive && setNextCover(url))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [nextCoverPath]);
 
   // The key list is F1 (and each control's tooltip) — never a strip of
   // hints on the TV itself.
@@ -915,11 +1013,20 @@ export default function PlayerView(props: {
                 ["F", "Full screen"],
                 ...(ROLE === "player" ? [["F6", "Back to baritoad"]] : []),
                 ["Esc", ROLE === "player" ? "Close the stage" : "Back"],
+                ["", ""],
+                ["Between songs", ""],
+                ["Enter", "Sing the next song now"],
+                ["Space", "Wait / go on"],
+                ["Esc", "Done"],
               ] as [string, string][]
-            ).map(([k, v]) => (
-              <div key={k} style={{ display: "contents" }}>
-                <span>{k}</span>
-                <span>{v}</span>
+            ).map(([k, v], i) => (
+              <div key={i} style={{ display: "contents" }}>
+                {v === "" && k !== "" ? <b style={{ gridColumn: "1 / -1" }}>{k}</b> : (
+                  <>
+                    <span>{k}</span>
+                    <span>{v}</span>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -936,6 +1043,27 @@ export default function PlayerView(props: {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       pokeControls();
+      // Between songs: Enter sings the next one now, Space waits (or goes
+      // on waiting), Esc is Done. A focused button keeps its own Enter/Space.
+      if (betweenRef.current && !(tag === "BUTTON" && (e.key === "Enter" || e.key === " "))) {
+        const hasNext = !!betweenRef.current.next;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (hasNext) singNow();
+          else doneSinging();
+          return;
+        }
+        if (e.key === " ") {
+          e.preventDefault();
+          if (hasNext) holdOrGo();
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          doneSinging();
+          return;
+        }
+      }
       switch (e.key) {
         case " ":
           e.preventDefault();
@@ -1002,7 +1130,7 @@ export default function PlayerView(props: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, seekBy, nudgeGuide, nudgePitch, nudgeTempo, toggleFullscreen, exit, fullscreen, pokeControls, showKeys]);
+  }, [togglePlay, seekBy, nudgeGuide, nudgePitch, nudgeTempo, toggleFullscreen, exit, fullscreen, pokeControls, showKeys, singNow, holdOrGo, doneSinging]);
 
   // ---- seek bar -----------------------------------------------------------
   const barClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1075,6 +1203,19 @@ export default function PlayerView(props: {
           <div className="pk-scrim" aria-hidden />
           {visActive && <canvas className="pk-vis" ref={visCanvasRef} aria-hidden />}
 
+          {between && (
+            <BetweenSongs
+              next={between.next}
+              cd={between.cd}
+              cover={nextCover}
+              onSingNow={singNow}
+              onHold={holdOrGo}
+              onAgain={singAgain}
+              onDone={doneSinging}
+            />
+          )}
+
+          {!between && (
           <div className="pk-caption left w98 w-window" style={{ width: 320 }}>
             <TitleBar title="Now singing" active />
             <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 8px 6px" }}>
@@ -1088,8 +1229,9 @@ export default function PlayerView(props: {
               </div>
             </div>
           </div>
+          )}
 
-          {upNext && (
+          {upNext && !between && (
             <div className="pk-caption right w98 w-window" style={{ width: 260 }}>
               <TitleBar title="Up next" active={false} />
               <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1257,6 +1399,74 @@ function StageTitleBar(props: { title: string; active: boolean; onClose: () => v
         <CaptionButton glyph="max" label="Maximize" onClick={() => void w().toggleMaximize().catch(() => undefined)} />
         <CaptionButton glyph="close" label="Close" onClick={props.onClose} />
       </TitleBar>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Between songs (PLAN.md §3 up-next queue): who's next, the countdown, and
+// the four ways on. Static React only — the lyric frame loop is idle once a
+// song has finished, and the Four-Hook Rule is untouched.
+// ---------------------------------------------------------------------------
+
+function BetweenSongs(props: {
+  /** Null: nothing is queued — "That's the song!". */
+  next: QueueEntry | null;
+  cd: Countdown;
+  cover: string | null;
+  onSingNow: () => void;
+  onHold: () => void;
+  onAgain: () => void;
+  onDone: () => void;
+}) {
+  const { next, cd } = props;
+  return (
+    <div className="pk-between">
+      <div className="pk-between-card w98 w-window" role="dialog" aria-labelledby="pk-between-t">
+        <TitleBar title={next ? "Up next" : "baritoad Player"} icon={<Icon name={next ? "queue" : "app"} />} active />
+        <div className="pk-between-body">
+          <div className="w-sunken pk-between-cover">
+            {next && props.cover ? <img src={props.cover} alt="" /> : <Icon name="disc" size={96} />}
+          </div>
+          {next ? (
+            <div className="pk-between-text">
+              <b id="pk-between-t">{next.song.title}</b>
+              {next.song.artist && <span>{next.song.artist}</span>}
+              <div className="pk-between-count">
+                {cd.held ? (
+                  <span>Press Enter when the next singer is ready.</span>
+                ) : (
+                  <>
+                    <span>Starting in</span>
+                    <Lcd label="Seconds until the next song">
+                      <LcdText value={String(cd.left).padStart(2, " ")} size={40} />
+                    </Lcd>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="pk-between-text">
+              <b id="pk-between-t">That's the song!</b>
+              <span>Nothing else is in Up next.</span>
+            </div>
+          )}
+        </div>
+        <DialogButtons>
+          {next && (
+            <>
+              <Button isDefault onClick={props.onSingNow}>
+                Sing &now
+              </Button>
+              <Button onClick={props.onHold}>{cd.held ? "&Count down" : "&Wait"}</Button>
+            </>
+          )}
+          <Button onClick={props.onAgain}>Sing it &again</Button>
+          <Button isDefault={!next} onClick={props.onDone}>
+            &Done
+          </Button>
+        </DialogButtons>
+      </div>
     </div>
   );
 }

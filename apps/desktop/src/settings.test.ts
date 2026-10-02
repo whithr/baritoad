@@ -44,7 +44,23 @@ describe("parseSettings", () => {
       whileGaming: "cpu",
       libraryGroupBy: "none",
       lookupLyrics: false,
+      autoAdvance: true,
+      advanceSeconds: 10,
     });
+  });
+
+  it("starts the next song by itself unless that was switched off", () => {
+    expect(parseSettings(null).autoAdvance).toBe(true);
+    expect(parseSettings(JSON.stringify({ autoAdvance: false })).autoAdvance).toBe(false);
+    expect(parseSettings(JSON.stringify({ autoAdvance: "no" })).autoAdvance).toBe(true);
+  });
+
+  it("keeps the countdown between 3 and 60 whole seconds", () => {
+    expect(parseSettings(JSON.stringify({ advanceSeconds: 15 })).advanceSeconds).toBe(15);
+    expect(parseSettings(JSON.stringify({ advanceSeconds: 0 })).advanceSeconds).toBe(3);
+    expect(parseSettings(JSON.stringify({ advanceSeconds: 600 })).advanceSeconds).toBe(60);
+    expect(parseSettings(JSON.stringify({ advanceSeconds: 7.6 })).advanceSeconds).toBe(8);
+    expect(parseSettings(JSON.stringify({ advanceSeconds: "soon" })).advanceSeconds).toBe(10);
   });
 
   it("remembers what to do while gaming and drops a bogus choice", () => {

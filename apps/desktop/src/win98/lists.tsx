@@ -5,7 +5,8 @@
 // group header rows (rows arrive sorted by group); tree branches collapse
 // with the [+]/[-] box, ←/→ or a double-click.
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode } from "react";
+import { armDrag, registerDropTarget, type DragPayload } from "./drag";
 import { ContextMenu, type MenuEntry } from "./menus";
 
 // -------------------------------------------------------------- list view
@@ -42,9 +43,34 @@ export function ListView<T>(props: {
   /** Group header label for a row; rows must arrive sorted so each group is
    *  contiguous. A header row (label and count) opens every group. */
   groupOf?: (row: T) => string;
+  /** Rows can be dragged (drag.ts); null = this row can't. */
+  dragRow?: (row: T) => DragPayload | null;
+  /** The list takes drops; `slot` is the insert position among its rows. */
+  drop?: { accepts: (p: DragPayload) => boolean; onDrop: (p: DragPayload, slot: number) => void };
 }) {
   const id = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const { listRef } = props;
+  const setRoot = useCallback(
+    (el: HTMLDivElement | null) => {
+      rootRef.current = el;
+      if (typeof listRef === "function") listRef(el);
+      else if (listRef) (listRef as MutableRefObject<HTMLDivElement | null>).current = el;
+    },
+    [listRef],
+  );
+  const dropRef = useRef(props.drop);
+  dropRef.current = props.drop;
+  const droppable = !!props.drop;
+  useEffect(() => {
+    if (!droppable || !rootRef.current) return;
+    return registerDropTarget({
+      el: rootRef.current,
+      accepts: (p) => dropRef.current?.accepts(p) ?? false,
+      onDrop: (p, slot) => dropRef.current?.onDrop(p, slot),
+    });
+  }, [droppable]);
   const idx = props.rows.findIndex((r) => props.rowKey(r) === props.selected);
   const rowId = (k: string | number) => `${id}-r-${k}`;
 
@@ -102,7 +128,7 @@ export function ListView<T>(props: {
     : null;
   const body = (
     <div
-      ref={props.listRef}
+      ref={setRoot}
       className="w-list"
       role="grid"
       aria-label={props.ariaLabel}
@@ -156,6 +182,7 @@ export function ListView<T>(props: {
                 data-cursor={sel || undefined}
                 data-dim={props.rowDim?.(r) || undefined}
                 onMouseDown={() => props.onSelect(k, r)}
+                onPointerDown={props.dragRow ? (e) => armDrag(e, () => props.dragRow!(r)) : undefined}
                 onContextMenu={() => props.onSelect(k, r)}
                 onDoubleClick={() => props.onActivate?.(r)}
               >

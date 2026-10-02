@@ -667,6 +667,24 @@ impl LibraryStore {
             .ok_or_else(|| Error::Db("queued entry not found after insert".into()))
     }
 
+    /// Append several songs in the given order (a whole collection, or a
+    /// shuffle of one) in one transaction. Songs without timings can't be
+    /// sung yet and are skipped; returns how many were queued.
+    pub fn queue_add_many(&mut self, song_ids: &[i64], from_collection: Option<i64>) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let mut added = 0;
+        for &id in song_ids {
+            added += tx.execute(
+                "INSERT INTO queue (song_id, position, added_from_collection)
+                 SELECT s.id, (SELECT COALESCE(MAX(position) + 1, 0) FROM queue), ?2
+                 FROM songs s WHERE s.id = ?1 AND s.timing_map_path IS NOT NULL",
+                params![id, from_collection],
+            )?;
+        }
+        tx.commit()?;
+        Ok(added)
+    }
+
     pub fn queue_remove(&self, entry_id: i64) -> Result<bool> {
         let n = self
             .conn

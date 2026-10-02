@@ -209,6 +209,13 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
             if let Some(player) = app.try_state::<Arc<PlayerHandle>>() {
                 player.unload_detached();
             }
+            // Nothing is being sung once the Stage is gone; an unfinished
+            // queued song stays first in Up next.
+            if let Some(library) = app.try_state::<Arc<crate::library::LibraryHandle>>() {
+                if library.stop_playing() {
+                    crate::library::emit_queue(app, &library);
+                }
+            }
             if let Some(state) = app.try_state::<StageState>() {
                 if let Ok(mut r) = state.route.lock() {
                     *r = None;

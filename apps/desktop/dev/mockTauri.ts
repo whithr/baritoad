@@ -155,9 +155,16 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "job_lyrics":
       // The failed job ran with pasted lyrics; the rest transcribed.
       return r(args?.outDir === "j4" ? LYRICS.join("\n") : null);
-    case "library_songs":
-      // ?empty shows a first-run library.
-      return r(new URLSearchParams(location.search).has("empty") ? [] : SONGS);
+    case "library_songs": {
+      // ?empty shows a first-run library. Collection 1 is Cassie's hits
+      // (one of them still without timings); 2 is everything else.
+      if (new URLSearchParams(location.search).has("empty")) return r([]);
+      const coll = (args?.query as { collection?: number } | undefined)?.collection;
+      const cassie = [1, 5, 6, 9];
+      if (coll === 1) return r(SONGS.filter((s) => cassie.includes(s.id)));
+      if (coll === 2) return r(SONGS.filter((s) => !cassie.includes(s.id)));
+      return r(SONGS);
+    }
     case "song_update_details": {
       const song = SONGS.find((s) => s.id === args?.songId) as Record<string, unknown> | undefined;
       const d = args?.details as { title: string; artist?: string | null; year?: number | null; genre?: string | null; language_tag?: string | null };
@@ -167,7 +174,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return r(song);
     }
     case "library_collections":
-      return r([{ id: 1, name: "Cassie's hits", created: 0, song_count: 3 }, { id: 2, name: "Christmas party", created: 0, song_count: 12 }]);
+      return r([{ id: 1, name: "Cassie's hits", created: 0, song_count: 4 }, { id: 2, name: "Christmas party", created: 0, song_count: 6 }]);
     case "library_song":
       return r(SONGS.find((s) => s.id === args?.songId) ?? null);
     case "read_timing_map":
@@ -177,7 +184,73 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "vocal_levels":
       return r(levels());
     case "queue_list":
-      return r([{ id: 1, position: 0, song: SONGS[1] }, { id: 2, position: 1, song: SONGS[3] }, { id: 3, position: 2, song: SONGS[4] }]);
+      return r(mockQueue().entries);
+    case "queue_state":
+      return r(mockQueue());
+    case "queue_add": {
+      const song = SONGS.find((s) => s.id === args?.songId);
+      if (!song) throw new Error("no such song");
+      const q = mockQueue();
+      const e = { id: nextEntryId(q), position: q.entries.length, added_from_collection: (args?.fromCollection as number | null) ?? null, song };
+      q.entries.push(e);
+      saveQueue(q);
+      return r(e);
+    }
+    case "queue_add_many": {
+      const q = mockQueue();
+      let n = 0;
+      for (const id of (args?.songIds as number[]) ?? []) {
+        const song = SONGS.find((s) => s.id === id && s.timing_map_path);
+        if (!song) continue;
+        q.entries.push({ id: nextEntryId(q), position: q.entries.length, added_from_collection: (args?.fromCollection as number | null) ?? null, song });
+        n++;
+      }
+      saveQueue(q);
+      return r(n);
+    }
+    case "queue_remove": {
+      const q = mockQueue();
+      const before = q.entries.length;
+      q.entries = q.entries.filter((e) => e.id !== args?.entryId);
+      saveQueue(q);
+      return r(q.entries.length < before);
+    }
+    case "queue_move": {
+      const q = mockQueue();
+      const from = q.entries.findIndex((e) => e.id === args?.entryId);
+      if (from < 0) throw new Error(`no queue entry ${String(args?.entryId)}`);
+      const [e] = q.entries.splice(from, 1);
+      q.entries.splice(Math.min(Number(args?.toIndex ?? 0), q.entries.length), 0, e);
+      saveQueue(q);
+      return r(undefined);
+    }
+    case "queue_clear":
+      saveQueue({ entries: [], playing: null });
+      return r(undefined);
+    case "queue_play": {
+      const q = mockQueue();
+      const e = q.entries.find((x) => x.id === args?.entryId);
+      if (!e) throw new Error("that song isn't in Up next anymore");
+      if (q.playing != null && q.playing !== e.id) q.entries = q.entries.filter((x) => x.id !== q.playing);
+      q.playing = e.id;
+      saveQueue(q);
+      return r(e);
+    }
+    case "queue_finish": {
+      const q = mockQueue();
+      const cur = q.entries.find((x) => x.id === q.playing);
+      if (cur && cur.song.id === args?.songId) {
+        q.entries = q.entries.filter((x) => x.id !== cur.id);
+        q.playing = null;
+      }
+      saveQueue(q);
+      return r(mockQueue());
+    }
+    case "queue_stop": {
+      const q = mockQueue();
+      if (q.playing != null) saveQueue({ ...q, playing: null });
+      return r(undefined);
+    }
     case "probe_audio":
       return r({ title: "New Song", artist: "Someone", duration_s: 200, from_tags: true });
     case "clean_lyrics_preview":
@@ -234,13 +307,47 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "stage_focus":
     case "stage_show_on":
       return r(undefined);
-    case "player_load":
-      // ?finished loads the song already over (the end-of-song box).
+    case "player_load": {
+      // Loading anything but the entry being sung unmarks it (player.rs).
+      const q = mockQueue();
+      const cur = q.entries.find((x) => x.id === q.playing);
+      if (cur && cur.song.id !== args?.songId) saveQueue({ ...q, playing: null });
+      // ?finished loads the song already over (the end-of-song box and the
+      // between-songs screen).
       return r({ state: new URLSearchParams(location.search).has("finished") ? "finished" : "playing", position: 0, duration: DURATION, loaded_seconds: DURATION, guide: 0.4, pitch: 0, tempo: 1, stretch_config: "default", song_id: args?.songId ?? null, single_source: false, device: "Mock output", callbacks: 0, stalls: 0, max_gap_ms: 0, stretch_engaged: false, mmcss: "n/a" });
+    }
     default:
       return r(undefined);
   }
 }
+
+// Up next stand-in. Kept in localStorage so the Library tab and the stage
+// tab share one queue, and announced on the event bus like library.rs does.
+type MockEntry = { id: number; position: number; added_from_collection?: number | null; song: (typeof SONGS)[number] };
+type MockQueue = { entries: MockEntry[]; playing: number | null };
+const QUEUE_KEY = "baritoad-mock-queue";
+function mockQueue(): MockQueue {
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    if (raw) {
+      const q = JSON.parse(raw) as MockQueue;
+      return { playing: q.playing, entries: q.entries.map((e, i) => ({ ...e, position: i })) };
+    }
+  } catch {
+    // fall through to the starter queue
+  }
+  return { entries: [{ id: 1, position: 0, song: SONGS[1] }, { id: 2, position: 1, song: SONGS[3] }, { id: 3, position: 2, song: SONGS[4] }], playing: null };
+}
+function saveQueue(q: MockQueue) {
+  const tidy = { playing: q.entries.some((e) => e.id === q.playing) ? q.playing : null, entries: q.entries.map((e, i) => ({ ...e, position: i })) };
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(tidy));
+  } catch {
+    // private mode: this tab only
+  }
+  void emit("karaoke://queue", tidy);
+}
+const nextEntryId = (q: MockQueue) => Math.max(0, ...q.entries.map((e) => e.id)) + 1;
 
 export function convertFileSrc(_path: string): string {
   if (!wavUrl) wavUrl = silentWav(DURATION);

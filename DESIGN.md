@@ -248,9 +248,24 @@ Separator · icons.
   scope (1 2 3) and save/check state.
 - **Stage (TV player)** — separate window; full-bleed stage; chrome is a
   floating tool-window dock (auto-hides; no key-hint strip on the TV — keys
-  are F1 and tooltips) plus "Now singing"/"Up next" captions. Player Options
-  holds the song's theme and the display; stretch quality and diagnostics are
-  dev builds only.
+  are F1 and tooltips) plus "Now singing"/"Up next" captions. When the dock
+  hides, the seek bar stays where it was, slimmed, so the room can see how
+  much song is left. Player Options holds the song's theme and the display;
+  stretch quality and diagnostics are dev builds only.
+- **Between songs** — when a song ends the Stage shows one centered card at
+  couch size (pixel font at 3× for the title, 2× for the rest): who's next,
+  their cover, and a DSEG countdown (Properties › Player: on by default, 10 s)
+  with Sing now · Wait · Sing it again · Done (Enter · Space · — · Esc).
+  Nothing queued: the same card says "That's the song!" until a song is
+  queued, which starts a countdown. It belongs to the Stage, never a message
+  box (a box would outlive the song). Party mode's join code will sit beside
+  the card. A new song starts at key 0 and tempo 1; the vocal guide carries.
+- **Up next** — Rust owns it and every change reaches both windows. The song
+  on the Stage stays listed with ▶ until it's sung (then it leaves), so a
+  restart mid-song still has it first. Songs drag in from the song list (a
+  2-px insert line shows where); entries drag to reorder; Q and Alt+↑/↓ do
+  the same from the keyboard. Collection › Add all / Shuffle into Up next
+  queue a whole collection, skipping songs that aren't ready.
 - **Properties** — tabbed property sheet (Appearance, Player, Processing). The
   Bench remembers its last view and nudge scope, so they aren't settings.
 - **Player Themes** — display-properties-style dialog with a monitor preview.

@@ -303,6 +303,89 @@
   visibility: hidden;
 }
 
+/* With the controls hidden the seek bar stays, slimmed, where the dock was:
+   the room can still see how much song is left. Same fill element (hook 3),
+   so the frame loop does nothing new. */
+.controls-hidden .pk-timebar {
+  visibility: visible;
+  height: 6px;
+  padding: 0;
+  box-shadow: none;
+  background: rgba(0, 0, 16, 0.6);
+}
+
+/* ---- between songs ---------------------------------------------------------
+   Centered over the stage at couch size: the pixel font at 2×, crisp. The row
+   leaves room beside the card for party mode's join code (docs/PARTY.md). */
+
+.pk-between {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px;
+  background: rgba(0, 0, 16, 0.55);
+}
+
+.pk-between-card {
+  width: min(1000px, 100%);
+}
+
+.pk-between-body {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 18px 8px;
+}
+
+.pk-between-cover {
+  width: 168px;
+  height: 168px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #008080;
+}
+
+.pk-between-cover img {
+  width: 164px;
+  height: 164px;
+  object-fit: cover;
+}
+
+/* Whole multiples of the 16-px pixel font: 3× title, 2× the rest. */
+.pk-between-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  font-size: 32px;
+  line-height: 36px;
+}
+
+.pk-between-text > b {
+  font-size: 48px;
+  line-height: 54px;
+}
+
+.pk-between-text > b,
+.pk-between-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pk-between-count {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+
 /* the seek bar: a sunken track whose fill width is hook (3) */
 .pk-timebar {
   position: relative;

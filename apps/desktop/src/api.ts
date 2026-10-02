@@ -395,10 +395,24 @@ export const collectionRemoveSong = (collectionId: number, songId: number) =>
 export const songCollections = (songId: number) =>
   invoke<number[]>("song_collections", { songId });
 
+/** Up next plus the entry on the Stage. An entry stays listed while it's
+ *  sung and leaves when its song finishes or is skipped (library.rs). */
+export interface QueueState {
+  entries: QueueEntry[];
+  playing: number | null;
+}
+
 export const queueList = () => invoke<QueueEntry[]>("queue_list");
+
+export const queueState = () => invoke<QueueState>("queue_state");
 
 export const queueAdd = (songId: number, fromCollection?: number) =>
   invoke<QueueEntry>("queue_add", { songId, fromCollection: fromCollection ?? null });
+
+/** Several songs in this order; ones without timings are skipped. Returns
+ *  how many were queued. */
+export const queueAddMany = (songIds: number[], fromCollection?: number) =>
+  invoke<number>("queue_add_many", { songIds, fromCollection: fromCollection ?? null });
 
 export const queueRemove = (entryId: number) => invoke<boolean>("queue_remove", { entryId });
 
@@ -406,6 +420,20 @@ export const queueMoveEntry = (entryId: number, toIndex: number) =>
   invoke<void>("queue_move", { entryId, toIndex });
 
 export const queueClear = () => invoke<void>("queue_clear");
+
+/** About to sing this entry (an entry playing before it leaves the list). */
+export const queuePlay = (entryId: number) => invoke<QueueEntry>("queue_play", { entryId });
+
+/** Left the player mid-song: the unfinished entry stays first in line. */
+export const queueStop = () => invoke<void>("queue_stop");
+
+/** This song reached its end; if it was the queued entry being sung, it
+ *  leaves the list. Returns the queue as it is now. */
+export const queueFinish = (songId: number) => invoke<QueueState>("queue_finish", { songId });
+
+/** Every queue change, from either window (karaoke://queue). */
+export const onQueueChanged = (handler: (q: QueueState) => void): Promise<UnlistenFn> =>
+  listen<QueueState>("karaoke://queue", (event) => handler(event.payload));
 
 export const readCover = (path: string) => invoke<string>("read_cover", { path });
 

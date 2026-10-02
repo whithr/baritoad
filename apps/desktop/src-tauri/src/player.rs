@@ -28,8 +28,12 @@
 //! ## Song end
 //! `PlayerEvent::Completed` is forwarded as `{kind: "completed"}`. With
 //! stretch active it can lead the audible tail by ≤ ~120 ms (stretch.rs
-//! module docs) — milestone 4's queue auto-advance must debounce on that;
-//! this milestone's UI just lands in a paused-at-end state.
+//! module docs), so the Stage's auto-advance waits at least
+//! `TAIL_MS` (PlayerView.tsx) after the finished state before it loads the
+//! next song — a load tears the current stream down.
+//!
+//! A new song starts at key 0 and tempo 1 ([`do_load`]); the vocal guide
+//! carries over.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -41,7 +45,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use karaoke_core::player::{Player, PlayerEvent, StretchConfig, TransportState};
 
-use crate::library::LibraryHandle;
+use crate::library::{emit_queue, LibraryHandle};
 use crate::review::resolve_song_sources;
 
 /// Single event channel the player view subscribes to.
@@ -376,6 +380,14 @@ fn do_load(
     }
     let p = host.player.as_mut().expect("just ensured");
 
+    // A new song starts in its own key and tempo: the last singer's ±2 isn't
+    // the next one's. Reloading the same song keeps them, and the vocal guide
+    // always carries over (a household setting, not a per-song one).
+    if song_id.is_none() || song_id != host.song_id {
+        p.set_pitch_semitones(0.0);
+        p.set_tempo_rate(1.0);
+    }
+
     // Prefer the stem pair (real karaoke mode); fall back to the original mix
     // when separation outputs are gone (guide becomes inert — status says so).
     let existing = |o: Option<PathBuf>| o.filter(|q| q.is_file());
@@ -425,12 +437,18 @@ async fn await_reply<T: Send + 'static>(rx: Receiver<T>) -> Result<T, String> {
 /// (autoplay is the entry-point contract — Play on a card starts singing).
 #[tauri::command]
 pub async fn player_load(
+    app: AppHandle,
     library: State<'_, Arc<LibraryHandle>>,
     player: State<'_, Arc<PlayerHandle>>,
     song_id: Option<i64>,
     map_path: Option<String>,
     autoplay: Option<bool>,
 ) -> Result<PlayerStatus, String> {
+    // Loading anything but the queued entry being sung means that entry
+    // isn't being sung anymore; it stays in Up next.
+    if library.stop_playing_unless(song_id) {
+        emit_queue(&app, &library);
+    }
     let (inst, voc, orig) = resolve_song_sources(&library, song_id, map_path.as_deref())?;
     let autoplay = autoplay.unwrap_or(true);
     let rx = roundtrip(&player, |reply| PlayerCmd::Load {
@@ -514,6 +532,8 @@ pub async fn player_status(player: State<'_, Arc<PlayerHandle>>) -> Result<Playe
 }
 
 /// Drop the engine (leaving the player view releases the output stream).
+/// It leaves the queue alone: unmounts aren't decisions (React runs effects
+/// twice in dev), so leaving the player says so itself (`queue_stop`).
 #[tauri::command]
 pub async fn player_unload(player: State<'_, Arc<PlayerHandle>>) -> Result<(), String> {
     let rx = roundtrip(&player, PlayerCmd::Unload)?;

@@ -27,11 +27,14 @@ import {
   libraryDeleteSong,
   librarySongs,
   queueAdd,
+  queueAddMany,
   queueClear,
-  queueList,
   queueMoveEntry,
+  queuePlay,
   queueRemove,
+  queueState,
   onLibraryChanged,
+  onQueueChanged,
   retryJob,
   scanImport,
   songCollections,
@@ -40,6 +43,7 @@ import {
   type ImportQueued,
   type ImportScan,
   type QueueEntry,
+  type QueueState,
   type Song,
 } from "../api";
 import type { Route } from "../App";
@@ -60,6 +64,7 @@ import { fmtDuration, sortBy, statusFor, type SongStatus, type SortDir } from ".
 import {
   AppFrame,
   Button,
+  Glyph,
   GroupBox,
   Hr,
   Icon,
@@ -76,12 +81,15 @@ import {
   useAccelerators,
   useMessageBox,
   usePrompt,
+  type DragPayload,
   type Column,
   type MenuDef,
   type MenuEntry,
   type TreeNode,
 } from "../win98";
 import { openStage } from "../stage";
+import { EMPTY_QUEUE, moveTarget, shuffled, waiting } from "../queueView";
+import CollectionPicker from "./CollectionPicker";
 import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
@@ -186,7 +194,10 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
   const [selected, setSelected] = useState<number | null>(null);
   const [inColls, setInColls] = useState<number[]>([]);
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
+  const [qstate, setQstate] = useState<QueueState>(EMPTY_QUEUE);
+  const queue = qstate.entries;
+  /** The song that just became ready, being filed into a collection. */
+  const [fileSong, setFileSong] = useState<{ id: number; title: string } | null>(null);
   const [queueSel, setQueueSel] = useState<number | null>(null);
   const [wizard, setWizard] = useState<WizardTarget | null>(null);
   const [procJob, setProcJob] = useState<number | null>(null);
@@ -249,20 +260,22 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     };
   }, [refresh]);
 
-  const loadQueue = useCallback(() => {
-    queueList()
-      .then((q) => setQueue(q ?? []))
-      .catch(() => undefined);
-  }, []);
+  // Up next is Rust's (library.rs): every change, from either window, comes
+  // back as the whole queue. Loaded once here, then followed.
   useEffect(() => {
-    loadQueue();
-    window.addEventListener("baritoad:queue", loadQueue);
-    return () => window.removeEventListener("baritoad:queue", loadQueue);
-  }, [loadQueue]);
-  const queueChanged = () => {
-    loadQueue();
-    window.dispatchEvent(new Event("baritoad:queue"));
-  };
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    queueState()
+      .then((q) => !disposed && setQstate(q ?? EMPTY_QUEUE))
+      .catch(() => undefined);
+    onQueueChanged((q) => !disposed && setQstate(q))
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   const statuses = useMemo(() => {
     const m = new Map<number, SongStatus>();
@@ -340,11 +353,14 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           detail: "The words are lined up with the singing. Give the timing a quick check before you sing it.",
           buttons: [
             { id: "check", label: "Check &timing", isDefault: true },
+            ...(p.job.library_song_id != null ? [{ id: "file", label: "Add to &collection…" }] : []),
             { id: "later", label: "&Later", cancel: true },
           ],
         }).then((r) => {
           if (r === "check" && p.job.map_path) {
             go({ view: "song", mapPath: p.job.map_path, songId: p.job.library_song_id, title: p.job.title });
+          } else if (r === "file" && p.job.library_song_id != null) {
+            setFileSong({ id: p.job.library_song_id, title: p.job.title });
           }
         });
       } else if (p.job.status === "failed") {
@@ -572,7 +588,6 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     if (!s?.timing_map_path) return;
     try {
       await queueAdd(s.id, collectionId ?? undefined);
-      queueChanged();
     } catch (e) {
       setError(String(e));
     }
@@ -621,7 +636,6 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     try {
       await libraryDeleteSong(song.id);
       await refresh();
-      queueChanged();
     } catch (e) {
       setError(String(e));
     }
@@ -680,24 +694,70 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   // queue
   const qIdx = queue.findIndex((e) => e.id === queueSel);
   const qEntry = qIdx >= 0 ? queue[qIdx] : null;
+  const waitingQueue = waiting(qstate);
   const singNext = async () => {
-    const e = qEntry ?? queue[0];
+    const e = qEntry && qEntry.id !== qstate.playing ? qEntry : waitingQueue[0];
     if (!e) return;
-    await queueRemove(e.id).catch(() => undefined);
-    queueChanged();
+    try {
+      await queuePlay(e.id);
+    } catch (err) {
+      setError(String(err));
+      return;
+    }
     await singSong(e.song.id);
+  };
+  /** A drag landed on Up next at `slot` (before row `slot`). */
+  const dropOnQueue = async (p: DragPayload, slot: number) => {
+    try {
+      if (p.kind === "song") {
+        const e = await queueAdd(p.value as number, collectionId ?? undefined);
+        if (slot < queue.length) await queueMoveEntry(e.id, slot);
+        setQueueSel(e.id);
+      } else if (p.kind === "entry") {
+        const from = queue.findIndex((e) => e.id === p.value);
+        if (from < 0) return;
+        const to = moveTarget(from, slot);
+        if (to !== from) await queueMoveEntry(p.value as number, to);
+        setQueueSel(p.value as number);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  /** Collection › Add all / Shuffle into Up next, in collection order (or
+   *  shuffled); songs that aren't ready to sing stay behind. */
+  const queueCollection = async (shuffle: boolean) => {
+    if (!collection) return;
+    try {
+      const songs = await librarySongs({ collection: collection.id, sort: "collection_order" });
+      const ready = songs.filter((s) => !!s.timing_map_path);
+      if (ready.length === 0) {
+        await ask({
+          kind: "info",
+          title: "Up next",
+          message: (
+            <>
+              None of the songs in <b>{collection.name}</b> are ready to sing yet.
+            </>
+          ),
+          detail: "A song is ready once its words are lined up with the singing.",
+        });
+        return;
+      }
+      await queueAddMany((shuffle ? shuffled(ready) : ready).map((s) => s.id), collection.id);
+    } catch (e) {
+      setError(String(e));
+    }
   };
   const moveQueue = async (delta: number) => {
     if (!qEntry) return;
     const to = qIdx + delta;
     if (to < 0 || to >= queue.length) return;
     await queueMoveEntry(qEntry.id, to).catch((e) => setError(String(e)));
-    queueChanged();
   };
   const removeQueued = async () => {
     if (!qEntry) return;
     await queueRemove(qEntry.id).catch(() => undefined);
-    queueChanged();
   };
   const clearQueue = async () => {
     const r = await ask({
@@ -711,7 +771,6 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     });
     if (r === "clear") {
       await queueClear().catch(() => undefined);
-      queueChanged();
     }
   };
 
@@ -801,6 +860,9 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         { label: "&New…", run: () => void newCollection() },
         { label: "&Rename…", accel: "F2", run: () => void renameCollection(), disabled: !collection },
         { label: "&Delete…", run: () => void deleteCollection(), disabled: !collection },
+        "-",
+        { label: "Add all to &Up next", run: () => void queueCollection(false), disabled: !collection },
+        { label: "&Shuffle into Up next", run: () => void queueCollection(true), disabled: !collection },
       ],
     },
     {
@@ -985,7 +1047,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                   : "No songs here.";
 
   const queueMenu: MenuEntry[] = [
-    { label: "&Sing now", accel: "Enter", run: () => void singNext(), disabled: !qEntry },
+    { label: "&Sing now", accel: "Enter", run: () => void singNext(), disabled: !qEntry || qEntry.id === qstate.playing },
     "-",
     { label: "Move &up", accel: "Alt+↑", run: () => void moveQueue(-1), disabled: !qEntry || qIdx === 0 },
     { label: "Move &down", accel: "Alt+↓", run: () => void moveQueue(1), disabled: !qEntry || qIdx === queue.length - 1 },
@@ -1052,6 +1114,9 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           contextMenu={
             collection
               ? [
+                  { label: "Add all to &Up next", run: () => void queueCollection(false) },
+                  { label: "&Shuffle into Up next", run: () => void queueCollection(true) },
+                  "-",
                   { label: "&Rename…", accel: "F2", run: () => void renameCollection() },
                   { label: "&Delete…", run: () => void deleteCollection() },
                   "-",
@@ -1126,6 +1191,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             groupOf={groupBy !== "none" ? labelOf : undefined}
             empty={emptyText}
             contextMenu={songMenu}
+            dragRow={(s) => (s.timing_map_path ? { kind: "song", value: s.id, label: s.title } : null)}
             style={{ flexGrow: 1 }}
             onKey={(e) => {
               if ((e.key === "q" || e.key === "Q") && !e.ctrlKey && !e.altKey) {
@@ -1142,7 +1208,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             }}
           />
 
-          <GroupBox label={`Up next (${queue.length})`} style={{ flexShrink: 0 }}>
+          <GroupBox label={`Up next (${waitingQueue.length})`} style={{ flexShrink: 0 }}>
             <div style={{ display: "flex", gap: 10 }}>
               <ListView<QueueEntry>
                 ariaLabel="Up next"
@@ -1153,9 +1219,24 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                 onSelect={(k) => setQueueSel(k as number)}
                 onActivate={() => void singNext()}
                 contextMenu={queueMenu}
-                empty="Nothing queued. Select a song and press Q."
+                dragRow={(e) => (e.id === qstate.playing ? null : { kind: "entry", value: e.id, label: e.song.title })}
+                drop={{ accepts: (p) => p.kind === "song" || p.kind === "entry", onDrop: (p, slot) => void dropOnQueue(p, slot) }}
+                empty="Nothing queued. Select a song and press Q, or drag it here."
                 columns={[
-                  { key: "pos", label: "#", width: "36px", render: (e) => e.position + 1 },
+                  {
+                    key: "pos",
+                    label: "#",
+                    width: "36px",
+                    // The song on the Stage shows ▶; the rest count from 1.
+                    render: (e) =>
+                      e.id === qstate.playing ? (
+                        <span title="On the Stage now" aria-label="On the Stage now">
+                          <Glyph name="play" />
+                        </span>
+                      ) : (
+                        waitingQueue.indexOf(e) + 1
+                      ),
+                  },
                   { key: "title", label: "Title", width: "minmax(0, 1.4fr)", render: (e) => e.song.title },
                   { key: "artist", label: "Artist", width: "minmax(0, 1fr)", render: (e) => e.song.artist ?? "" },
                   { key: "len", label: "Length", width: "64px", render: (e) => fmtDuration(e.song.duration_s) ?? "" },
@@ -1179,7 +1260,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                 }}
               />
               <div style={{ display: "flex", flexDirection: "column", gap: 5, width: 112, flexShrink: 0 }}>
-                <Button isDefault onClick={() => void singNext()} disabled={queue.length === 0} style={{ width: "100%" }}>
+                <Button isDefault onClick={() => void singNext()} disabled={waitingQueue.length === 0} style={{ width: "100%" }}>
                   Sing &next
                 </Button>
                 <Button onClick={() => void removeQueued()} disabled={!qEntry} style={{ width: "100%" }}>
@@ -1240,6 +1321,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       />
       {dialogs.element}
       <ImportDialog scan={importScan} onClose={() => setImportScan(null)} onQueued={onImportQueued} />
+      <CollectionPicker song={fileSong} collections={collections} onClose={() => setFileSong(null)} onAdded={() => void refresh()} />
       <LinkDialog
         initialText={linkText}
         onClose={() => setLinkText(null)}

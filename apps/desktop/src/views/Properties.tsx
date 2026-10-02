@@ -8,9 +8,9 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { gameStatus, type GameStatus } from "../api";
 import { useSettings } from "../App";
-import type { Settings } from "../settings";
+import { ADVANCE_SECONDS_MAX, ADVANCE_SECONDS_MIN, type Settings } from "../settings";
 import { loadDisplay, saveDisplay } from "../stage";
-import { Button, Checkbox, Dialog, DialogButtons, GroupBox, ListView, RadioGroup, Select, Tabs } from "../win98";
+import { Button, Checkbox, Dialog, DialogButtons, GroupBox, ListView, RadioGroup, Select, Spinner, Tabs } from "../win98";
 
 type Tab = "appearance" | "player" | "processing";
 
@@ -146,6 +146,35 @@ export default function Properties(props: { open: boolean; onClose: () => void; 
               <GroupBox label="Stage theme">
                 <div>
                   <Button onClick={props.onPlayerThemes}>Player &Themes…</Button>
+                </div>
+              </GroupBox>
+              <GroupBox label="Between songs">
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, lineHeight: "16px" }}>
+                  <Checkbox
+                    checked={draft.autoAdvance}
+                    onChange={(v) => change({ autoAdvance: v })}
+                    label="Start the next song in Up next &automatically"
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 19 }}>
+                    <label htmlFor="pr-advance" data-disabled={!draft.autoAdvance || undefined}>
+                      After a countdown of
+                    </label>
+                    <Spinner
+                      id="pr-advance"
+                      value={draft.advanceSeconds}
+                      onChange={(v) => change({ advanceSeconds: Math.round(Math.min(ADVANCE_SECONDS_MAX, Math.max(ADVANCE_SECONDS_MIN, v))) })}
+                      min={ADVANCE_SECONDS_MIN}
+                      max={ADVANCE_SECONDS_MAX}
+                      step={1}
+                      width={56}
+                      ariaLabel="Countdown, in seconds"
+                      disabled={!draft.autoAdvance}
+                    />
+                    <span>seconds</span>
+                  </div>
+                  <div className="w-muted" style={{ paddingLeft: 19 }}>
+                    Off: the Stage shows who's next and waits for Sing now.
+                  </div>
                 </div>
               </GroupBox>
               <GroupBox label="TV display">
