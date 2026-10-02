@@ -22,9 +22,12 @@ Current phase: **Phase 3 — player, collections, polish**, finishing v1.0
 - The party relay carries the queue and song metadata only — never audio or
   lyrics. Party mode is free: nobody signs in to it, host or guest — the
   only account is the paid cloud library.
-- The app is **open source (GPL-3.0-or-later)** — say so plainly. Our
-  servers (party relay, cloud library) are ours, closed, and live outside
-  this repo: never put server code or its secrets here (PLAN.md §1, §8).
+- The app and the party relay are **open source (GPL-3.0-or-later)** — say
+  so plainly. The relay lives here, in `services/relay/` (owner decision
+  2026-10-02). The cloud library's server is ours, closed, and lives outside
+  this repo: never put its code here. Never commit secrets for any server —
+  API tokens, keys, account credentials stay in Cloudflare and CI settings
+  (PLAN.md §1, §8).
 - Never commit audio files or model weights to the repo. Test audio is
   copyrighted; weights go on the mirror (Cloudflare R2, PLAN.md §5) with
   provenance in MODEL_LICENSES.md.
@@ -80,4 +83,6 @@ Current phase: **Phase 3 — player, collections, polish**, finishing v1.0
   `.claude/skills/prep-song-import/` — the agent workflow for getting a
   user's audio + lyrics files into it (`karaoke scan` is the check)
 - `docs/PARTY.md`, `docs/PARTY-PROTOCOL.md` — party mode's design and the
-  app ⇄ relay wire protocol (the relay itself lives in a private repo)
+  app ⇄ relay wire protocol
+- `services/relay/` — the party relay and guest page (Cloudflare Workers;
+  open, GPL-3.0-or-later)

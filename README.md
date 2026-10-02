@@ -12,8 +12,9 @@ polish) of [PLAN.md](PLAN.md). The Phase 0 feasibility spikes came back GO
 build it, use it, change it, share it, binaries included. Party mode, which
 lets guests join from their phones, is free too. The one paid thing is the
 cloud library, which keeps your songs in your own private account so they
-follow you to your other computers (PLAN.md §8). The servers behind both are
-ours and aren't in this repo.
+follow you to your other computers (PLAN.md §8). Party mode's relay is open
+source too, in [services/relay/](services/relay/); the cloud library's server
+is ours and isn't in this repo.
 
 *Additional permission under GNU GPL version 3 section 7:* if you modify this
 program, or any covered work, by linking or combining it with Microsoft

@@ -1,10 +1,11 @@
 # Party mode — design
 
-Status: **designed, not built.** Party mode is free — it runs through our
-relay, but nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01).
-It starts once v1.0 is finished (PLAN.md §9 Phase 4); the public launch
-waits for it. This page is the design the desktop side will be built
-to. The wire protocol is in [PARTY-PROTOCOL.md](PARTY-PROTOCOL.md).
+Status: **being built** (started 2026-10-02, owner's call, ahead of the
+last v1.0 checks). Party mode is free — it runs through our relay, but
+nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01). The relay
+and guest page are open source in this repo, `services/relay/` (owner
+decision 2026-10-02). The wire protocol is in
+[PARTY-PROTOCOL.md](PARTY-PROTOCOL.md).
 
 ## What it is
 
@@ -66,9 +67,11 @@ then publishes the new queue, and the relay passes it on to the guests.
   is open, the Library status bar stops saying nothing is uploaded and says
   what is.
 
-**Relay and guest page (ours, closed source, separate private repo):**
-hosted on Cloudflare Workers, one small object per party that sleeps
-between messages (owner decision 2026-10-01). The guest page is the
+**Relay and guest page (`services/relay/`, open, GPL-3.0-or-later):**
+hosted by us on Cloudflare Workers, one small object per party that sleeps
+between messages (owner decision 2026-10-01). Being open, anyone can see
+what it keeps and run their own; the app points at ours unless told
+otherwise. The guest page is the
 site's phone flow made real: make your toad → pick a song (search,
 collections) → "you're #N in line" → start over. It never carries audio or
 lyrics, and it never touches the host's files.
@@ -114,7 +117,7 @@ crates it brings) and `qrcodegen`.
    and the between-songs Stage screen came with v1.0; the join code goes
    beside its card.)
 2. The `party` core module, the protocol doc filled in, tests.
-3. Relay and guest page MVP with a development token (private repo).
+3. Relay and guest page MVP (`services/relay/`), run locally with `wrangler dev`.
 4. Relay client, Party menu and dialog, QR, Stage join screen, toads —
    tested end to end with a real phone on cellular.
 5. Abuse limits, hosting, launch copy.

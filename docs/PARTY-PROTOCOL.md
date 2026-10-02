@@ -1,9 +1,10 @@
 # Party relay protocol — draft v1
 
 Status: **draft, not implemented.** This is the wire protocol between the
-desktop app and the party relay (design: [PARTY.md](PARTY.md)). It lives in
-the open repo so anyone can see exactly what the app sends — and so a fork
-can run its own relay. The relay itself is ours and closed (PLAN.md §5, §8).
+desktop app and the party relay (design: [PARTY.md](PARTY.md)). Both sides
+are in this repo — the app's client in `apps/desktop/src-tauri/src/party.rs`,
+the relay in `services/relay/` — so anyone can see exactly what goes over the
+wire, and a fork can run its own relay.
 
 ## Framing
 
