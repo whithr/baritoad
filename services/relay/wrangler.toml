@@ -1,5 +1,5 @@
 # baritoad's party relay — Cloudflare Workers (docs/PARTY.md).
-# `pnpm dev` runs it locally (no Cloudflare account needed); `pnpm deploy`
+# `pnpm dev` runs it locally (no Cloudflare account needed); `pnpm run deploy`
 # publishes it to the account wrangler is signed in to. No secrets live here.
 name = "baritoad-relay"
 main = "src/worker.ts"

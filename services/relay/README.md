@@ -54,7 +54,7 @@ pnpm typecheck
 
 Point the app at a local relay with `KARAOKE_PARTY_RELAY=ws://127.0.0.1:8787`.
 
-Deploying (`pnpm deploy`) publishes to the Cloudflare account `wrangler login`
+Deploying (`pnpm run deploy` — plain `pnpm deploy` is a built-in pnpm command) publishes to the Cloudflare account `wrangler login`
 signed in to. No secrets live in this folder: the account's API token stays
 with wrangler or in CI settings.
 

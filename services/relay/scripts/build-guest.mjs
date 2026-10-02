@@ -1,7 +1,7 @@
 // Builds the guest page into public/ (served by the Worker's static assets):
 // the bundled script, the page, the pixel font (CC0, the app's own) and a
 // toad favicon drawn from the app's toad grids. `pnpm build`; `pnpm dev` and
-// `pnpm deploy` run it first.
+// `pnpm run deploy` run it first.
 import { build } from "esbuild";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
