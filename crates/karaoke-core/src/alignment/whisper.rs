@@ -166,7 +166,7 @@ fn encoder_session(path: &Path, threads: usize, try_dml: bool) -> Result<(Sessio
             Ok(b.with_config_entry("ep.dml.disable_graph_fusion", "1")?
                 .with_memory_pattern(false)?
                 .with_parallel_execution(false)?
-                .with_execution_providers([ort::ep::DirectML::default().build().error_on_failure()])?)
+                .with_execution_providers([crate::compute::directml()?])?)
         })
         .and_then(|mut b| b.commit_from_file(path).map_err(|e| Error::Model(format!("load {}: {e}", path.display()))));
     let mut dml = match dml {

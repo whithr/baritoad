@@ -294,6 +294,8 @@ export const exportSong = (request: {
 
 /** Open the file's folder with the file selected. */
 export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
+/** The installed THIRD-PARTY-NOTICES.txt, in the system text viewer. */
+export const openNotices = () => invoke<void>("open_notices");
 
 export const onJobEvent = (handler: (e: JobEvent) => void): Promise<UnlistenFn> =>
   listen<JobEvent>("karaoke://job", (event) => handler(event.payload));

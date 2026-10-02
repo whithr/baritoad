@@ -66,9 +66,7 @@ impl OrtModel {
                     // Never remove: DML graph fusion silently corrupts output
                     // (spikes/separation/REPORT.md risk 1). Costs ~15% speed.
                     .with_config_entry("ep.dml.disable_graph_fusion", "1")?
-                    .with_execution_providers([
-                        ort::ep::DirectML::default().build().error_on_failure()
-                    ])?;
+                    .with_execution_providers([crate::compute::directml()?])?;
             }
             EpKind::Cpu => {
                 // Without the arena a CPU segment peaks at 2.8 GB instead of

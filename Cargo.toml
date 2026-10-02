@@ -11,7 +11,7 @@ members = [
 exclude = ["spikes"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 publish = false
 license = "GPL-3.0-or-later"
@@ -20,7 +20,9 @@ license = "GPL-3.0-or-later"
 # Pinned to the version the separation spike validated (spikes/separation/REPORT.md:
 # ort 2.0.0-rc.13 / ONNX Runtime 1.28.0). Bump deliberately, re-running the
 # golden parity check when you do.
-ort = { version = "=2.0.0-rc.13", features = ["directml"] }
+# DirectML is Windows-only: karaoke-core turns the feature on for Windows
+# targets (its Cargo.toml), so macOS and Linux build with the CPU provider.
+ort = { version = "=2.0.0-rc.13" }
 ndarray = "0.17"
 hound = "3.5"
 symphonia = { version = "0.5", features = ["mp3", "aac", "alac", "isomp4", "flac", "ogg", "vorbis", "wav", "aiff", "pcm"] }

@@ -252,6 +252,8 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     }
     case "reveal_path":
       return r(undefined);
+    case "open_notices":
+      throw new Error("The full notices come with the installed app (mock).");
     case "cover_import_image":
       return r("C:\\covers\\0123456789abcdef.png");
     case "song_set_cover": {

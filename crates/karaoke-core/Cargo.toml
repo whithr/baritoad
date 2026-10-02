@@ -25,6 +25,10 @@ ureq.workspace = true
 # (PLAN.md §5/§6; never Rubber Band).
 karaoke-stretch-sys = { path = "../karaoke-stretch-sys" }
 
+[target.'cfg(windows)'.dependencies]
+# The GPU path (DirectML.dll ships beside the exe; PLAN.md §6).
+ort = { workspace = true, features = ["directml"] }
+
 [dev-dependencies]
 # Integration tests fabricate tiny tagged fixtures at test time (no
 # copyrighted audio in the repo — CLAUDE.md hard rule) and poke DB pragmas

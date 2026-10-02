@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { gameStatus, type GameStatus } from "../api";
+import { gameStatus, openNotices, type GameStatus } from "../api";
 import { useSettings } from "../App";
 import { ADVANCE_SECONDS_MAX, ADVANCE_SECONDS_MIN, type Settings } from "../settings";
 import { loadDisplay, saveDisplay } from "../stage";
@@ -287,6 +287,7 @@ const NOTICES: [string, string][] = [
 
 export function AboutDialog(props: { open: boolean; onClose: () => void }) {
   const [version, setVersion] = useState<string | null>(null);
+  const [noticesProblem, setNoticesProblem] = useState<string | null>(null);
   useEffect(() => {
     if (!props.open) return;
     getVersion()
@@ -317,10 +318,14 @@ export function AboutDialog(props: { open: boolean; onClose: () => void }) {
             { key: "l", label: "License", width: "minmax(0, 1fr)", render: (r) => r[1] },
           ]}
         />
+        {noticesProblem && <span className="w-muted">{noticesProblem}</span>}
       </div>
       <DialogButtons>
         <Button isDefault onClick={props.onClose}>
           OK
+        </Button>
+        <Button onClick={() => void openNotices().then(() => setNoticesProblem(null), (e) => setNoticesProblem(String(e)))}>
+          &Notices…
         </Button>
       </DialogButtons>
     </Dialog>

@@ -293,7 +293,7 @@ Separator · icons.
 
 ### Deferred
 - Live stem VU meters await level data from the audio engine.
-- App icon (`src-tauri/icons/*`) should be regenerated from the pixel brand mark — the 16-px toad face, `app` in win98/icons.tsx — when bundling turns on.
+- ~~App icon (`src-tauri/icons/*`) regenerated from the pixel brand mark.~~ Done 2026-10-01: `pnpm icons` draws every size from the 16-px toad (`app` in win98/icons.tsx) at whole-pixel multiples, never smoothed.
 - The toad appears only at 16 px — title bars and the Library root. Never scaled up: About, the wizard art, and message boxes don't carry it, and there is no full-body mascot in the app (owner, 2026-10-01). Party-mode exception (owner, 2026-10-01; docs/PARTY.md): guests' toads — the site's toad family, same 16×20 grid and palette — sit beside guest names on the Stage and in Up next, drawn at whole-pixel multiples, crisp, never smoothed, and never without the name.
 
 ## Do's and Don'ts

@@ -129,7 +129,7 @@ fn build_session(dir: &Path, threads: usize, ep: W2vEp) -> Result<Session> {
     let path = dir.join(MODEL_FILE);
     let mut b = crate::compute::session_builder(threads)?;
     if ep == W2vEp::DirectML {
-        b = b.with_execution_providers([ort::ep::DirectML::default().build().error_on_failure()])?;
+        b = b.with_execution_providers([crate::compute::directml()?])?;
     }
     b.commit_from_file(&path)
         .map_err(|e| Error::Model(format!("load {} ({}): {e}", path.display(), ep.as_str())))

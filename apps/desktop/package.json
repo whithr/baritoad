@@ -1,7 +1,7 @@
 {
   "name": "karaoke-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "packageManager": "pnpm@12.5.1",
@@ -11,6 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "fetch-tools": "node scripts/fetch-tools.mjs",
+    "icons": "node scripts/icons.mjs",
+    "notices": "node scripts/notices.mjs",
+    "package": "node scripts/package.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

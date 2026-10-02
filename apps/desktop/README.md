@@ -75,9 +75,21 @@ Other commands:
 - `pnpm test` — vitest (progress-event reducer, wizard preview helpers)
 - `pnpm build` — typecheck (tsc) + production frontend bundle
 - `pnpm tauri build --debug` — debug executable at
-  `target/debug/karaoke-desktop.exe` (bundle/installer targets are disabled in
-  `tauri.conf.json` for now)
+  `target/debug/karaoke-desktop.exe`, frontend embedded (no installer)
+- `pnpm package` — the Windows installer (NSIS, per machine) at
+  `target/release/bundle/nsis/`. It stages `src-tauri/runtime/` (DirectML.dll
+  from ort's download, LICENSE.txt, THIRD-PARTY-NOTICES.txt from
+  `pnpm notices`), checks the `pnpm fetch-tools` files are there, and merges
+  `src-tauri/tauri.bundle.json` over `tauri.conf.json` — everyday builds never
+  need any of it. `src-tauri/nsis/hooks.nsh` makes the uninstaller's "Delete
+  the application data" box remove `%LOCALAPPDATA%\baritoad`
+- `pnpm icons` — the app icons, redrawn from the 16-px toad in
+  `src/win98/icons.tsx` at whole-pixel multiples
 - `cargo test -p karaoke-desktop` — Rust-side unit tests
+
+CI (`.github/workflows/ci.yml`) runs the tests and a build on Windows, a
+build on Linux, and `cargo deny check` (`deny.toml`, PLAN.md §6) on every
+push; macOS builds when run by hand or for a tag.
 
 ## Execution-provider policy
 

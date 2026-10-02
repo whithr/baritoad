@@ -21,6 +21,18 @@ pub fn inference_threads() -> usize {
     }
 }
 
+/// The DirectML execution provider, failing loudly so callers can fall back
+/// to the CPU. Windows only; elsewhere asking for it is that failure.
+#[cfg(windows)]
+pub fn directml() -> Result<ort::ep::ExecutionProviderDispatch> {
+    Ok(ort::ep::DirectML::default().build().error_on_failure())
+}
+
+#[cfg(not(windows))]
+pub fn directml() -> Result<ort::ep::ExecutionProviderDispatch> {
+    Err(crate::Error::Model("DirectML is Windows-only; using the CPU".into()))
+}
+
 /// A session builder with `threads` intra-op threads and spinning off.
 pub fn session_builder(threads: usize) -> Result<SessionBuilder> {
     Ok(Session::builder()?

@@ -1,0 +1,52 @@
+# `cargo deny check` — licenses, bans, advisories, sources — against the
+# PLAN.md §6 rule: everything that ships is GPL-3.0-compatible and
+# redistributable. CI runs it on every push (.github/workflows/ci.yml).
+# A license added here needs a §6 decision first; GPL code compiled into the
+# binary also needs §6's DirectML check.
+
+[graph]
+# Every platform we build, so macOS- and Linux-only crates are checked too.
+targets = [
+  "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+]
+
+[licenses]
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Our own crates: GPL-3.0-or-later, never published.
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+# Workspace path dependencies carry no version.
+allow-wildcard-paths = true
+
+[advisories]
+yanked = "warn"
+# Flag unmaintained crates we chose; deep transitive ones (the Linux GTK
+# stack under Tauri) aren't ours to swap.
+unmaintained = "workspace"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
