@@ -366,29 +366,15 @@ fn reuse_or_load(
     Ok((SepModel::load(model_paths, ep)?, None))
 }
 
-/// Default per-user model directory: `%LOCALAPPDATA%/karaoke/models` on
-/// Windows, `~/.local/share/karaoke/models` elsewhere.
+/// Default per-user model directory: `%LOCALAPPDATA%\baritoad\models`
+/// (`~/.local/share/baritoad/models` elsewhere; [`crate::paths`]).
 pub fn default_model_dir() -> PathBuf {
-    if let Ok(lad) = std::env::var("LOCALAPPDATA") {
-        return PathBuf::from(lad).join("karaoke").join("models");
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("karaoke")
-            .join("models");
-    }
-    PathBuf::from(".")
+    crate::paths::models_dir()
 }
 
-/// Default parity-cache path, next to the models.
+/// Default parity-cache path, in the data folder.
 pub fn default_parity_cache_path() -> PathBuf {
-    default_model_dir()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ep-parity.json")
+    crate::paths::data_dir().join("ep-parity.json")
 }
 
 #[cfg(test)]

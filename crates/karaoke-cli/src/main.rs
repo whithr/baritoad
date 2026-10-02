@@ -120,11 +120,11 @@ struct GenerateArgs {
     out_dir: Option<PathBuf>,
 
     /// Model root containing htdemucs.onnx, whisper-small/ and wav2vec2/
-    /// (default: %LOCALAPPDATA%\karaoke\models)
+    /// (default: %LOCALAPPDATA%\baritoad\models)
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
-    /// Jobs registry directory (default: %LOCALAPPDATA%\karaoke\jobs)
+    /// Jobs registry directory (default: %LOCALAPPDATA%\baritoad\jobs)
     #[arg(long)]
     jobs_dir: Option<PathBuf>,
 
@@ -202,7 +202,7 @@ enum JobsCmd {
 
 #[derive(Args)]
 struct JobsListArgs {
-    /// Jobs registry directory (default: %LOCALAPPDATA%\karaoke\jobs)
+    /// Jobs registry directory (default: %LOCALAPPDATA%\baritoad\jobs)
     #[arg(long)]
     jobs_dir: Option<PathBuf>,
 
@@ -237,11 +237,11 @@ struct AccuracyArgs {
     #[arg(long)]
     lyrics: Option<PathBuf>,
 
-    /// Model root (default: %LOCALAPPDATA%\karaoke\models)
+    /// Model root (default: %LOCALAPPDATA%\baritoad\models)
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
-    /// Jobs registry directory (default: %LOCALAPPDATA%\karaoke\jobs)
+    /// Jobs registry directory (default: %LOCALAPPDATA%\baritoad\jobs)
     #[arg(long)]
     jobs_dir: Option<PathBuf>,
 
@@ -331,7 +331,7 @@ struct SeparateArgs {
     out_dir: Option<PathBuf>,
 
     /// Directory containing htdemucs.onnx
-    /// (default: %LOCALAPPDATA%\karaoke\models)
+    /// (default: %LOCALAPPDATA%\baritoad\models)
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
@@ -389,7 +389,7 @@ struct AlignArgs {
     out: Option<PathBuf>,
 
     /// Model root containing htdemucs.onnx, whisper-small/ and wav2vec2/
-    /// (default: %LOCALAPPDATA%\karaoke\models)
+    /// (default: %LOCALAPPDATA%\baritoad\models)
     #[arg(long)]
     model_dir: Option<PathBuf>,
 

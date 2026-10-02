@@ -139,7 +139,7 @@ pub fn emit_queue<R: tauri::Runtime>(app: &AppHandle<R>, library: &LibraryHandle
 
 impl LibraryHandle {
 
-    /// Open the per-user library (`%LOCALAPPDATA%\karaoke\library.db`).
+    /// Open the per-user library (`%LOCALAPPDATA%\baritoad\library.db`).
     pub fn open_default() -> Result<Arc<Self>, String> {
         let store = LibraryStore::open_default().map_err(|e| e.to_string())?;
         Ok(Arc::new(Self::new(store, library::default_covers_dir())))

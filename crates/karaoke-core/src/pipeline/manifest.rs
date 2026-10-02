@@ -427,13 +427,9 @@ pub struct JobPointer {
     pub updated_unix: u64,
 }
 
-/// Default jobs dir: `%LOCALAPPDATA%/karaoke/jobs` (beside the models dir).
+/// Default jobs dir: `%LOCALAPPDATA%\baritoad\jobs` (in the data folder).
 pub fn default_jobs_dir() -> PathBuf {
-    crate::separation::default_model_dir()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("jobs")
+    crate::paths::data_dir().join("jobs")
 }
 
 pub fn write_pointer(jobs_dir: &Path, ptr: &JobPointer) -> Result<()> {

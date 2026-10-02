@@ -3,7 +3,7 @@
 //! URL", §6).
 //!
 //! Search order for each program: the app's data folder
-//! (`%LOCALAPPDATA%\karaoke\tools\`), the `tools\` bundled beside the app,
+//! (`%LOCALAPPDATA%\baritoad\tools\`), the `tools\` bundled beside the app,
 //! the dev checkout's `src-tauri\tools\` (debug builds; `pnpm fetch-tools`
 //! fills it), then PATH.
 //!
@@ -25,7 +25,7 @@ use karaoke_core::lrclib;
 const UPDATE_EVERY_S: u64 = 24 * 60 * 60;
 const LAST_UPDATE_FILE: &str = "last-update-check";
 
-/// `%LOCALAPPDATA%\karaoke\tools\`, beside the library.
+/// `%LOCALAPPDATA%\baritoad\tools\`, beside the library.
 pub fn data_dir() -> PathBuf {
     karaoke_core::library::store::default_library_path().with_file_name("tools")
 }

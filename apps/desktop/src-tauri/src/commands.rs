@@ -415,7 +415,7 @@ pub async fn import_songs(
 // ------------------------------------------------------------- add from URL
 
 /// Where fetched songs (and, beside each, its job folder) live:
-/// `%LOCALAPPDATA%\karaoke\downloads\`. Not the Music folder — that's
+/// `%LOCALAPPDATA%\baritoad\downloads\`. Not the Music folder — that's
 /// often cloud-synced, and job folders hold large stem files.
 pub fn downloads_dir() -> PathBuf {
     karaoke_core::library::store::default_library_path().with_file_name("downloads")

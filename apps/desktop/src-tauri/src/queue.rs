@@ -195,7 +195,7 @@ struct PersistedJob {
     prep: Prep,
 }
 
-/// `%LOCALAPPDATA%\karaoke\import-queue.json`, beside the library.
+/// `%LOCALAPPDATA%\baritoad\import-queue.json`, beside the library.
 pub fn queue_store_path() -> PathBuf {
     karaoke_core::library::store::default_library_path().with_file_name("import-queue.json")
 }

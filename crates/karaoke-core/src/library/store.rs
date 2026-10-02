@@ -93,23 +93,19 @@ const MIGRATIONS: &[&str] = &[
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
-/// `%LOCALAPPDATA%\karaoke\library.db` (POSIX: `~/.local/share/karaoke/`).
+/// `%LOCALAPPDATA%\baritoad\library.db` (POSIX: `~/.local/share/baritoad/`).
 pub fn default_library_path() -> PathBuf {
     data_dir().join("library.db")
 }
 
-/// `%LOCALAPPDATA%\karaoke\covers` — extracted embedded cover art,
+/// `%LOCALAPPDATA%\baritoad\covers` — extracted embedded cover art,
 /// hash-named (see [`super::tags::save_cover`]).
 pub fn default_covers_dir() -> PathBuf {
     data_dir().join("covers")
 }
 
 fn data_dir() -> PathBuf {
-    // Same per-user root the model dir and jobs dir use.
-    crate::separation::default_model_dir()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
+    crate::paths::data_dir()
 }
 
 // ---------------------------------------------------------------------------

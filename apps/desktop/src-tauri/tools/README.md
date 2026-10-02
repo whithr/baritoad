@@ -15,6 +15,6 @@ from `apps/desktop`, which downloads and checksum-verifies:
 - `VERSIONS.json`: the versions and sha256 of what was fetched.
 
 At runtime the app copies yt-dlp into its data folder
-(`%LOCALAPPDATA%\karaoke\tools\`) and runs it from there, so it can update
+(`%LOCALAPPDATA%\baritoad\tools\`) and runs it from there, so it can update
 itself (`yt-dlp -U`). Install folders aren't writable, and changing a file
 inside a signed macOS bundle breaks the signature.

@@ -53,6 +53,7 @@ pub mod lrclib;
 pub mod lyrics;
 pub mod models;
 pub mod output;
+pub mod paths;
 pub mod pipeline;
 pub mod player;
 pub mod separation;

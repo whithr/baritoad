@@ -192,7 +192,10 @@ pub fn default_out_dir(audio: &Path) -> PathBuf {
 /// content-hashing them on every run would dominate resume time. A swapped
 /// model file with identical size *and* mtime is out of threat model — the
 /// model manager (PLAN.md §3) writes fresh files.
+/// The file's name, size and mtime — not its folder, so moving the models
+/// (the data-folder rename, paths.rs) doesn't redo every song's separation.
 fn model_file_id(path: &Path) -> String {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     match std::fs::metadata(path) {
         Ok(m) => {
             let mtime = m
@@ -201,9 +204,9 @@ fn model_file_id(path: &Path) -> String {
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            format!("{}:{}:{}", path.display(), m.len(), mtime)
+            format!("{name}:{}:{mtime}", m.len())
         }
-        Err(_) => format!("{}:missing", path.display()),
+        Err(_) => format!("{name}:missing"),
     }
 }
 

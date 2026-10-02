@@ -32,6 +32,30 @@ pub fn serve_worker() -> i32 {
 }
 
 pub fn run() {
+    // The data folder moved with the rename (karaoke → baritoad): once,
+    // before anything opens the library. A failed move leaves everything
+    // in the old folder, which stays in use (karaoke_core::paths).
+    match karaoke_core::paths::migrate_default() {
+        Ok(Some(m)) => eprintln!(
+            "data folder: moved to {} — {} files, {} paths updated, settings {}, models {}",
+            karaoke_core::paths::data_dir().display(),
+            m.files_copied,
+            m.paths_rewritten,
+            if m.settings { "too" } else { "not found" },
+            if m.models { "moved" } else { "not moved" },
+        ),
+        Ok(None) => {}
+        Err(e) => eprintln!(
+            "data folder: couldn't move it, still using {}: {e}",
+            karaoke_core::paths::data_dir().display()
+        ),
+    }
+    // The webview's profile (localStorage: the settings, the themes) lives
+    // in the data folder, so it doesn't hang on the app identifier.
+    #[cfg(windows)]
+    if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", karaoke_core::paths::webview_dir());
+    }
     // Unfinished imports survive a restart (queue.rs module docs).
     let job_queue = Arc::new(JobQueue::with_store(queue::queue_store_path()));
     // The library store opens (and migrates) before anything can enqueue —

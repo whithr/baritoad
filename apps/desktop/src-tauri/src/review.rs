@@ -221,7 +221,7 @@ pub async fn realign_selection(
         let mut guard = aligner.lock().map_err(|_| "aligner poisoned".to_string())?;
         if guard.is_none() {
             // Model root is the same directory the pipeline uses
-            // (%LOCALAPPDATA%/karaoke/models); only wav2vec2/ loads.
+            // (%LOCALAPPDATA%/baritoad/models); only wav2vec2/ loads.
             *guard = Some(
                 WindowAligner::load(
                     &separation::default_model_dir(),

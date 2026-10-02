@@ -8,7 +8,7 @@
 //! Design points:
 //! - **Path-injectable store** ([`LibraryStore::open`]) so tests run against a
 //!   temp DB; the app uses [`default_library_path`]
-//!   (`%LOCALAPPDATA%\karaoke\library.db`).
+//!   (`%LOCALAPPDATA%\baritoad\library.db`).
 //! - **Versioned forward-only migrations** via `PRAGMA user_version`.
 //! - **Songs are identified by `audio_hash`** (the pipeline manifest's sha256
 //!   of the audio file), so re-generating a song *updates* its row instead of

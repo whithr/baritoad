@@ -48,9 +48,14 @@ Prereqs:
   `packageManager` field; `pnpm-lock.yaml` is the only lockfile — don't
   `npm install`)
 - WebView2 runtime (preinstalled on Windows 10/11)
-- Model weights in `%LOCALAPPDATA%\karaoke\models` (htdemucs.onnx,
-  whisper-small/, wav2vec2/) — see MODEL_LICENSES.md for provenance; weights
-  are never in the repo
+- Model weights in `%LOCALAPPDATA%\baritoad\models` — the app downloads
+  them (Tools › Models…; `KARAOKE_MODEL_MIRROR` points it at another mirror),
+  or place them by hand. MODEL_LICENSES.md has their provenance; weights are
+  never in the repo
+- The data folder was `%LOCALAPPDATA%\karaoke` before the rename; the first
+  start moves it (karaoke-core `paths`), leaving the old one as a backup
+  with a MOVED.txt. The webview's profile (settings, themes) lives in
+  `baritoad\webview`, not under the app identifier
 
 Then:
 

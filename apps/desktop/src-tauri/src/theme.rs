@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-/// `%LOCALAPPDATA%\karaoke\themes` — imported background images, beside the
+/// `%LOCALAPPDATA%\baritoad\themes` — imported background images, beside the
 /// covers dir under the same per-user data root.
 fn themes_dir() -> PathBuf {
     karaoke_core::library::default_covers_dir()
