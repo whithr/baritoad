@@ -10,8 +10,12 @@ can run its own relay. The relay itself is ours and closed (PLAN.md §5, §8).
 - One outbound WebSocket from the app to the relay, over TLS.
 - JSON text frames: `{"v": 1, "t": "<type>", ...}`. Unknown types are ignored;
   a different `v` closes the connection with a "please update" reason.
-- Keepalive: a ping every 25 s. On a dropped connection the app reconnects
-  with backoff and resumes its room with the host secret from `room`.
+- Keepalive: a WebSocket protocol ping every 25 s — never an app-level
+  message, which would wake the relay's sleeping party object. On a dropped
+  connection the app reconnects with backoff and resumes its room with the
+  host secret from `room`.
+- No sign-in: party mode is free. The relay limits rooms per IP, guests per
+  room, and room lifetime instead.
 
 ## Messages
 
@@ -19,7 +23,7 @@ can run its own relay. The relay itself is ours and closed (PLAN.md §5, §8).
 
 | `t` | Fields | When |
 |---|---|---|
-| `hello` | `token`, `app` (version), `resume?` (`room`, `secret`) | first frame |
+| `hello` | `app` (version), `resume?` (`room`, `secret`) | first frame |
 | `listing` | `songs: [{id, title, artist, duration, collections}]` | after `room`, and when the library changes |
 | `queue` | `entries: [{id, song, singer?, toad?}]`, `nowPlaying?` (song id) | after every queue change |
 | `request_result` | `req`, `ok` or `code` (`limit`, `unknown_song`, `not_ready`) | answering a `request` |
@@ -38,7 +42,7 @@ Song ids are per-party and opaque — not library database ids.
 | `request` | `req`, `guest`, `song` | a guest picked a song |
 | `withdraw` | `guest`, `entry` | a guest pressed "start over" |
 | `guest_left` | `guest` | a guest closed the page or was kicked |
-| `error` | `code`, `message` | auth failed, not entitled, room gone |
+| `error` | `code`, `message` | too many rooms from here, room full, room gone |
 
 ## Limits (to settle while building)
 

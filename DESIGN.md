@@ -288,4 +288,4 @@ Separator · icons.
 - **Don't** add corner radii, gradients (other than title bars), glows, or transitions to chrome.
 - **Don't** use Microsoft's icons, logo, fonts, or the word "Windows" in UI copy — the look is an homage, drawn in-house.
 - **Do** write the name **baritoad** in lowercase, everywhere — titles, menus, and the start of a sentence. Prefer wording where it doesn't open a sentence ("*Song* couldn't be finished.", not "baritoad couldn't finish *Song*.").
-- **Do** call the app open source (GPL-3.0), and be plain that party mode and the cloud library are the paid features (PLAN.md §1, §8).
+- **Do** call the app open source (GPL-3.0), and be plain that the cloud library is the one paid feature — party mode is free, though it goes through our relay (PLAN.md §1, §8).

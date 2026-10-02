@@ -20,7 +20,8 @@ after v1.0 ships.
   party mode, and the cloud library. Online lyrics come from the LRCLIB API
   — never HTML-scrape lyrics sites (PLAN.md §3, §5).
 - The party relay carries the queue and song metadata only — never audio or
-  lyrics. Guests never sign in; only the paying account holder does.
+  lyrics. Party mode is free: nobody signs in to it, host or guest — the
+  only account is the paid cloud library.
 - The app is **open source (GPL-3.0-or-later)** — say so plainly. Our
   servers (party relay, cloud library) are ours, closed, and live outside
   this repo: never put server code or its secrets here (PLAN.md §1, §8).
@@ -47,7 +48,7 @@ after v1.0 ships.
   integrated, measured choice — don't swap without measured numbers.
 - English-first v1: no multilingual alignment paths (PLAN.md §1, §6).
 - v1 scope is frozen (PLAN.md §3). No mic input, no pitch detection, no scoring
-  — those are v2. Party mode and the cloud library are the paid v1.x
+  — those are v2. Party mode (free) and the cloud library (paid) are the v1.x
   features (PLAN.md §9 Phase 4), not v1.0. Flag scope creep when you see it, including in requests.
 - Timing maps always store original-song time; only the player clock translates
   through stretch ratios (PLAN.md §5).
@@ -61,8 +62,8 @@ after v1.0 ships.
 - Spike code may be rough; spike *measurements* may not.
 - Pricing, subscriptions, and other monetization strategy live only in
   `BUSINESS.md` (gitignored, local). Never write them into tracked files —
-  PLAN.md §8 says only that the app is free and that party mode and the
-  cloud library are paid.
+  PLAN.md §8 says only that the app and party mode are free and the cloud
+  library is paid.
 
 ## Repo layout
 

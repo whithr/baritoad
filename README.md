@@ -9,11 +9,11 @@ polish) of [PLAN.md](PLAN.md). The Phase 0 feasibility spikes came back GO
 ([spikes/](spikes/README.md)).
 
 **License:** open source, [GPL-3.0-or-later](LICENSE). The app is free —
-build it, use it, change it, share it, binaries included. The paid things
-are hosted services: party mode, which lets guests join from their phones,
-and the cloud library, which keeps your songs in your own private account so
-they follow you to your other computers (PLAN.md §8). Their servers are ours
-and aren't in this repo.
+build it, use it, change it, share it, binaries included. Party mode, which
+lets guests join from their phones, is free too. The one paid thing is the
+cloud library, which keeps your songs in your own private account so they
+follow you to your other computers (PLAN.md §8). The servers behind both are
+ours and aren't in this repo.
 
 *Additional permission under GNU GPL version 3 section 7:* if you modify this
 program, or any covered work, by linking or combining it with Microsoft
