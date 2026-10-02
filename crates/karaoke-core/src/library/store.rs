@@ -89,6 +89,14 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE songs ADD COLUMN cover_by_user INTEGER NOT NULL DEFAULT 0;
     ",
+    // v4 -> v5: who's singing each queue entry (party mode, docs/PARTY.md):
+    // a display name, a toad (JSON: face, colour, hat) and the party guest
+    // who picked it (a per-party id) — all NULL for songs the host queued.
+    "
+    ALTER TABLE queue ADD COLUMN singer TEXT;
+    ALTER TABLE queue ADD COLUMN toad TEXT;
+    ALTER TABLE queue ADD COLUMN guest TEXT;
+    ",
 ];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -200,6 +208,14 @@ pub struct QueueEntry {
     pub position: i64,
     pub added_from_collection: Option<i64>,
     pub song: Song,
+    /// Who's singing it (party mode); None for the host's own picks.
+    #[serde(default)]
+    pub singer: Option<String>,
+    #[serde(default)]
+    pub toad: Option<crate::party::Toad>,
+    /// The party guest who picked it (per-party id).
+    #[serde(default)]
+    pub guest: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -643,16 +659,20 @@ impl LibraryStore {
     /// Queue contents, in play order. Positions are 0-based and dense.
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT q.id, q.position, q.added_from_collection, {SONG_COLS}
+            "SELECT q.id, q.position, q.added_from_collection, q.singer, q.toad, q.guest, {SONG_COLS}
              FROM queue q JOIN songs s ON s.id = q.song_id
              ORDER BY q.position ASC"
         ))?;
         let rows = stmt.query_map([], |r| {
+            let toad: Option<String> = r.get(4)?;
             Ok(QueueEntry {
                 id: r.get(0)?,
                 position: r.get(1)?,
                 added_from_collection: r.get(2)?,
-                song: song_from_row_offset(r, 3)?,
+                singer: r.get(3)?,
+                toad: toad.and_then(|t| serde_json::from_str(&t).ok()),
+                guest: r.get(5)?,
+                song: song_from_row_offset(r, 6)?,
             })
         })?;
         let mut out = Vec::new();
@@ -676,6 +696,32 @@ impl LibraryStore {
             .into_iter()
             .find(|e| e.id == id)
             .ok_or_else(|| Error::Db("queued entry not found after insert".into()))
+    }
+
+    /// Append a party guest's pick, with who's singing it. Checking the pick
+    /// (per-guest limit, song ready) is the caller's — `party::check_request`.
+    pub fn queue_add_guest(&self, song_id: i64, singer: &str, toad: &crate::party::Toad, guest: &str) -> Result<QueueEntry> {
+        let toad = serde_json::to_string(toad).map_err(|e| Error::Db(e.to_string()))?;
+        self.conn.execute(
+            "INSERT INTO queue (song_id, position, singer, toad, guest)
+             VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM queue), ?2, ?3, ?4)",
+            params![song_id, singer, toad, guest],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        self.queue_list()?
+            .into_iter()
+            .find(|e| e.id == id)
+            .ok_or_else(|| Error::Db("queued entry not found after insert".into()))
+    }
+
+    /// Take out a party guest's entries (the host kicked them), except the
+    /// one being sung, if any; returns how many went.
+    pub fn queue_remove_guest(&self, guest: &str, keep: Option<i64>) -> Result<usize> {
+        let n = self
+            .conn
+            .execute("DELETE FROM queue WHERE guest = ?1 AND id IS NOT ?2", params![guest, keep])?;
+        self.compact_queue()?;
+        Ok(n)
     }
 
     /// Append several songs in the given order (a whole collection, or a

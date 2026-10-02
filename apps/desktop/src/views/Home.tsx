@@ -93,6 +93,7 @@ import { EXPORTS, exportWithSaveAs, folderOf } from "../exportFile";
 import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
+import ToadIcon from "../party/ToadIcon";
 import LinkDialog from "./LinkDialog";
 import { parseLinks } from "../linkState";
 import ProcessingDialog from "./ProcessingDialog";
@@ -1284,6 +1285,21 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                   },
                   { key: "title", label: "Title", width: "minmax(0, 1.4fr)", render: (e) => e.song.title },
                   { key: "artist", label: "Artist", width: "minmax(0, 1fr)", render: (e) => e.song.artist ?? "" },
+                  // Party mode: the guest's toad (face, 1×) and name.
+                  {
+                    key: "singer",
+                    label: "Singer",
+                    width: "minmax(0, 0.8fr)",
+                    render: (e) =>
+                      e.singer ? (
+                        <span style={{ display: "inline-flex", gap: 4, alignItems: "center", minWidth: 0 }}>
+                          {e.toad && <ToadIcon toad={e.toad} />}
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{e.singer}</span>
+                        </span>
+                      ) : (
+                        ""
+                      ),
+                  },
                   { key: "len", label: "Length", width: "64px", render: (e) => fmtDuration(e.song.duration_s) ?? "" },
                 ]}
                 onKey={(e) => {

@@ -2,6 +2,7 @@
 // `karaoke://job` event channel (src-tauri/src/queue.rs). Keep in sync by
 // hand — the payloads are small and stable.
 
+import type { Toad } from "./party/toads";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
@@ -369,6 +370,11 @@ export interface QueueEntry {
   position: number;
   added_from_collection?: number | null;
   song: Song;
+  /** Who's singing it (party mode); null for the host's own picks. */
+  singer?: string | null;
+  toad?: Toad | null;
+  /** The party guest who picked it (per-party id). */
+  guest?: string | null;
 }
 
 export interface ProbeResult {

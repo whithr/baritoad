@@ -347,7 +347,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
 
 // Up next stand-in. Kept in localStorage so the Library tab and the stage
 // tab share one queue, and announced on the event bus like library.rs does.
-type MockEntry = { id: number; position: number; added_from_collection?: number | null; song: (typeof SONGS)[number] };
+type MockEntry = { id: number; position: number; added_from_collection?: number | null; song: (typeof SONGS)[number]; singer?: string | null; toad?: { face: string; colour: string; hat: string } | null; guest?: string | null };
 type MockQueue = { entries: MockEntry[]; playing: number | null };
 const QUEUE_KEY = "baritoad-mock-queue";
 // Model packs: all here unless ?models=none (a fresh install); a fake
@@ -450,7 +450,16 @@ function mockQueue(): MockQueue {
   } catch {
     // fall through to the starter queue
   }
-  return { entries: [{ id: 1, position: 0, song: SONGS[1] }, { id: 2, position: 1, song: SONGS[3] }, { id: 3, position: 2, song: SONGS[4] }], playing: null };
+  // ?party adds two guests' picks (singer + toad) to the starter queue.
+  const party = new URLSearchParams(location.search).has("party");
+  return {
+    entries: [
+      { id: 1, position: 0, song: SONGS[1] },
+      { id: 2, position: 1, song: SONGS[3], ...(party ? { singer: "Cassie", toad: { face: "grin", colour: "pink", hat: "bow" }, guest: "g1" } : {}) },
+      { id: 3, position: 2, song: SONGS[4], ...(party ? { singer: "Dev", toad: { face: "cool", colour: "blue", hat: "cap" }, guest: "g2" } : {}) },
+    ],
+    playing: null,
+  };
 }
 function saveQueue(q: MockQueue) {
   const tidy = { playing: q.entries.some((e) => e.id === q.playing) ? q.playing : null, entries: q.entries.map((e, i) => ({ ...e, position: i })) };

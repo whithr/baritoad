@@ -140,6 +140,8 @@ fn v1_database_upgrades_to_current_preserving_rows() {
     assert_eq!(colls.len(), 1);
     assert_eq!(colls[0].song_count, 1);
     assert_eq!(store.queue_list().unwrap().len(), 1);
+    let old = &store.queue_list().unwrap()[0];
+    assert!(old.singer.is_none() && old.toad.is_none() && old.guest.is_none(), "v5: old entries have no singer");
     assert_eq!(store.setting("k").unwrap().as_deref(), Some("v"));
 
     // The new review API works on the migrated row.
@@ -718,4 +720,36 @@ fn imported_meta_replaces_what_tags_said() {
     assert_eq!((s.year, s.genre.as_deref(), s.language_tag.as_str()), (Some(1975), Some("Rock"), "fr"));
     store.apply_imported_meta(song.id, None, None, None).unwrap();
     assert_eq!(store.song(song.id).unwrap().unwrap().year, Some(1975), "absent values keep");
+}
+
+// ---------------------------------------------------------------------------
+// party mode (v5): who's singing each queue entry
+// ---------------------------------------------------------------------------
+
+#[test]
+fn guest_picks_carry_singer_and_toad_and_kick_removes_them() {
+    use karaoke_core::party::Toad;
+    let dir = tmp_dir("guest-queue");
+    let store = LibraryStore::open(&dir.join("library.db")).unwrap();
+    let a = store.upsert_song(&upsert("ga", "Song A", None)).unwrap();
+    let b = store.upsert_song(&upsert("gb", "Song B", None)).unwrap();
+    let toad = Toad { face: "grin".into(), colour: "pink".into(), hat: "partyhat".into() };
+
+    store.queue_add(a.id, None).unwrap();
+    let mine = store.queue_add_guest(b.id, "Cassie", &toad, "g1").unwrap();
+    store.queue_add_guest(a.id, "Cassie", &toad, "g1").unwrap();
+    assert_eq!(mine.singer.as_deref(), Some("Cassie"));
+    assert_eq!(mine.toad.as_ref(), Some(&toad));
+    assert_eq!(mine.guest.as_deref(), Some("g1"));
+
+    let q = store.queue_list().unwrap();
+    assert_eq!(q.len(), 3);
+    assert_eq!(q[0].singer, None, "the host's own pick has no singer");
+    assert_eq!(q[2].toad.as_ref().map(|t| t.hat.as_str()), Some("partyhat"));
+
+    // Kicked while their first song is on the Stage: that one stays.
+    assert_eq!(store.queue_remove_guest("g1", Some(mine.id)).unwrap(), 1);
+    let q = store.queue_list().unwrap();
+    assert_eq!(q.iter().map(|e| e.position).collect::<Vec<_>>(), vec![0, 1], "positions stay dense");
+    assert_eq!(q[1].id, mine.id);
 }
