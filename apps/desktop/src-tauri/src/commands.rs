@@ -83,6 +83,10 @@ pub async fn generate_song(
     queue: State<'_, Arc<JobQueue>>,
     request: GenerateSongRequest,
 ) -> Result<JobSnapshot, String> {
+    let no_lyrics = request.lyrics_text.as_deref().map_or(true, |t| t.trim().is_empty());
+    if let Some(why) = crate::models::missing_for(no_lyrics, request.hq_separation) {
+        return Err(why);
+    }
     let job = build_job(request)?;
     Ok(queue.enqueue(&app, job.request, job.title, job.artist, job.out_dir, PostImport::default(), Prep::default()))
 }
@@ -350,6 +354,14 @@ pub async fn import_songs(
     lookup_lyrics: Option<bool>,
 ) -> Result<ImportQueued, String> {
     let lookup_lyrics = lookup_lyrics.unwrap_or(false);
+    // Songs without a lyrics file need transcription unless LRCLIB is asked
+    // first (if it finds nothing the job says what's missing).
+    let any_unlyriced = items
+        .iter()
+        .any(|i| matches!(i.lyrics, ImportLyrics::None | ImportLyrics::Unreadable { .. }));
+    if let Some(why) = crate::models::missing_for(any_unlyriced && !lookup_lyrics, hq_separation) {
+        return Err(why);
+    }
     let mut jobs = Vec::new();
     let mut failures = Vec::new();
     for item in items {
@@ -542,6 +554,9 @@ pub async fn queue_links(
     hq_separation: bool,
     cpu_only: bool,
 ) -> Result<ImportQueued, String> {
+    if let Some(why) = crate::models::missing_for(false, hq_separation) {
+        return Err(why);
+    }
     let dir = downloads_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     let mut jobs = Vec::new();

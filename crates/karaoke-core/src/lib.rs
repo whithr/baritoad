@@ -51,6 +51,7 @@ pub mod import;
 pub mod library;
 pub mod lrclib;
 pub mod lyrics;
+pub mod models;
 pub mod output;
 pub mod pipeline;
 pub mod player;

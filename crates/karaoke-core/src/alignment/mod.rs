@@ -145,13 +145,13 @@ impl Aligner {
     pub fn load(model_root: &Path, cfg: AlignConfig) -> Result<(Self, Vec<String>)> {
         let whisper_dir = model_root.join(WHISPER_DIR_NAME);
         let w2v_dir = model_root.join(WAV2VEC2_DIR_NAME);
-        for d in [&whisper_dir, &w2v_dir] {
-            if !d.is_dir() {
-                return Err(Error::Model(format!(
-                    "alignment model directory not found: {}",
-                    d.display()
-                )));
-            }
+        // whisper is only needed without lyrics (its own download pack,
+        // models.rs), so only wav2vec2 has to be here up front.
+        if !w2v_dir.is_dir() {
+            return Err(Error::Model(format!(
+                "alignment model directory not found: {}",
+                w2v_dir.display()
+            )));
         }
         let mut notes = Vec::new();
         let (w2v, note) = w2v::W2v::load(&w2v_dir, cfg.threads, cfg.w2v_try_dml)?;
@@ -170,6 +170,12 @@ impl Aligner {
     }
 
     fn whisper(&mut self) -> Result<&mut whisper::Whisper> {
+        if self.whisper.is_none() && !self.whisper_dir.join("onnx").is_dir() {
+            return Err(Error::Model(
+                "the transcription models aren't downloaded — songs without lyrics need them (Tools › Models), or paste the lyrics"
+                    .into(),
+            ));
+        }
         if self.whisper.is_none() {
             self.whisper = Some(whisper::Whisper::load(
                 &self.whisper_dir,

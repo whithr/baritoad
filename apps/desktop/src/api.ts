@@ -442,6 +442,44 @@ export const queueStop = () => invoke<void>("queue_stop");
  *  leaves the list. Returns the queue as it is now. */
 export const queueFinish = (songId: number) => invoke<QueueState>("queue_finish", { songId });
 
+// ---------------------------------------------------------------------------
+// model packs (src-tauri/src/models.rs, karaoke-core models)
+// ---------------------------------------------------------------------------
+
+export type ModelPack = "core" | "transcription" | "high_quality";
+
+export interface PackStatus {
+  pack: ModelPack;
+  /** Every file at its current version. */
+  installed: boolean;
+  /** Every file there, maybe an older version — enough to run. */
+  usable: boolean;
+  outdated: string[];
+  missing: string[];
+  bytes_total: number;
+  bytes_present: number;
+}
+
+export interface ModelsInfo {
+  packs: PackStatus[];
+  /** Where downloads come from. */
+  mirror: string;
+  downloading: boolean;
+}
+
+export type ModelEvent =
+  | { kind: "progress"; progress: { pack: ModelPack; file: string; done: number; total: number } }
+  | { kind: "done"; pack: ModelPack }
+  | { kind: "failed"; pack: ModelPack; message: string }
+  | { kind: "cancelled"; pack: ModelPack }
+  | { kind: "finished" };
+
+export const modelsStatus = () => invoke<ModelsInfo>("models_status");
+export const modelsDownload = (packs: ModelPack[]) => invoke<void>("models_download", { packs });
+export const modelsCancel = () => invoke<void>("models_cancel");
+export const onModelsEvent = (handler: (e: ModelEvent) => void): Promise<UnlistenFn> =>
+  listen<ModelEvent>("karaoke://models", (event) => handler(event.payload));
+
 /** A hardware media key (Windows SMTC), sent to the Stage (media_keys.rs). */
 export type MediaKey = "play" | "pause" | "toggle" | "next" | "previous" | "stop";
 

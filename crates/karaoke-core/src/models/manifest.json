@@ -1,0 +1,14 @@
+{
+  "mirror_path": "v1",
+  "files": [
+    { "pack": "core", "path": "htdemucs.onnx", "size": 345195190, "sha256": "27cf88125913e867c22ba47180236029adf00b47ebd3f11e0d5a7658fc644f1f" },
+    { "pack": "core", "path": "wav2vec2/wav2vec2-base-960h.onnx", "size": 377872713, "sha256": "97d63f44af04994fc1716732e68e42c564539291d3cfa00ee00a080105d67324" },
+    { "pack": "core", "path": "wav2vec2/vocab.json", "size": 291, "sha256": "19727f8944fe6459fc3f240ae2c198395b740f6a029bd23e06656266b83bcf64" },
+    { "pack": "core", "path": "wav2vec2/preprocessor_config.json", "size": 46, "sha256": "5bbf03eb4aeece7d9e9cbe60f384a8f43fc0c9c6c7f694ea0fe15ba5ed3ef92c" },
+    { "pack": "transcription", "path": "whisper-small/onnx/encoder_model.onnx", "size": 352782747, "sha256": "2bb68b06271293dd339318744bf84f354a4bd0ff14d05e766f66fe6625d8aa51" },
+    { "pack": "transcription", "path": "whisper-small/onnx/decoder_model_merged.onnx", "size": 615147243, "sha256": "85e5808703aac4e407cdda071e763030a8d555d28bae7f77036fc90cf25ea0cf" },
+    { "pack": "transcription", "path": "whisper-small/tokenizer.json", "size": 2480466, "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566" },
+    { "pack": "transcription", "path": "whisper-small/config.json", "size": 1967, "sha256": "e6a2b489da1b5aed65a8eb8d1e7466fa867ad5643a8bc138ba708bd56b2875c4" },
+    { "pack": "high_quality", "path": "htdemucs_ft_vocals.onnx", "size": 345195190, "sha256": "4caff2a4299a73933c76febf7cea5fde807934fbefd4c6ac97c4be10b0ca371c" }
+  ]
+}

@@ -945,6 +945,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
       label: "T&ools",
       items: [
         { label: "Player &Themes…", run: () => dialogs.open("themes") },
+        { label: "&Models…", run: () => dialogs.open("models") },
         { label: "&Properties…", run: () => dialogs.open("properties") },
       ],
     },
