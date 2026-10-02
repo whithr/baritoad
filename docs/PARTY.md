@@ -1,8 +1,8 @@
 # Party mode — design
 
-Status: **built, not yet hosted** (2026-10-02, owner's call, ahead of the
-last v1.0 checks). Milestones 1–4 are done and tested end to end against a
-local relay; 5 is waiting on the deploy and a real phone (below). Party mode is free — it runs through our relay, but
+Status: **built and hosted** (2026-10-02, owner's call, ahead of the last
+v1.0 checks). The relay is live at `party.baritoad.com` (our Cloudflare
+account). Left: a real phone on cellular, and the launch copy. Party mode is free — it runs through our relay, but
 nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01). The relay
 and guest page are open source in this repo, `services/relay/` (owner
 decision 2026-10-02). The wire protocol is in
@@ -124,9 +124,10 @@ crates it brings) and `qrcodegen`.
    guest's name and toad (34 ms pick-to-phone on the local relay) → take
    back → kick → the relay drops and the app resumes the same room and link
    (about 2 s) → end. Left: a real phone on cellular against the hosted relay.
-5. Abuse limits — done in the relay (`services/relay/README.md`). Left:
-   hosting (deploy to our Cloudflare account, `party.baritoad.com`) and the
-   launch copy.
+5. Abuse limits — done in the relay (`services/relay/README.md`). Hosting
+   done 2026-10-02: `party.baritoad.com`, and `pnpm e2e` against it passes
+   all 23 checks (pick → app → guest 73 ms, with both ends on the dev
+   machine). Left: the launch copy.
 
 ## How it will be checked
 
