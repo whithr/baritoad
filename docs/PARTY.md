@@ -2,7 +2,9 @@
 
 Status: **built and hosted** (2026-10-02, owner's call, ahead of the last
 v1.0 checks). The relay is live at `party.baritoad.com` (our Cloudflare
-account). Left: a real phone on cellular, and the launch copy. Party mode is free — it runs through our relay, but
+account), and the owner tried it with a real phone the same day ("looks
+great"). Left: the launch copy, and pick-to-TV timing measured on a phone on
+cellular. Party mode is free — it runs through our relay, but
 nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01). The relay
 and guest page are open source in this repo, `services/relay/` (owner
 decision 2026-10-02). The wire protocol is in
@@ -123,7 +125,8 @@ crates it brings) and `qrcodegen`.
    browser as the guest: start → join → pick → it's in Up next under the
    guest's name and toad (34 ms pick-to-phone on the local relay) → take
    back → kick → the relay drops and the app resumes the same room and link
-   (about 2 s) → end. Left: a real phone on cellular against the hosted relay.
+   (about 2 s) → end. The owner then tried it with a real phone against the
+   hosted relay (2026-10-02).
 5. Abuse limits — done in the relay (`services/relay/README.md`). Hosting
    done 2026-10-02: `party.baritoad.com`, and `pnpm e2e` against it passes
    all 23 checks (pick → app → guest 73 ms, with both ends on the dev
