@@ -7,8 +7,8 @@ authoritative** for scope, legal, and licensing decisions — cite it by section
 when a decision traces to it.
 
 Current phase: **Phase 3 — player, collections, polish**, finishing v1.0
-(PLAN.md §9). Party mode (Phase 4) is designed in docs/PARTY.md and starts
-after v1.0 ships.
+(PLAN.md §9 lists what's left). v1.0 isn't a public launch: party mode
+(Phase 4, designed in docs/PARTY.md) comes next, then the launch.
 
 ## Hard rules — never violate, not even in a prototype
 
@@ -26,7 +26,8 @@ after v1.0 ships.
   servers (party relay, cloud library) are ours, closed, and live outside
   this repo: never put server code or its secrets here (PLAN.md §1, §8).
 - Never commit audio files or model weights to the repo. Test audio is
-  copyrighted; weights live on the mirror with provenance in MODEL_LICENSES.md.
+  copyrighted; weights go on the mirror (Cloudflare R2, PLAN.md §5) with
+  provenance in MODEL_LICENSES.md.
   The .gitignore enforces this — do not weaken it.
 - Dependency policy: everything that ships must be GPL-3.0-compatible and
   redistributable; no research-only or non-commercial weights. A third-party

@@ -2,7 +2,8 @@
 
 Status: **designed, not built.** Party mode is free — it runs through our
 relay, but nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01).
-It starts after v1.0 ships (PLAN.md §9 Phase 4). This page is the design the desktop side will be built
+It starts once v1.0 is finished (PLAN.md §9 Phase 4); the public launch
+waits for it. This page is the design the desktop side will be built
 to. The wire protocol is in [PARTY-PROTOCOL.md](PARTY-PROTOCOL.md).
 
 ## What it is

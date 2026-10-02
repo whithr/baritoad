@@ -34,8 +34,9 @@ and ships no music or lyrics. The app is open source
   (`pnpm exec vite --config vite.mock.config.ts`) that runs the real UI over a
   fake Tauri layer for layout work and screenshots; never part of a build.
 - `src-tauri/` — the Rust shell crate (`karaoke-desktop`, a workspace member).
-  It links `karaoke-core` directly — the pipeline runs in-process on a worker
-  thread, not via the CLI. `src-tauri/tools/` holds the programs Add from URL
+  It links `karaoke-core` directly; song imports run in a child copy of the
+  app (`--pipeline-worker`, below-normal priority — `src-tauri/src/worker.rs`),
+  not via the CLI. `src-tauri/tools/` holds the programs Add from URL
   runs (yt-dlp, Deno) — fetched, never committed.
 
 ## Dev setup (Windows)
@@ -75,19 +76,23 @@ Other commands:
 
 ## Execution-provider policy
 
-The app always requests `EpChoice::Auto`: DirectML for separation (gated by
-the golden-segment parity check, falling closed to CPU) and CPU for the
-wav2vec2 alignment pass (DirectML there can trip the Windows TDR watchdog —
-see `karaoke_core::alignment::w2v`). An advanced setting may expose this
-later; there is deliberately no settings UI in this milestone.
+The app requests `EpChoice::Auto` unless Properties › Processing is set to
+"Processor only": DirectML for separation, wav2vec2, and the whisper encoder,
+each behind a parity check that falls closed to CPU; the whisper decoder stays
+on the CPU. wav2vec2 runs in 10 s dispatches to stay under the Windows TDR
+watchdog (see `karaoke_core::alignment::w2v`). Properties › Processing also
+sets what happens while a game is using the graphics card
+(`src-tauri/src/gaming.rs`).
 
 ## Command / event surface
 
-Commands (all async): `generate_song`, `cancel_job`, `list_jobs`,
-`read_timing_map`, `clean_lyrics_preview`, `export_song` — see
-`src-tauri/src/commands.rs` for payloads and `src/api.ts` for the TypeScript
-mirror.
+Commands (all async) live in `src-tauri/src/` — `commands.rs` (jobs, lyrics,
+export, links), `library.rs` (songs, collections, the up-next queue),
+`player.rs`, `stage.rs`, `review.rs`, `tools.rs`, `theme.rs`, `gaming.rs` —
+with typed wrappers in `src/api.ts`.
 
-Events: everything arrives on the single `karaoke://job` channel as either a
-job lifecycle snapshot or a karaoke-core `PipelineEvent` tagged with its job
-id (`src-tauri/src/queue.rs`).
+Events: `karaoke://job` (job lifecycle snapshots and karaoke-core
+`PipelineEvent`s tagged with their job id, `src-tauri/src/queue.rs`),
+`karaoke://player` (playback status, about 10 Hz while playing),
+`karaoke://library` (metadata backfill), `baritoad://stage` (the Stage
+window), and `baritoad://prefs` (settings shared between the two windows).

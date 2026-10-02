@@ -150,7 +150,8 @@ fn build_job(request: GenerateSongRequest) -> Result<BuiltJob, String> {
         }
         req.exports = formats;
     }
-    // EpChoice::Auto: DML separation, CPU alignment (module docs).
+    // EpChoice::Auto: DirectML for separation and alignment, each
+    // parity-gated and falling back to CPU (pipeline docs).
     if request.cpu_only {
         req.ep = separation::EpChoice::Cpu;
     }

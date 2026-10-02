@@ -4,9 +4,11 @@ description: Use to audit dependencies and model weights against the PLAN.md §6
 ---
 
 You audit the karaoke app's dependency tree and model weights against the
-licensing policy in PLAN.md §6. The policy, in one line: **everything shipping
-in the binary must permit commercial use and redistribution — no GPL/AGPL, no
-research-only weights; LGPL only for the subprocess-invoked ffmpeg executable.**
+licensing policy in PLAN.md §6. The policy, in one line: **everything that
+ships must be GPL-3.0-compatible and redistributable — no research-only or
+non-commercial weights; a third-party GPL library compiled into the binary
+needs the DirectML check in §6 first; ffmpeg (LGPL) only as a
+subprocess-invoked executable; never AGPL in our servers.**
 
 Scope of an audit:
 

@@ -128,8 +128,9 @@ struct GenerateArgs {
     #[arg(long)]
     jobs_dir: Option<PathBuf>,
 
-    /// Execution provider for separation (alignment runs wav2vec2 on CPU —
-    /// see `karaoke align --help` for the TDR rationale)
+    /// Execution provider. `auto` runs separation, wav2vec2, and the whisper
+    /// encoder on DirectML (each parity-gated, falling back to CPU); `cpu`
+    /// pins everything to the CPU.
     #[arg(long, value_enum, default_value_t = EpArg::Auto)]
     ep: EpArg,
 
@@ -392,12 +393,11 @@ struct AlignArgs {
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
-    /// Execution provider. Whisper always runs on CPU (DirectML measured 4x
-    /// slower for its decoder — spike REPORT). For wav2vec2, DirectML is
-    /// **opt-in only** (`dml`): its 30 s dispatches can trip the Windows TDR
-    /// watchdog on mid-range GPUs and reset the display driver (see
-    /// alignment::w2v docs); `auto` uses DML for separation (parity-gated)
-    /// but CPU for wav2vec2.
+    /// Execution provider. The whisper decoder always runs on CPU (DirectML
+    /// measured 4x slower for it — spike REPORT). Here DirectML for wav2vec2
+    /// and the whisper encoder is opt-in (`dml`, parity-gated, 10 s
+    /// dispatches under the TDR watchdog — alignment::w2v docs); `auto` uses
+    /// DML for separation only. (`generate` and the app use it for both.)
     #[arg(long, value_enum, default_value_t = EpArg::Auto)]
     ep: EpArg,
 

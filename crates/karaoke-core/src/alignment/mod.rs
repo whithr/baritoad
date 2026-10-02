@@ -58,8 +58,8 @@ pub struct AlignConfig {
     /// 366→344 anchored, false unsung spans 1→9). Keep false; the flag stays
     /// for experimentation only.
     pub whisper_int8: bool,
-    /// Try DirectML for wav2vec2 emissions (13x on the spike GPU). Whisper
-    /// always runs on CPU (DML measured 4x slower for its decoder).
+    /// Try DirectML for wav2vec2 emissions (13x on the spike GPU). The
+    /// whisper decoder always runs on CPU (DML measured 4x slower for it).
     ///
     /// The two DML hazards are mitigated in [`w2v`] — 10 s dispatches bound
     /// per-dispatch GPU work under the TDR watchdog (an RTX 2080 SUPER reset
