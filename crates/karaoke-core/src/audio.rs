@@ -1,10 +1,12 @@
-//! Audio input: decode any user-owned file (mp3/flac/wav/m4a/ogg) to planar
+//! Audio input: decode any user-owned file (mp3/flac/wav/aiff/m4a incl.
+//! Apple Lossless/ogg, and the audio track of an mp4/mov/mkv video) to planar
 //! stereo f32 at the pipeline sample rate via Symphonia, resampling with
 //! rubato when needed.
 //!
 //! This replaces the spike's ffmpeg/libsndfile prep scripts — production input
-//! is the user's file directly. ffmpeg remains subprocess-only and is reserved
-//! for video import/export (PLAN.md §5); it is not used here.
+//! is the user's file directly. Video files need no ffmpeg either: Symphonia
+//! demuxes their audio track. ffmpeg remains subprocess-only and is reserved
+//! for video export (v1.x, PLAN.md §3); it is not used here.
 
 use std::path::Path;
 
@@ -38,6 +40,47 @@ impl DecodedAudio {
     pub fn duration_seconds(&self) -> f64 {
         self.len as f64 / TARGET_SAMPLE_RATE as f64
     }
+}
+
+/// Can this file's audio be read? Probes the container, picks the audio
+/// track (a video file's picture track is skipped — Symphonia doesn't know
+/// video codecs), builds its decoder and decodes the first packet that
+/// isn't corrupt. A few milliseconds, so an import can refuse a file up
+/// front instead of failing at the separation stage.
+pub fn check_decodable(path: &Path) -> Result<()> {
+    let file = std::fs::File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .map_err(|e| Error::Decode(format!("unrecognized audio format: {e}")))?;
+    let mut format = probed.format;
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .ok_or_else(|| Error::Decode("no audio track found".into()))?;
+    let track_id = track.id;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|e| Error::Decode(format!("unsupported codec: {e}")))?;
+    for _ in 0..256 {
+        let packet = format
+            .next_packet()
+            .map_err(|e| Error::Decode(format!("no audio could be read: {e}")))?;
+        if packet.track_id() != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(_) => return Ok(()),
+            Err(SymErr::DecodeError(_)) => continue,
+            Err(e) => return Err(Error::Decode(e.to_string())),
+        }
+    }
+    Err(Error::Decode("no audio could be read from the start of the file".into()))
 }
 
 /// Decode `path` to planar stereo f32 at [`TARGET_SAMPLE_RATE`].

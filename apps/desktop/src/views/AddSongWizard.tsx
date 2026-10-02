@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { cleanLyricsPreview, findLyrics, generateSong, jobLyrics, probeAudio, type CleanPreview, type ProbeResult } from "../api";
 import { useSettings } from "../App";
 import { fmtDuration } from "../libraryState";
-import { Button, Checkbox, FieldLabel, Icon, TextArea, TextField, Wizard } from "../win98";
+import { Button, Checkbox, FieldLabel, Icon, TextArea, TextField, Wizard, useMessageBox } from "../win98";
 
 const PAGES = ["details", "lyrics"] as const;
 
@@ -136,6 +136,34 @@ export default function AddSongWizard(props: {
     }
   };
 
+  // What the cleanup pass did to the pasted text (PLAN.md §4: a one-glance
+  // summary, the details on request), and what it can't fix.
+  const ask = useMessageBox();
+  const showEdits = () =>
+    preview &&
+    ask({
+      kind: preview.warnings.length > 0 ? "warning" : "info",
+      title: "Lyrics cleanup",
+      message: preview.summary || "The lyrics were tidied for timing.",
+      detail: (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 420 }}>
+          <div className="w-sunken" style={{ background: "var(--w-window)", maxHeight: 220, overflow: "auto", padding: "4px 6px" }}>
+            {preview.edits.map((e, i) => (
+              <div key={i} style={{ lineHeight: "18px", userSelect: "text" }}>
+                {e}
+              </div>
+            ))}
+          </div>
+          {preview.warnings.map((w, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", lineHeight: "18px" }}>
+              <Icon name="warn" />
+              <span>{w}</span>
+            </div>
+          ))}
+        </div>
+      ),
+    });
+
   // Find Lyrics: LRCLIB by title, artist and length — only these leave the
   // computer. The result lands in the box for a look before Finish.
   const lookUp = async () => {
@@ -253,11 +281,27 @@ export default function AddSongWizard(props: {
             placeholder="Leave empty to transcribe from the vocals (slower, rougher)."
             autoFocus
           />
-          <div style={{ lineHeight: "18px" }}>
-            {preview
-              ? `${preview.lines_kept} lines · ${preview.words_kept} words${preview.summary ? ` · ${preview.summary}` : ""}`
-              : "Pasted lyrics give the best sync."}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", lineHeight: "18px" }}>
+            <span style={{ flexGrow: 1 }}>
+              {preview
+                ? `${preview.lines_kept} lines · ${preview.words_kept} words${preview.summary ? ` · ${preview.summary}` : ""}`
+                : "Pasted lyrics give the best sync."}
+            </span>
+            {preview && preview.edits.length > 0 && (
+              <Button slim onClick={() => void showEdits()}>
+                What &changed…
+              </Button>
+            )}
           </div>
+          {preview && preview.warnings.length > 0 && (
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", lineHeight: "18px" }}>
+              <Icon name="warn" />
+              <span>
+                {preview.warnings[0]}
+                {preview.warnings.length > 1 ? ` (and ${preview.warnings.length - 1} more — see What changed…)` : ""}
+              </span>
+            </div>
+          )}
           {found && (
             <div style={{ display: "flex", gap: 8, alignItems: "center", lineHeight: "18px" }}>
               <Icon name="globe" />

@@ -260,6 +260,9 @@ Separator · icons.
   queued, which starts a countdown. It belongs to the Stage, never a message
   box (a box would outlive the song). Party mode's join code will sit beside
   the card. A new song starts at key 0 and tempo 1; the vocal guide carries.
+  Media keys work here (the OS media controls, media_keys.rs): Play/Pause,
+  Next = the next song in Up next (Sing now between songs), Previous = start
+  over; the OS "now playing" panel shows the song.
 - **Up next** — Rust owns it and every change reaches both windows. The song
   on the Stage stays listed with ▶ until it's sung (then it leaves), so a
   restart mid-song still has it first. Songs drag in from the song list (a
@@ -285,7 +288,6 @@ Separator · icons.
 - Live stem VU meters await level data from the audio engine.
 - App icon (`src-tauri/icons/*`) should be regenerated from the pixel brand mark — the 16-px toad face, `app` in win98/icons.tsx — when bundling turns on.
 - The toad appears only at 16 px — title bars and the Library root. Never scaled up: About, the wizard art, and message boxes don't carry it, and there is no full-body mascot in the app (owner, 2026-10-01). Party-mode exception (owner, 2026-10-01; docs/PARTY.md): guests' toads — the site's toad family, same 16×20 grid and palette — sit beside guest names on the Stage and in Up next, drawn at whole-pixel multiples, crisp, never smoothed, and never without the name.
-- Media-key handling in the player (PRODUCT.md commits to it).
 
 ## Do's and Don'ts
 

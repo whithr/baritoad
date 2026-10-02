@@ -1,10 +1,11 @@
 // Song › Properties (Alt+Enter): the details a person can fix — title,
-// artist, year, genre, language — plus the facts baritoad measured, read
-// only. Year and genre are what the Library's Browse folders and Group by
+// artist, year, genre, language, and the cover picture — plus the facts
+// baritoad measured, read only. A cover picked here survives re-imports. Year and genre are what the Library's Browse folders and Group by
 // read; an edit here always beats the file's tags on a later re-import.
 
 import { useEffect, useState } from "react";
-import { songUpdateDetails, type Song } from "../api";
+import { open } from "@tauri-apps/plugin-dialog";
+import { coverImportImage, readCover, songSetCover, songUpdateDetails, type Song } from "../api";
 import { languageName, LANGUAGE_NAMES, paceOf, PACE_LABELS, type PaceBands } from "../categories";
 import { fmtDuration } from "../libraryState";
 import { Button, Dialog, DialogButtons, FieldLabel, GroupBox, Icon, Select, TextField } from "../win98";
@@ -29,9 +30,20 @@ export default function SongProperties(props: {
   const [lang, setLang] = useState("en");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The cover as it will be saved: a stored path (or none) and its preview. */
+  const [cover, setCover] = useState<{ path: string | null; url: string | null }>({ path: null, url: null });
+  const [coverChanged, setCoverChanged] = useState(false);
 
   useEffect(() => {
     if (!song) return;
+    setCover({ path: song.cover_path ?? null, url: null });
+    setCoverChanged(false);
+    let alive = true;
+    if (song.cover_path) {
+      readCover(song.cover_path)
+        .then((url) => alive && setCover((c) => (c.path === song.cover_path ? { ...c, url } : c)))
+        .catch(() => undefined);
+    }
     setTitle(song.title);
     setArtist(song.artist ?? "");
     setYear(song.year != null ? String(song.year) : "");
@@ -39,7 +51,31 @@ export default function SongProperties(props: {
     setLang(song.language_tag);
     setError(null);
     setBusy(false);
+    return () => {
+      alive = false;
+    };
   }, [song]);
+
+  const pickCover = async () => {
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "Pictures", extensions: ["jpg", "jpeg", "png", "gif", "bmp", "webp"] }],
+    });
+    if (typeof picked !== "string") return;
+    try {
+      const stored = await coverImportImage(picked);
+      const url = await readCover(stored);
+      setCover({ path: stored, url });
+      setCoverChanged(true);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const removeCover = () => {
+    setCover({ path: null, url: null });
+    setCoverChanged(true);
+  };
 
   const yearNum = year.trim() === "" ? null : Number(year.trim());
   const yearOk = yearNum === null || (Number.isInteger(yearNum) && yearNum >= 1900 && yearNum <= 2100);
@@ -49,13 +85,14 @@ export default function SongProperties(props: {
     if (!song || !canSave) return;
     setBusy(true);
     try {
-      const saved = await songUpdateDetails(song.id, {
+      let saved = await songUpdateDetails(song.id, {
         title: title.trim(),
         artist: artist.trim() || null,
         year: yearNum,
         genre: genre.trim() || null,
         language_tag: lang,
       });
+      if (coverChanged) saved = await songSetCover(song.id, cover.path);
       props.onSaved(saved);
     } catch (e) {
       setError(String(e));
@@ -88,7 +125,21 @@ export default function SongProperties(props: {
     <Dialog open={!!song} onClose={() => !busy && props.onClose()} title={song ? `${song.title} Properties` : "Properties"} width={480}>
       <div className="w-dialog-body" style={{ gap: 10 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <Icon name="disc" size={32} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, width: 84, flexShrink: 0 }}>
+            <div
+              className="w-sunken"
+              style={{ width: 84, height: 84, display: "flex", alignItems: "center", justifyContent: "center", background: "#008080" }}
+              aria-label={cover.path ? "Cover" : "No cover"}
+            >
+              {cover.url ? <img src={cover.url} alt="" style={{ width: 80, height: 80, objectFit: "cover" }} /> : <Icon name="disc" size={32} />}
+            </div>
+            <Button slim onClick={() => void pickCover()} disabled={busy} style={{ width: "100%" }}>
+              &Change…
+            </Button>
+            <Button slim onClick={removeCover} disabled={busy || !cover.path} style={{ width: "100%" }}>
+              Re&move
+            </Button>
+          </div>
           <div style={{ flexGrow: 1, display: "grid", gridTemplateColumns: "72px minmax(0, 1fr)", gap: "6px 8px", alignItems: "center" }}>
             <FieldLabel htmlFor="sp-title" text="&Title:" />
             <TextField id="sp-title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />

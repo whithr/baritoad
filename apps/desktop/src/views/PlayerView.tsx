@@ -21,13 +21,12 @@
 // (same LyricFrame seam, reference impl in the spike) pending the WebKitGTK
 // measurement; WebGL stays dead (spike verdict).
 //
-// ## Media keys — honest deferral
-// Hardware media keys are NOT wired. The webview's navigator.mediaSession
-// only receives them when the page itself plays audio (ours plays via cpal),
-// and a global-shortcut route needs tauri-plugin-global-shortcut — a new
-// dependency (license looks fine, MIT/Apache-2.0, but it earns its §6 row
-// when we actually adopt it). Keyboard controls cover v1; revisit with the
-// party-mode milestone.
+// ## Media keys
+// navigator.mediaSession only hears keys when the page itself plays audio
+// (ours plays through cpal), so the keys come from the OS media controls in
+// Rust (media_keys.rs) as baritoad://media events: Play/Pause as Space,
+// Next as the next song in Up next (Sing now between songs), Previous as
+// back to the start, Stop as pause. The OS panel hears what's on from here.
 
 import {
   Fragment,
@@ -57,6 +56,8 @@ import {
   playerStatus,
   playerUnload,
   onQueueChanged,
+  onMediaKey,
+  mediaNowPlaying,
   queueFinish,
   queuePlay,
   queueState,
@@ -1010,6 +1011,7 @@ export default function PlayerView(props: {
                 ["− +", "Key down / up"],
                 ["[ ]", "Slower / faster"],
                 ["0", "Reset key and tempo"],
+                ["Media keys", "Play / pause, the next song, start over"],
                 ["F", "Full screen"],
                 ...(ROLE === "player" ? [["F6", "Back to baritoad"]] : []),
                 ["Esc", ROLE === "player" ? "Close the stage" : "Back"],
@@ -1131,6 +1133,54 @@ export default function PlayerView(props: {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [togglePlay, seekBy, nudgeGuide, nudgePitch, nudgeTempo, toggleFullscreen, exit, fullscreen, pokeControls, showKeys, singNow, holdOrGo, doneSinging]);
+
+  // ---- media keys (module docs) and the OS "now playing" panel ------------
+  const upNextRef = useRef(upNext);
+  upNextRef.current = upNext;
+  useEffect(() => {
+    if (props.measure) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    onMediaKey((k) => {
+      pokeControls();
+      const between = betweenRef.current;
+      const st = statusRef.current;
+      if (between) {
+        if ((k === "play" || k === "toggle" || k === "next") && between.next) singNow();
+        else if (k === "pause" && between.next && !between.cd.held) holdOrGo();
+        return;
+      }
+      if (k === "toggle") togglePlay();
+      else if (k === "play" && st?.state !== "playing") playerPlay().catch(() => undefined);
+      else if ((k === "pause" || k === "stop") && st?.state === "playing") playerPause().catch(() => undefined);
+      else if (k === "previous") playerSeek(0).catch(() => undefined);
+      else if (k === "next" && upNextRef.current) void singEntry(upNextRef.current);
+    })
+      .then((u) => (disposed ? u() : (unlisten = u)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [props.measure, pokeControls, togglePlay, singNow, holdOrGo, singEntry]);
+
+  const osState = status?.state === "playing" ? "playing" : status?.state === "paused" || status?.state === "finished" ? "paused" : "stopped";
+  useEffect(() => {
+    if (props.measure) return;
+    mediaNowPlaying({
+      title: song?.title ?? null,
+      artist: song?.artist ?? null,
+      duration_s: statusRef.current?.duration ?? song?.duration_s ?? null,
+      state: osState,
+      position_s: statusRef.current?.position ?? null,
+    }).catch(() => undefined);
+  }, [song, osState, props.measure]);
+  useEffect(
+    () => () => {
+      mediaNowPlaying({ state: "stopped" }).catch(() => undefined);
+    },
+    [],
+  );
 
   // ---- seek bar -----------------------------------------------------------
   const barClick = (e: React.MouseEvent<HTMLDivElement>) => {

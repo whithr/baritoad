@@ -181,6 +181,8 @@ pub async fn probe_audio(path: String) -> Result<ProbeResult, String> {
     if !p.is_file() {
         return Err(format!("file not found: {path}"));
     }
+    // Refuse what can't be decoded now, not at the separation stage.
+    karaoke_core::audio::check_decodable(&p).map_err(|e| unreadable_audio_message(&e.to_string()))?;
     let (fallback_title, fallback_artist) = meta_from_filename(&p);
     // Tag read is best-effort: unreadable tags fall back to the filename.
     let tags = library::read_tags(&p).unwrap_or_default();
@@ -196,6 +198,14 @@ pub async fn probe_audio(path: String) -> Result<ProbeResult, String> {
             .map(|c| data_url(&c.data, c.mime.as_deref())),
         from_tags,
     })
+}
+
+/// What the wizard says about a file Symphonia can't decode (WMA, Opus…).
+pub(crate) fn unreadable_audio_message(reason: &str) -> String {
+    format!(
+        "This file's audio can't be read ({reason}). MP3, FLAC, WAV, AIFF, M4A, OGG \
+         and the sound of MP4, MOV and MKV videos work; WMA and Opus don't yet."
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -471,6 +481,70 @@ pub async fn queue_finish(
 // ---------------------------------------------------------------------------
 // cover art
 // ---------------------------------------------------------------------------
+
+const MAX_COVER_BYTES: u64 = 25 * 1024 * 1024;
+
+/// Song › Properties › Change…: copy the picture the person picked into the
+/// covers folder (named by content hash, like tag art) so the dialog can
+/// preview it through `read_cover`. Nothing changes until `song_set_cover`.
+#[tauri::command]
+pub async fn cover_import_image(
+    library: State<'_, Arc<LibraryHandle>>,
+    src_path: String,
+) -> Result<String, String> {
+    let src = PathBuf::from(&src_path);
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "webp" => "image/webp",
+        _ => return Err(format!("not a picture baritoad can show: .{ext}")),
+    };
+    let meta = std::fs::metadata(&src).map_err(|e| format!("picture not readable: {e}"))?;
+    if meta.len() > MAX_COVER_BYTES {
+        return Err("that picture is larger than 25 MB — pick a smaller one".into());
+    }
+    let data = std::fs::read(&src).map_err(|e| format!("picture not readable: {e}"))?;
+    let art = library::tags::CoverArt { data, mime: Some(mime.into()) };
+    let stored = library::tags::save_cover(&art, library.covers_dir()).map_err(|e| e.to_string())?;
+    Ok(stored.to_string_lossy().into_owned())
+}
+
+/// Song › Properties OK: use a cover from the covers folder (from
+/// `cover_import_image`), or `None` to clear it. A cover set here survives
+/// re-imports (store `cover_by_user`).
+#[tauri::command]
+pub async fn song_set_cover(
+    library: State<'_, Arc<LibraryHandle>>,
+    song_id: i64,
+    cover_path: Option<String>,
+) -> Result<Song, String> {
+    let path = match cover_path {
+        Some(p) => {
+            let canon = PathBuf::from(&p).canonicalize().map_err(|e| format!("cover not found: {e}"))?;
+            let covers = library.covers_dir().canonicalize().map_err(|e| format!("covers dir missing: {e}"))?;
+            if !canon.starts_with(&covers) {
+                return Err("cover path outside the covers directory".into());
+            }
+            Some(PathBuf::from(p))
+        }
+        None => None,
+    };
+    let store = library.lock()?;
+    if !store.set_cover(song_id, path.as_deref()).map_err(|e| e.to_string())? {
+        return Err("that song isn't in the library anymore".into());
+    }
+    store
+        .song(song_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "that song isn't in the library anymore".into())
+}
 
 /// Read an extracted cover as a data URL. Restricted to the covers dir —
 /// the webview never gets arbitrary-file read through this.

@@ -99,37 +99,6 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
   return out;
 }
 
-/** Initials for the generated-cover fallback: first letters of the first two
- *  title words ("Dancing On My Own" → "DO"). */
-export function coverInitials(title: string): string {
-  const words = title.trim().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
-  return words
-    .slice(0, 2)
-    .map((w) => [...w].find((c) => /[\p{L}\p{N}]/u.test(c)) ?? "")
-    .join("")
-    .toUpperCase() || "♪";
-}
-
-/** Deterministic hue (0..360) from a string — same song, same gradient,
- *  every launch. */
-export function coverHue(seed: string): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) {
-    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return h % 360;
-}
-
-/** CSS gradient for the cover-art fallback. Covers are content (the
- *  album-art zone), exempt from the five-glow discipline — wide hue spread,
- *  saturated like sun-faded cassette sleeves. Initials (white 0.85) stay
- *  ≥3:1 large-text AA at the 34%-lightness worst case. */
-export function coverGradient(seed: string): string {
-  const hue = coverHue(seed);
-  const hue2 = (hue + 70) % 360;
-  return `linear-gradient(135deg, hsl(${hue}, 68%, 34%), hsl(${hue2}, 80%, 18%))`;
-}
-
 /** "1:34" / "12:05" from seconds; null-safe. */
 export function fmtDuration(s?: number | null): string | null {
   if (s == null || !isFinite(s) || s <= 0) return null;

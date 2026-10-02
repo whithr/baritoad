@@ -22,7 +22,6 @@ import {
   collectionDelete,
   collectionRemoveSong,
   collectionRename,
-  exportSong,
   libraryCollections,
   libraryDeleteSong,
   librarySongs,
@@ -90,6 +89,7 @@ import {
 import { openStage } from "../stage";
 import { EMPTY_QUEUE, moveTarget, shuffled, waiting } from "../queueView";
 import CollectionPicker from "./CollectionPicker";
+import { EXPORTS, exportWithSaveAs, folderOf } from "../exportFile";
 import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
@@ -97,6 +97,27 @@ import LinkDialog from "./LinkDialog";
 import { parseLinks } from "../linkState";
 import ProcessingDialog from "./ProcessingDialog";
 import SongProperties from "./SongProperties";
+
+/** The running bulk import's song files (localStorage), so its report
+ *  survives a restart. Best-effort: storage can be unavailable. */
+const BATCH_KEY = "baritoad.batch.v1";
+function rememberBatch(files: (string | undefined)[]) {
+  try {
+    const keep = [...new Set(files.filter((f): f is string => !!f))];
+    if (keep.length > 0) localStorage.setItem(BATCH_KEY, JSON.stringify(keep));
+    else localStorage.removeItem(BATCH_KEY);
+  } catch {
+    // private mode / quota: the report just won't survive a restart
+  }
+}
+function recalledBatch(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(BATCH_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 /** Browse branches: selecting one lists every song, grouped by it. */
 const BROWSE_GROUP: Record<string, GroupBy> = {
@@ -116,14 +137,12 @@ const GROUP_LABELS: Record<GroupBy, string> = {
   pace: "&Pace",
 };
 
-const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "wma"];
+// Mirrors karaoke-core import::AUDIO_EXTENSIONS: audio, plus videos whose
+// sound is read directly. WMA and Opus/webm have no decoder.
+const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "aif", "mp4", "m4v", "mov", "mkv"];
+const FORMATS_TEXT = "MP3, FLAC, WAV, AIFF, M4A, OGG, or the sound of an MP4, MOV or MKV video";
 const isAudioPath = (p: string) => AUDIO_EXTS.includes((p.split(".").pop() ?? "").toLowerCase());
 
-const EXPORTS: [string, string][] = [
-  ["lrc", "&LRC lyrics"],
-  ["ass", "&ASS subtitles"],
-  ["ultrastar", "&UltraStar .txt"],
-];
 
 const STATUS_RANK: Record<SongStatus["kind"], number> = {
   processing: 0,
@@ -217,6 +236,9 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const announced = useRef(new Set<number>());
   /** The current bulk import's jobs — reported once, when all are done. */
   const batch = useRef<number[]>([]);
+  /** Since mount, for picking a batch back up after a restart (below). */
+  const mountedAt = useRef(Date.now());
+  const batchPickedUp = useRef(false);
 
   const collectionId = node.startsWith("c:") ? Number(node.slice(2)) : null;
   const collection = collections.find((c) => c.id === collectionId) ?? null;
@@ -409,7 +431,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   // ----------------------------------------------------------- actions
 
   const addSong = useCallback(async () => {
-    const picked = await open({ multiple: false, filters: [{ name: "Audio", extensions: AUDIO_EXTS }] });
+    const picked = await open({ multiple: false, filters: [{ name: "Songs (audio or video)", extensions: AUDIO_EXTS }] });
     if (typeof picked === "string") setWizard({ path: picked });
   }, []);
 
@@ -425,7 +447,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             kind: "info",
             title: "Import Songs",
             message: "No songs found there.",
-            detail: "Songs can be MP3, FLAC, WAV, M4A, OGG, AAC, AIFF or WMA files, in the folder or any folder inside it.",
+            detail: `Songs can be ${FORMATS_TEXT}, in the folder or any folder inside it.`,
           });
         } else {
           setImportScan(scan);
@@ -488,6 +510,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const onImportQueued = (r: ImportQueued) => {
     setImportScan(null);
     batch.current = batch.current.concat(r.jobs.map((j) => j.id));
+    rememberBatch(batch.current.map((id) => jobs.jobs[id]?.job.audio).concat(r.jobs.map((j) => j.audio)));
     if (r.jobs.length > 0) {
       setProcJob(r.jobs[0].id);
       setProcOpen(true);
@@ -502,12 +525,37 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     }
   };
 
+  // A batch outlives a restart: the queue resumes its songs (as new jobs),
+  // so the batch is remembered by their files and picked back up here — the
+  // report still comes once, at the end. Given up after 10 s (nothing of it
+  // left to finish).
+  useEffect(() => {
+    if (batchPickedUp.current || batch.current.length > 0) return;
+    const files = recalledBatch();
+    if (files.length === 0) {
+      batchPickedUp.current = true;
+      return;
+    }
+    const ids = jobs.order.filter((id) => {
+      const p = jobs.jobs[id];
+      return !!p && files.includes(p.job.audio) && (p.job.status === "queued" || p.job.status === "running");
+    });
+    if (ids.length > 0) {
+      batchPickedUp.current = true;
+      batch.current = ids;
+    } else if (Date.now() - mountedAt.current > 10_000) {
+      batchPickedUp.current = true;
+      rememberBatch([]);
+    }
+  }, [jobs]);
+
   useEffect(() => {
     if (batch.current.length === 0) return;
     const b = batchProgress(batch.current.map((id) => jobs.jobs[id]));
     if (b.remaining > 0) return;
     const failed = batch.current.map((id) => jobs.jobs[id]).filter((p) => p?.job.status === "failed");
     batch.current = [];
+    rememberBatch([]);
     setProcOpen(false);
     const lines = [
       b.done > 0 ? `${b.done === 1 ? "1 song is" : `${b.done} songs are`} in your library. Songs baritoad timed wait under Needs checking for a quick listen.` : "",
@@ -541,6 +589,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         void Promise.all(failed.map((p) => retryJob(p!.job.id)))
           .then((snaps) => {
             batch.current = snaps.map((s) => s.id);
+            rememberBatch(snaps.map((s) => s.audio));
             if (snaps[0]) {
               setProcJob(snaps[0].id);
               setProcOpen(true);
@@ -600,17 +649,12 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const doExport = async (format: string) => {
     if (!song?.timing_map_path) return;
     try {
-      const paths = await exportSong({
-        map_path: song.timing_map_path,
-        formats: [format],
+      await exportWithSaveAs(ask, {
+        mapPath: song.timing_map_path,
+        format,
         title: song.title,
-        artist: song.artist ?? undefined,
-      });
-      await ask({
-        kind: "info",
-        title: "Export",
-        message: `Exported ${paths.length} file${paths.length === 1 ? "" : "s"}.`,
-        detail: paths.join("\n"),
+        artist: song.artist,
+        nextTo: folderOf(song.audio_path),
       });
     } catch (e) {
       await ask({ kind: "error", title: "Export", message: "The export didn't finish.", detail: String(e) });

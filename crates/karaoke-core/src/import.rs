@@ -37,8 +37,17 @@ use crate::formats::{lrc, ultrastar};
 use crate::library::tags;
 use crate::pipeline::manifest::MANIFEST_FILE_NAME;
 
-/// Audio the pipeline decodes (the desktop app's file filter matches).
-pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "aif", "wma"];
+/// Files the pipeline decodes (the desktop app's file filter matches):
+/// audio, plus videos, whose audio track is read directly (audio.rs). Not
+/// WMA or Opus/webm — Symphonia has no decoder for them.
+pub const AUDIO_EXTENSIONS: &[&str] = &[
+    "mp3", "flac", "wav", "m4a", "ogg", "aac", "aiff", "aif", "mp4", "m4v", "mov", "mkv",
+];
+
+/// Music files the pipeline can't decode yet. The scan still finds them, so
+/// the app and `karaoke scan` can say why they're left out (their decode
+/// check fails) instead of skipping them without a word.
+pub const UNSUPPORTED_AUDIO_EXTENSIONS: &[&str] = &["wma", "opus", "webm"];
 
 /// Folders nested deeper than this under a root are not searched.
 const MAX_DEPTH: usize = 12;
@@ -370,7 +379,7 @@ pub fn meta_from_filename(path: &Path) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn is_audio(p: &Path) -> bool {
-    ext_of(p).is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.as_str()))
+    ext_of(p).is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.as_str()) || UNSUPPORTED_AUDIO_EXTENSIONS.contains(&e.as_str()))
 }
 
 /// Text files that are never lyrics (compared by lowercase stem).

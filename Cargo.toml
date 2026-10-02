@@ -23,7 +23,7 @@ license = "GPL-3.0-or-later"
 ort = { version = "=2.0.0-rc.13", features = ["directml"] }
 ndarray = "0.17"
 hound = "3.5"
-symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "flac", "ogg", "vorbis", "wav", "pcm"] }
+symphonia = { version = "0.5", features = ["mp3", "aac", "alac", "isomp4", "flac", "ogg", "vorbis", "wav", "aiff", "pcm"] }
 rubato = "0.16"
 flacenc = { version = "0.5", default-features = false }
 serde = { version = "1", features = ["derive"] }

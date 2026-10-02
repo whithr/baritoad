@@ -27,8 +27,10 @@ My Karaoke\
 
 ## Audio
 
-MP3, FLAC, WAV, M4A, OGG, AAC, AIFF and WMA files are imported, from the
-folder and every folder inside it. Your files are never changed or moved.
+MP3, FLAC, WAV, AIFF, M4A (AAC or Apple Lossless), OGG and AAC files are
+imported, plus the sound of MP4, MOV and MKV videos — from the folder and
+every folder inside it. WMA and Opus (and most WebM videos) can't be read yet;
+import lists them and leaves them out, and `karaoke scan` reports them. Your files are never changed or moved.
 Each song's results go in a `<song name>-karaoke` folder next to it (the
 separated vocals and music, the timing, and LRC/ASS/UltraStar exports). Import
 skips those folders, so importing the same folder again is safe. Songs already

@@ -25,7 +25,6 @@ import {
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
-  exportSong,
   librarySong,
   playbackSources,
   playerPause,
@@ -68,6 +67,7 @@ import { tokenizeLyric } from "../lineEdit";
 import { shiftRange, type ShiftScope } from "../previewEditor";
 import { fmtTime } from "../format";
 import { onStage, openStage } from "../stage";
+import { EXPORTS, exportWithSaveAs, folderOf } from "../exportFile";
 import { useAudio } from "../useAudio";
 import {
   AppFrame,
@@ -110,11 +110,6 @@ function fmtClock(s: number, tenths = true): { main: string; frac: string } {
   };
 }
 
-const EXPORTS: [string, string][] = [
-  ["lrc", "&LRC lyrics"],
-  ["ass", "&ASS subtitles"],
-  ["ultrastar", "&UltraStar .txt"],
-];
 
 // Word chips are lyric text (Barlow 600): measure it rather than guess a
 // per-glyph width, so a short sung span still gets a readable chip.
@@ -576,26 +571,23 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
     [lanes, sources, words, duration],
   );
 
+  const ask = useMessageBox();
   const doExport = useCallback(
     async (format: string) => {
-      setBusy(`Exporting ${format}…`);
       try {
         if (dirty) await save();
-        const paths = await exportSong({
-          map_path: mapPath,
-          formats: [format],
-          title: song?.title ?? props.title,
-          artist: song?.artist ?? undefined,
+        await exportWithSaveAs(ask, {
+          mapPath,
+          format,
+          title: song?.title ?? props.title ?? "song",
+          artist: song?.artist,
+          nextTo: folderOf(song?.audio_path ?? mapPath),
         });
-        setNotice(`Exported ${paths.length} file${paths.length === 1 ? "" : "s"}`);
-        window.setTimeout(() => setNotice(null), 2500);
       } catch (e) {
         setError(String(e));
-      } finally {
-        setBusy(null);
       }
     },
-    [dirty, save, mapPath, song, props.title],
+    [ask, dirty, save, mapPath, song, props.title],
   );
 
   // ---- drag (direct manipulation, loop while held; on release a move rolls
@@ -792,7 +784,6 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
 
   // ---- leaving: 98-style "Save changes?" on every way out (Close, the
   // Library button, Alt+F4 / caption X via the window's close guard)
-  const ask = useMessageBox();
   const dialogs = useAppDialogs();
   const title = song?.title ?? props.title ?? "Untitled";
   const confirmLeave = useCallback(async (): Promise<boolean> => {

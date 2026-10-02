@@ -16,6 +16,7 @@ const song = (name: string, over: Partial<ImportCandidate> = {}): ImportCandidat
   title: name,
   artist: "Someone",
   lyrics: { kind: "text", path: `D:\\Karaoke\\Party\\${name}.txt` },
+  lyrics_warnings: [],
   collection: "Party",
   in_library: false,
   ...over,

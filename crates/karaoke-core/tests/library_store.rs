@@ -615,6 +615,32 @@ fn old_rows_need_meta_until_backfilled() {
 }
 
 #[test]
+fn a_cover_the_person_picked_survives_a_reimport() {
+    let store = LibraryStore::open_in_memory().unwrap();
+    let tag_art = |path: &str| SongUpsert {
+        cover_path: Some(PathBuf::from(path)),
+        ..upsert("h1", "Song", None)
+    };
+    let song = store.upsert_song(&tag_art("C:/covers/tag1.jpg")).unwrap();
+    assert!(store.set_cover(song.id, Some(Path::new("C:/covers/mine.png"))).unwrap());
+    // Process again: the file still has its embedded art.
+    store.upsert_song(&tag_art("C:/covers/tag2.jpg")).unwrap();
+    assert_eq!(
+        store.song(song.id).unwrap().unwrap().cover_path.as_deref(),
+        Some(Path::new("C:/covers/mine.png"))
+    );
+    // Clearing hands the cover back to the tags on the next import.
+    store.set_cover(song.id, None).unwrap();
+    assert_eq!(store.song(song.id).unwrap().unwrap().cover_path, None);
+    store.upsert_song(&tag_art("C:/covers/tag3.jpg")).unwrap();
+    assert_eq!(
+        store.song(song.id).unwrap().unwrap().cover_path.as_deref(),
+        Some(Path::new("C:/covers/tag3.jpg"))
+    );
+    assert!(!store.set_cover(9999, None).unwrap());
+}
+
+#[test]
 fn a_persons_edit_survives_backfill_and_regenerate() {
     let store = LibraryStore::open_in_memory().unwrap();
     let song = store.upsert_song(&upsert("h1", "Song", None)).unwrap();

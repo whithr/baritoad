@@ -88,7 +88,9 @@ sets what happens while a game is using the graphics card
 
 Commands (all async) live in `src-tauri/src/` — `commands.rs` (jobs, lyrics,
 export, links), `library.rs` (songs, collections, the up-next queue),
-`player.rs`, `stage.rs`, `review.rs`, `tools.rs`, `theme.rs`, `gaming.rs` —
+`player.rs`, `stage.rs`, `review.rs`, `tools.rs`, `theme.rs`, `gaming.rs`,
+`media_keys.rs` (the OS media controls; `keep_awake.rs` holds off sleep
+while songs import) —
 with typed wrappers in `src/api.ts`.
 
 Events: `karaoke://job` (job lifecycle snapshots and karaoke-core

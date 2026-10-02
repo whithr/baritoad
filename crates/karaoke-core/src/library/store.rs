@@ -84,6 +84,11 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_songs_year  ON songs(year);
     CREATE INDEX idx_songs_genre ON songs(genre);
     ",
+    // v3 -> v4: a cover the person picked (Song › Properties) — a re-import
+    // must not swap it back for the file's embedded art (see upsert_song).
+    "
+    ALTER TABLE songs ADD COLUMN cover_by_user INTEGER NOT NULL DEFAULT 0;
+    ",
 ];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -317,7 +322,7 @@ impl LibraryStore {
                  vocals_path = excluded.vocals_path,
                  instrumental_path = excluded.instrumental_path,
                  duration_s = COALESCE(excluded.duration_s, duration_s),
-                 cover_path = COALESCE(?11, cover_path),
+                 cover_path = CASE WHEN cover_by_user = 1 THEN cover_path ELSE COALESCE(?11, cover_path) END,
                  lyric_source = COALESCE(excluded.lyric_source, lyric_source),
                  language_tag = COALESCE(?13, language_tag),
                  year = COALESCE(year, excluded.year),
@@ -451,6 +456,16 @@ impl LibraryStore {
             params![id, path_str(cover_path)],
         )?;
         Ok(())
+    }
+
+    /// Song › Properties › Cover: the person's own picture replaces whatever
+    /// the tags gave, and a later re-import keeps it (`cover_by_user`).
+    /// `None` clears it and hands the cover back to the tags.
+    pub fn set_cover(&self, id: i64, cover_path: Option<&Path>) -> Result<bool> {
+        Ok(self.conn.execute(
+            "UPDATE songs SET cover_path = ?2, cover_by_user = ?3 WHERE id = ?1",
+            params![id, cover_path.map(path_str), cover_path.is_some()],
+        )? > 0)
     }
 
     /// Set (or clear) the review timestamp — "Looks good" on the preview

@@ -449,6 +449,9 @@ impl JobQueue {
         game: Arc<GameWatch>,
     ) {
         let mut worker: Option<Worker> = None;
+        // Held while there's anything to import, so a long batch survives
+        // the computer's sleep timer (keep_awake.rs).
+        let mut awake = crate::keep_awake::KeepAwake::new();
         loop {
             let (id, request, cancel, started, prep) = {
                 let mut inner = self.inner.lock().unwrap();
@@ -470,6 +473,7 @@ impl JobQueue {
                             entry.saved.prep.clone(),
                         );
                     }
+                    awake.release();
                     if worker.is_none() {
                         inner = self.cv.wait(inner).unwrap();
                         continue;
@@ -486,6 +490,7 @@ impl JobQueue {
                     }
                 }
             };
+            awake.hold();
             emit_lifecycle(&app, &started);
 
             let outcome = match self

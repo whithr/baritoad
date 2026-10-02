@@ -52,7 +52,7 @@ then publishes the new queue, and the relay passes it on to the guests.
 - `karaoke-core` gains a `party` module with no I/O: the protocol types, the
   song-list projection, the request rules, and toad validation.
 - The library store gains singer, toad, and guest columns on the queue
-  (schema v4).
+  (schema v5; v4 is the cover-by-user flag).
 - `src-tauri/src/party.rs`: the relay client. It runs on its own thread like
   the game watcher (`gaming.rs`) and holds one outbound WebSocket
   (`tungstenite`, native TLS like `ureq`) — no listening port, so no firewall
@@ -110,7 +110,7 @@ crates it brings) and `qrcodegen`.
 
 ## Milestones (after v1.0)
 
-1. Queue groundwork: schema v4 and the Singer column. (`karaoke://queue`
+1. Queue groundwork: schema v5 and the Singer column. (`karaoke://queue`
    and the between-songs Stage screen came with v1.0; the join code goes
    beside its card.)
 2. The `party` core module, the protocol doc filled in, tests.
@@ -122,7 +122,7 @@ crates it brings) and `qrcodegen`.
 ## How it will be checked
 
 - Unit tests: protocol round-trip; the song-list JSON contains no path or hash
-  fields; request rules; the v3 → v4 schema upgrade.
+  fields; request rules; the v4 → v5 schema upgrade.
 - The bench mock gains party commands and fake guests, so the UI can be built
   and screenshotted without the relay.
 - End to end: a local relay, the real app, and a phone on cellular — scan,

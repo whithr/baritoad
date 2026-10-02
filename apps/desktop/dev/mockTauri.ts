@@ -246,6 +246,20 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       saveQueue(q);
       return r(mockQueue());
     }
+    case "export_song": {
+      const req = args?.request as { out_path?: string; formats: string[] };
+      return r(req.out_path ? [req.out_path] : req.formats.map((f) => `C:\\jobs\\song.${f}`));
+    }
+    case "reveal_path":
+      return r(undefined);
+    case "cover_import_image":
+      return r("C:\\covers\\0123456789abcdef.png");
+    case "song_set_cover": {
+      const song = SONGS.find((s) => s.id === args?.songId) as Record<string, unknown> | undefined;
+      if (!song) throw new Error("that song isn't in the library anymore");
+      song.cover_path = (args?.coverPath as string | null) ?? null;
+      return r(song);
+    }
     case "queue_stop": {
       const q = mockQueue();
       if (q.playing != null) saveQueue({ ...q, playing: null });
@@ -413,13 +427,14 @@ function importScan(paths: string[]) {
     lyrics,
     collection,
     in_library: false,
+    lyrics_warnings: [] as string[],
   });
   return {
     items: [
       song("ABBA - Waterloo.flac", "Waterloo", "ABBA", { kind: "text", path: at("ABBA - Waterloo.txt") }, null),
       song("Nirvana - Lithium.mp3", "Lithium", "Nirvana", { kind: "none" }, null),
       song("Queen - Bohemian Rhapsody\\Queen - Bohemian Rhapsody.mp3", "Bohemian Rhapsody", "Queen", { kind: "ultrastar", path: at("Queen - Bohemian Rhapsody\\Queen - Bohemian Rhapsody.txt") }, null),
-      song("Robyn - Dancing On My Own.mp3", "Dancing On My Own", "Robyn", { kind: "lrc", path: at("Robyn - Dancing On My Own.lrc") }, null),
+      { ...song("Robyn - Dancing On My Own.mp3", "Dancing On My Own", "Robyn", { kind: "lrc", path: at("Robyn - Dancing On My Own.lrc") }, null), lyrics_warnings: ["3 lines look like chord charts (Am  G  C) — delete them; chords would be timed as sung words"] },
       song("The Failures - Fail Safe.mp3", "Fail Safe", "The Failures", { kind: "none" }, null),
       song("Two Voices - Together.mp3", "Together", "Two Voices", { kind: "unreadable", path: at("Two Voices - Together.txt"), reason: "ultrastar line 5: duet file (P1/P2 voices) — duet import is not supported in v1" }, null),
       song("Christmas\\Mariah Carey - All I Want For Christmas Is You.mp3", "All I Want For Christmas Is You", "Mariah Carey", { kind: "text", path: at("Christmas\\Mariah Carey - All I Want For Christmas Is You.txt") }, "Christmas"),
@@ -427,6 +442,7 @@ function importScan(paths: string[]) {
       { ...song("Turning Tide.mp3", "Turning Tide", "The Mock Harbor", { kind: "text", path: at("Turning Tide.txt") }, null), in_library: true },
     ],
     unmatched_lyrics: [at("notes.txt"), at("Christmas\\setlist.txt")],
+    unreadable_audio: [{ path: at("Old Recording.wma"), reason: "unsupported codec: core (codec):unsupported codec" }],
   };
 }
 
@@ -522,5 +538,10 @@ export async function open(opts?: { filters?: { extensions: string[] }[]; direct
   // Folder pickers get a stand-in folder (Import Folder…); audio pickers a
   // stand-in file so the Add Song wizard can be driven.
   if (opts?.directory) return "D:\\Karaoke\\Party";
+  if (opts?.filters?.some((f) => f.extensions.includes("png"))) return "C:\\Pictures\\cover.png";
   return opts?.filters?.some((f) => f.extensions.includes("mp3")) ? "C:\\Music\\Night Drive.flac" : null;
+}
+// Save As: says yes to the suggested name.
+export async function save(opts?: { defaultPath?: string }) {
+  return opts?.defaultPath ?? null;
 }

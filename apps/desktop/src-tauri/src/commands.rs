@@ -200,12 +200,35 @@ pub struct ImportCandidate {
     pub year: Option<i32>,
     pub genre: Option<String>,
     pub language: Option<String>,
+    /// What's worth fixing in its lyrics file by hand (import::check_lyrics).
+    pub lyrics_warnings: Vec<String>,
+}
+
+/// The lyrics file's problems the cleanup pass won't fix — what `karaoke
+/// scan` reports, so the Import dialog can show it too.
+fn lyrics_warnings(lyrics: &import::LyricsFile) -> Vec<String> {
+    let text = match lyrics {
+        import::LyricsFile::Text { path } => import::read_text_file(path).ok(),
+        import::LyricsFile::Lrc { path } => import::read_text_file(path)
+            .ok()
+            .map(|t| formats::lrc::lyrics_text(&t).text),
+        _ => None,
+    };
+    text.map(|t| import::check_lyrics(&t).warnings).unwrap_or_default()
 }
 
 #[derive(Debug, Serialize)]
 pub struct ImportScan {
     pub items: Vec<ImportCandidate>,
     pub unmatched_lyrics: Vec<PathBuf>,
+    /// Songs whose audio can't be decoded (WMA, Opus…), left out of `items`.
+    pub unreadable_audio: Vec<UnreadableAudio>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UnreadableAudio {
+    pub path: PathBuf,
+    pub reason: String,
 }
 
 /// Scan dropped/picked folders and files for songs to import
@@ -216,9 +239,23 @@ pub async fn scan_import(
     paths: Vec<String>,
 ) -> Result<ImportScan, String> {
     let roots: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    let scan = tauri::async_runtime::spawn_blocking(move || import::scan(&roots))
-        .await
-        .map_err(|e| format!("scan failed: {e}"))?;
+    // The scan pairs by file name; each song's audio is test-decoded here
+    // too (milliseconds a file), so what can't be read never gets queued.
+    let (mut scan, unreadable_audio) = tauri::async_runtime::spawn_blocking(move || {
+        let mut scan = import::scan(&roots);
+        let mut unreadable = Vec::new();
+        scan.items.retain(|i| match karaoke_core::audio::check_decodable(&i.audio) {
+            Ok(()) => true,
+            Err(e) => {
+                unreadable.push(UnreadableAudio { path: i.audio.clone(), reason: e.to_string() });
+                false
+            }
+        });
+        (scan, unreadable)
+    })
+    .await
+    .map_err(|e| format!("scan failed: {e}"))?;
+    let unmatched_lyrics = std::mem::take(&mut scan.unmatched_lyrics);
     let known: std::collections::HashSet<String> = {
         let store = library.lock()?;
         store
@@ -234,6 +271,7 @@ pub async fn scan_import(
             .into_iter()
             .map(|i| ImportCandidate {
                 in_library: known.contains(&path_key(&i.audio)),
+                lyrics_warnings: lyrics_warnings(&i.lyrics),
                 audio_path: i.audio,
                 title: i.title,
                 artist: i.artist,
@@ -244,7 +282,8 @@ pub async fn scan_import(
                 language: i.language,
             })
             .collect(),
-        unmatched_lyrics: scan.unmatched_lyrics,
+        unmatched_lyrics,
+        unreadable_audio,
     })
 }
 
@@ -719,6 +758,9 @@ pub struct CleanPreview {
     /// Human-readable edit log (each entry Display-rendered).
     pub edits: Vec<String>,
     pub cleaned_text: String,
+    /// Problems the cleanup doesn't fix (LRC timestamps, chords, HTML…) —
+    /// the same checklist `karaoke scan` prints (import::check_lyrics).
+    pub warnings: Vec<String>,
 }
 
 #[tauri::command]
@@ -730,6 +772,7 @@ pub async fn clean_lyrics_preview(text: String) -> Result<CleanPreview, String> 
         words_kept: c.word_count(),
         edits: c.edits.iter().map(|e| e.to_string()).collect(),
         cleaned_text: c.to_text(),
+        warnings: import::check_lyrics(&text).warnings,
     })
 }
 
@@ -745,6 +788,11 @@ pub struct ExportSongRequest {
     pub artist: Option<String>,
     #[serde(default)]
     pub audio_name: Option<String>,
+    /// Save As: where to write the one requested format (the person picked
+    /// it in a save dialog). Its extension must be the format's own. Absent:
+    /// beside the map, as before.
+    #[serde(default)]
+    pub out_path: Option<String>,
 }
 
 /// Render the timing map to interchange formats beside the map
@@ -790,7 +838,25 @@ pub async fn export_song(request: ExportSongRequest) -> Result<Vec<PathBuf>, Str
             continue;
         }
         seen.push(f);
-        let out = dir.join(format!("{stem}.{}", f.extension()));
+        let out = match &request.out_path {
+            Some(p) => {
+                if request.formats.len() != 1 {
+                    return Err("Save As takes one format at a time".into());
+                }
+                let p = PathBuf::from(p);
+                // UltraStar's own name is "song.ultrastar.txt"; any .txt will do.
+                let want = f.extension().rsplit('.').next().unwrap_or("");
+                let ext_ok = p
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case(want));
+                if !ext_ok {
+                    return Err(format!("a {} export has to end in .{want}", f.as_str()));
+                }
+                p
+            }
+            None => dir.join(format!("{stem}.{}", f.extension())),
+        };
         let rendered = formats::export(&map, &meta, f);
         std::fs::write(&out, rendered).map_err(|e| format!("cannot write {}: {e}", out.display()))?;
         written.push((f.as_str().to_string(), out));
@@ -802,4 +868,35 @@ pub async fn export_song(request: ExportSongRequest) -> Result<Vec<PathBuf>, Str
     crate::review::record_exports(&map_path, &map_sha256, &written)?;
 
     Ok(written.into_iter().map(|(_, p)| p).collect())
+}
+
+/// "Show in folder": open the file's folder in the system file manager with
+/// the file selected (Explorer's /select; Finder's -R; the folder on Linux).
+#[tauri::command]
+pub async fn reveal_path(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("{} isn't there anymore", p.display()));
+    }
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("explorer.exe");
+        c.arg(format!("/select,{}", p.display()));
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(&p);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(p.parent().unwrap_or(&p));
+        c
+    };
+    // Explorer's exit code is 1 even when it opened the window; only a
+    // failure to start counts.
+    cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the folder: {e}"))
 }

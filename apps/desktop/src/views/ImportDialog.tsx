@@ -45,6 +45,7 @@ export default function ImportDialog(props: {
   }, [items]);
 
   const summary = importSummary(items, checked, useCollections);
+  const warnedLyrics = items.filter((i) => i.lyrics_warnings.length > 0).length;
   const anyCollections = items.some((i) => i.collection);
   const folder = commonFolder(items);
 
@@ -153,9 +154,17 @@ export default function ImportDialog(props: {
               render: (i) => (
                 <span
                   style={{ display: "flex", gap: 5, alignItems: "center", minWidth: 0 }}
-                  title={i.lyrics.kind === "unreadable" ? i.lyrics.reason : "path" in i.lyrics ? i.lyrics.path : undefined}
+                  title={
+                    i.lyrics.kind === "unreadable"
+                      ? i.lyrics.reason
+                      : i.lyrics_warnings.length > 0
+                        ? i.lyrics_warnings.join("\n")
+                        : "path" in i.lyrics
+                          ? i.lyrics.path
+                          : undefined
+                  }
                 >
-                  <Icon name={hasLyrics(i.lyrics) ? "ready" : "warn"} />
+                  <Icon name={hasLyrics(i.lyrics) && i.lyrics_warnings.length === 0 ? "ready" : "warn"} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{lyricsLabel(i.lyrics)}</span>
                 </span>
               ),
@@ -177,10 +186,26 @@ export default function ImportDialog(props: {
           empty="No songs found."
         />
         <div style={{ lineHeight: "18px" }}>{summaryText(summary, settings.lookupLyrics)}</div>
+        {warnedLyrics > 0 && (
+          <div className="w-muted" style={{ lineHeight: "16px" }}>
+            {warnedLyrics === 1 ? "1 lyrics file has" : `${warnedLyrics} lyrics files have`} something worth fixing by hand
+            (timestamps, chords, web page leftovers) — point at its ⚠ to see what. They import anyway.
+          </div>
+        )}
         {scan && scan.unmatched_lyrics.length > 0 && (
           <div className="w-muted" style={{ lineHeight: "16px" }} title={scan.unmatched_lyrics.join("\n")}>
             {scan.unmatched_lyrics.length === 1 ? "1 lyrics file" : `${scan.unmatched_lyrics.length} lyrics files`} didn't
             match a song — name each one like its audio file (Song.mp3 + Song.txt).
+          </div>
+        )}
+        {scan && scan.unreadable_audio.length > 0 && (
+          <div
+            className="w-muted"
+            style={{ lineHeight: "16px" }}
+            title={scan.unreadable_audio.map((u) => `${u.path} — ${u.reason}`).join("\n")}
+          >
+            {scan.unreadable_audio.length === 1 ? "1 file's" : `${scan.unreadable_audio.length} files'`} audio can't be read
+            and {scan.unreadable_audio.length === 1 ? "is" : "are"} left out. WMA and Opus aren't supported yet.
           </div>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 2 }}>

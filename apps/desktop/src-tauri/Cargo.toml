@@ -20,5 +20,8 @@ karaoke-core = { path = "../../../crates/karaoke-core" }
 # user's disk.
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
+# Media keys + the OS "now playing" panel (PLAN.md §3, §6 row): SMTC on
+# Windows; zbus (pure Rust) rather than libdbus for the later Linux build.
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

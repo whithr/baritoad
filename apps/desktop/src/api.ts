@@ -69,6 +69,8 @@ export interface CleanPreview {
   words_kept: number;
   edits: string[];
   cleaned_text: string;
+  /** Problems the cleanup doesn't fix (LRC timestamps, chords, HTML…). */
+  warnings: string[];
 }
 
 export interface WordTiming {
@@ -134,12 +136,16 @@ export interface ImportCandidate {
   year?: number | null;
   genre?: string | null;
   language?: string | null;
+  /** What's worth fixing in its lyrics file by hand (LRC times, chords…). */
+  lyrics_warnings: string[];
 }
 
 export interface ImportScan {
   items: ImportCandidate[];
   /** .txt / .lrc files no song claimed. */
   unmatched_lyrics: string[];
+  /** Songs whose audio can't be decoded (WMA, Opus…), left out of items. */
+  unreadable_audio: { path: string; reason: string }[];
 }
 
 export interface ImportSongItem {
@@ -282,7 +288,12 @@ export const exportSong = (request: {
   title?: string;
   artist?: string;
   audio_name?: string;
+  /** Save As: write the one format here (its extension must match). */
+  out_path?: string;
 }) => invoke<string[]>("export_song", { request });
+
+/** Open the file's folder with the file selected. */
+export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
 
 export const onJobEvent = (handler: (e: JobEvent) => void): Promise<UnlistenFn> =>
   listen<JobEvent>("karaoke://job", (event) => handler(event.payload));
@@ -431,11 +442,34 @@ export const queueStop = () => invoke<void>("queue_stop");
  *  leaves the list. Returns the queue as it is now. */
 export const queueFinish = (songId: number) => invoke<QueueState>("queue_finish", { songId });
 
+/** A hardware media key (Windows SMTC), sent to the Stage (media_keys.rs). */
+export type MediaKey = "play" | "pause" | "toggle" | "next" | "previous" | "stop";
+
+export const onMediaKey = (handler: (k: MediaKey) => void): Promise<UnlistenFn> =>
+  listen<MediaKey>("baritoad://media", (event) => handler(event.payload));
+
+/** Tell the OS "now playing" panel what the Stage is playing. */
+export const mediaNowPlaying = (now: {
+  title?: string | null;
+  artist?: string | null;
+  duration_s?: number | null;
+  state: "playing" | "paused" | "stopped";
+  position_s?: number | null;
+}) => invoke<void>("media_now_playing", { now });
+
 /** Every queue change, from either window (karaoke://queue). */
 export const onQueueChanged = (handler: (q: QueueState) => void): Promise<UnlistenFn> =>
   listen<QueueState>("karaoke://queue", (event) => handler(event.payload));
 
 export const readCover = (path: string) => invoke<string>("read_cover", { path });
+
+/** Copy a picked picture into the covers folder; returns its stored path
+ *  (preview it with readCover). Nothing changes until songSetCover. */
+export const coverImportImage = (srcPath: string) => invoke<string>("cover_import_image", { srcPath });
+
+/** Use a stored cover for this song (null clears it). Survives re-imports. */
+export const songSetCover = (songId: number, coverPath: string | null) =>
+  invoke<Song>("song_set_cover", { songId, coverPath });
 
 // ---------------------------------------------------------------------------
 // player themes (src-tauri/src/theme.rs — background images only; themes

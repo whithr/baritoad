@@ -5,7 +5,9 @@
 
 mod commands;
 mod gaming;
+mod keep_awake;
 mod library;
+mod media_keys;
 mod player;
 mod queue;
 mod review;
@@ -73,6 +75,10 @@ pub fn run() {
             // channel (player.rs module docs) — never in managed state.
             let player_handle = player::spawn_host(app.handle().clone());
             app.manage(player_handle);
+            // Media keys and the OS "now playing" panel (media_keys.rs).
+            let media = media_keys::MediaKeys::default();
+            media_keys::init(app.handle(), &media);
+            app.manage(media);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -82,6 +88,8 @@ pub fn run() {
             commands::import_songs,
             commands::check_links,
             commands::queue_links,
+            commands::reveal_path,
+            media_keys::media_now_playing,
             commands::find_lyrics,
             library::song_update_details,
             commands::cancel_job,
@@ -113,6 +121,8 @@ pub fn run() {
             library::queue_stop,
             library::queue_finish,
             library::read_cover,
+            library::cover_import_image,
+            library::song_set_cover,
             theme::theme_import_image,
             theme::read_theme_image,
             review::playback_sources,

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  coverGradient,
-  coverInitials,
   filterSongs,
   fmtDuration,
   moveItem,
@@ -112,21 +110,6 @@ describe("moveItem (queue reorder)", () => {
 
   it("no-op move keeps order", () => {
     expect(moveItem([1, 2, 3], 1, 1)).toEqual([1, 2, 3]);
-  });
-});
-
-describe("cover fallback", () => {
-  it("initials from the first two words, skipping punctuation-only tokens", () => {
-    expect(coverInitials("Dancing On My Own")).toBe("DO");
-    expect(coverInitials("Halo")).toBe("H");
-    expect(coverInitials("99 Luftballons")).toBe("9L");
-    expect(coverInitials("- - -")).toBe("♪");
-    expect(coverInitials("")).toBe("♪");
-  });
-
-  it("gradient is deterministic per seed and differs across seeds", () => {
-    expect(coverGradient("abc")).toBe(coverGradient("abc"));
-    expect(coverGradient("abc")).not.toBe(coverGradient("xyz"));
   });
 });
 

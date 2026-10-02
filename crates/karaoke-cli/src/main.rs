@@ -1137,7 +1137,17 @@ fn run_lyrics_clean(args: &LyricsCleanArgs) -> Result<(), Box<dyn std::error::Er
 // ---------------------------------------------------------------------------
 
 fn run_scan(args: &ScanArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let scan = import::scan(&args.paths);
+    let mut scan = import::scan(&args.paths);
+    // The app test-decodes each song's audio and leaves out what it can't
+    // read (WMA, Opus…); so does this check.
+    let mut unreadable_audio: Vec<(std::path::PathBuf, String)> = Vec::new();
+    scan.items.retain(|i| match karaoke_core::audio::check_decodable(&i.audio) {
+        Ok(()) => true,
+        Err(e) => {
+            unreadable_audio.push((i.audio.clone(), e.to_string()));
+            false
+        }
+    });
     let mut songs = Vec::new();
     let (mut with_lyrics, mut transcribe, mut unreadable, mut warned) = (0usize, 0usize, 0usize, 0usize);
     for item in &scan.items {
@@ -1170,6 +1180,7 @@ fn run_scan(args: &ScanArgs) -> Result<(), Box<dyn std::error::Error>> {
                 v
             }).collect::<Vec<_>>(),
             "unmatched_lyrics": scan.unmatched_lyrics,
+            "unreadable_audio": unreadable_audio.iter().map(|(p, why)| serde_json::json!({ "path": p, "reason": why })).collect::<Vec<_>>(),
             "summary": {
                 "songs": scan.items.len(),
                 "with_lyrics": with_lyrics,
@@ -1177,6 +1188,7 @@ fn run_scan(args: &ScanArgs) -> Result<(), Box<dyn std::error::Error>> {
                 "unreadable_ultrastar": unreadable,
                 "lyrics_with_warnings": warned,
                 "unmatched_lyrics": scan.unmatched_lyrics.len(),
+                "unreadable_audio": unreadable_audio.len(),
             },
         });
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1211,18 +1223,23 @@ fn run_scan(args: &ScanArgs) -> Result<(), Box<dyn std::error::Error>> {
         for p in &scan.unmatched_lyrics {
             println!("unmatched lyrics file: {}", p.display());
         }
+        for (p, why) in &unreadable_audio {
+            println!("can't read the audio of {} ({why}) — left out", p.display());
+        }
         println!(
-            "\n{} song(s): {with_lyrics} with lyrics, {transcribe} will be transcribed, {warned} lyrics file(s) with warnings, {} unmatched lyrics file(s)",
+            "\n{} song(s): {with_lyrics} with lyrics, {transcribe} will be transcribed, {warned} lyrics file(s) with warnings, {} unmatched lyrics file(s), {} unreadable audio file(s)",
             scan.items.len(),
-            scan.unmatched_lyrics.len()
+            scan.unmatched_lyrics.len(),
+            unreadable_audio.len()
         );
     }
 
     let missing = if args.require_lyrics { transcribe } else { 0 };
-    if args.strict && (missing > 0 || warned > 0 || !scan.unmatched_lyrics.is_empty()) {
+    if args.strict && (missing > 0 || warned > 0 || !scan.unmatched_lyrics.is_empty() || !unreadable_audio.is_empty()) {
         let mut why = vec![
             format!("{warned} lyrics file(s) with warnings"),
             format!("{} unmatched lyrics file(s)", scan.unmatched_lyrics.len()),
+            format!("{} unreadable audio file(s)", unreadable_audio.len()),
         ];
         if args.require_lyrics {
             why.insert(0, format!("{transcribe} song(s) without usable lyrics"));
