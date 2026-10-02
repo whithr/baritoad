@@ -29,9 +29,11 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
 
-/// Built-in mirror address — a placeholder until the R2 bucket is live
-/// (PLAN.md §5). `KARAOKE_MODEL_MIRROR` overrides it (dev and tests).
-pub const DEFAULT_MIRROR: &str = "https://models.baritoad.example";
+/// Built-in mirror address: our Cloudflare R2 bucket on its custom domain
+/// (PLAN.md §5), live 2026-10-02. Files sit at `<mirror>/v1/<manifest path>`
+/// with each model's license beside it. `KARAOKE_MODEL_MIRROR` overrides it
+/// (dev and tests).
+pub const DEFAULT_MIRROR: &str = "https://models.baritoad.com";
 pub const MIRROR_ENV: &str = "KARAOKE_MODEL_MIRROR";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

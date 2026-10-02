@@ -369,7 +369,7 @@ function havePacks(): MockPack[] {
 function modelsInfo() {
   const have = havePacks();
   return {
-    mirror: "https://models.baritoad.example",
+    mirror: "https://models.baritoad.com",
     downloading: modelsRunning,
     packs: (Object.keys(PACK_BYTES) as MockPack[]).map((pack) => ({
       pack,
