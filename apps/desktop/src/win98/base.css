@@ -869,6 +869,17 @@ textarea.w-field {
   position: relative;
 }
 
+/* A fixed face: the ghosts give the width, the lit digits sit right. */
+.w-lcd-seg.fixed .w-lcd-ghost {
+  position: static;
+}
+
+.w-lcd-seg.fixed .w-lcd-lit {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
 .w-lcd-sep {
   font-family: var(--w-font-ui);
   color: var(--w-lcd-ink-dim);

@@ -411,11 +411,18 @@ export function Tabs<T extends string>(props: {
 // --------------------------------------------------------------------- LCD
 
 /** One lit readout with its unlit "8" ghost behind it. */
-export function LcdText(props: { value: string; size?: number; dim?: boolean }) {
+/** Segment digits over their unlit "8" ghosts. `digits` fixes the face's
+ *  width (a countdown going 10 → 9 keeps both cells, the lit one right). */
+export function LcdText(props: { value: string; size?: number; dim?: boolean; digits?: number }) {
+  const fixed = props.digits != null;
+  const ghost = fixed ? "8".repeat(Math.max(props.digits ?? 0, props.value.length)) : props.value.replace(/\d/g, "8");
   return (
-    <span className="w-lcd-seg" style={{ fontSize: props.size ?? 20, color: props.dim ? "var(--w-lcd-ink-dim)" : undefined }}>
+    <span
+      className={fixed ? "w-lcd-seg fixed" : "w-lcd-seg"}
+      style={{ fontSize: props.size ?? 20, color: props.dim ? "var(--w-lcd-ink-dim)" : undefined }}
+    >
       <span className="w-lcd-ghost" aria-hidden>
-        {props.value.replace(/\d/g, "8")}
+        {ghost}
       </span>
       <span className="w-lcd-lit">{props.value}</span>
     </span>

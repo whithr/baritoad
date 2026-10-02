@@ -1498,7 +1498,7 @@ function BetweenSongs(props: {
                   <>
                     <span>Starting in</span>
                     <Lcd label="Seconds until the next song">
-                      <LcdText value={String(cd.left).padStart(2, " ")} size={40} />
+                      <LcdText value={String(cd.left)} size={40} digits={2} />
                     </Lcd>
                   </>
                 )}

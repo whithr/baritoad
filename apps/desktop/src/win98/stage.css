@@ -396,6 +396,17 @@
   margin-top: 8px;
 }
 
+/* The countdown's LCD grows with its couch-sized digits (the kit's box is
+   30 px, for the Bench's 20-px clock). */
+.pk-between-count .w-lcd {
+  height: auto;
+  padding: 6px 10px;
+}
+
+.pk-between-count .w-lcd-seg {
+  line-height: 1;
+}
+
 /* the seek bar: a sunken track whose fill width is hook (3) */
 .pk-timebar {
   position: relative;
