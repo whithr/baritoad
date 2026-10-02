@@ -135,6 +135,8 @@ pub fn emit_queue<R: tauri::Runtime>(app: &AppHandle<R>, library: &LibraryHandle
         }
         Err(e) => eprintln!("queue event: {e}"),
     }
+    // An open party's guests see it too (party.rs).
+    crate::party::nudge(app);
 }
 
 impl LibraryHandle {

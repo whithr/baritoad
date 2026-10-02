@@ -281,6 +281,17 @@ Separator · icons.
   carries its own progress bar, the rest say Waiting, the button becomes
   Cancel. When all four are checked, Start lets you in. A failed download
   says why and Download picks up where it stopped.
+- **Party** (Party › Start party…, docs/PARTY.md) — modeless: the join QR
+  (crisp squares, quiet zone) and link with New code; the guests, each with
+  their toad and Kick (asks first; kicking also changes the code); and a
+  "What's shared" box saying plainly what goes to the relay and that music,
+  lyrics and files never do. While a party is open the status bar says
+  "Party open — sharing your song list and Up next" instead of "Local only".
+  Up next gains a Singer column: the guest's toad (16-px face) and name.
+  Between songs, the Stage puts a **Join the party** card beside the Up next
+  card: the QR big enough to scan across the room, "Scan to join", the short
+  link, and the next five with toads at 2× and names. The next singer's toad
+  and name also show on the Up next card.
 - **Models** (Tools › Models…) — modeless, the same list with each model's
   state (Downloaded / Older version, still works / Not downloaded), one line
   saying where they come from, Download or Update only when something needs

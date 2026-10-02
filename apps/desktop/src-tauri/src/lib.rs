@@ -9,6 +9,7 @@ mod keep_awake;
 mod library;
 mod media_keys;
 mod models;
+mod party;
 mod player;
 mod queue;
 mod review;
@@ -80,6 +81,8 @@ pub fn run() {
         // after; its lifecycle unloads the engine and follows the main window.
         .manage(stage::StageState::default())
         .manage(std::sync::Arc::new(models::ModelDownloads::default()))
+        // Party mode's relay client (party.rs): idle until a party starts.
+        .manage(std::sync::Arc::new(party::PartyState::default()))
         .on_window_event(|window, event| stage::on_window_event(window, event))
         .setup(move |app| {
             // One worker: pipeline stages are compute-bound (GPU/CPU saturating)
@@ -120,6 +123,11 @@ pub fn run() {
             models::models_status,
             models::models_download,
             models::models_cancel,
+            party::party_status,
+            party::party_start,
+            party::party_stop,
+            party::party_new_code,
+            party::party_kick,
             commands::find_lyrics,
             library::song_update_details,
             commands::cancel_job,

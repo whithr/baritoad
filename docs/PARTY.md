@@ -1,7 +1,8 @@
 # Party mode — design
 
-Status: **being built** (started 2026-10-02, owner's call, ahead of the
-last v1.0 checks). Party mode is free — it runs through our relay, but
+Status: **built, not yet hosted** (2026-10-02, owner's call, ahead of the
+last v1.0 checks). Milestones 1–4 are done and tested end to end against a
+local relay; 5 is waiting on the deploy and a real phone (below). Party mode is free — it runs through our relay, but
 nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01). The relay
 and guest page are open source in this repo, `services/relay/` (owner
 decision 2026-10-02). The wire protocol is in
@@ -113,14 +114,19 @@ crates it brings) and `qrcodegen`.
 
 ## Milestones (after v1.0)
 
-1. Queue groundwork: schema v5 and the Singer column. (`karaoke://queue`
-   and the between-songs Stage screen came with v1.0; the join code goes
-   beside its card.)
-2. The `party` core module, the protocol doc filled in, tests.
-3. Relay and guest page MVP (`services/relay/`), run locally with `wrangler dev`.
-4. Relay client, Party menu and dialog, QR, Stage join screen, toads —
-   tested end to end with a real phone on cellular.
-5. Abuse limits, hosting, launch copy.
+1. ~~Queue groundwork: schema v5 and the Singer column.~~ Done.
+2. ~~The `party` core module, the protocol doc filled in, tests.~~ Done.
+3. ~~Relay and guest page MVP (`services/relay/`), run locally with
+   `wrangler dev`.~~ Done; `pnpm e2e` drives a whole party (23 checks).
+4. ~~Relay client, Party menu and dialog, QR, Stage join screen, toads.~~
+   Done, tested with the real app, a local relay and a phone-sized headless
+   browser as the guest: start → join → pick → it's in Up next under the
+   guest's name and toad (34 ms pick-to-phone on the local relay) → take
+   back → kick → the relay drops and the app resumes the same room and link
+   (about 2 s) → end. Left: a real phone on cellular against the hosted relay.
+5. Abuse limits — done in the relay (`services/relay/README.md`). Left:
+   hosting (deploy to our Cloudflare account, `party.baritoad.com`) and the
+   launch copy.
 
 ## How it will be checked
 

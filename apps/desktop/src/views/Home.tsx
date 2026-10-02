@@ -25,6 +25,9 @@ import {
   libraryCollections,
   libraryDeleteSong,
   librarySongs,
+  partyNewCode,
+  partyStart,
+  partyStop,
   queueAdd,
   queueAddMany,
   queueClear,
@@ -94,6 +97,8 @@ import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
 import ToadIcon from "../party/ToadIcon";
+import { partyLive, usePartyStatus } from "../party/usePartyStatus";
+import PartyDialog from "./PartyDialog";
 import LinkDialog from "./LinkDialog";
 import { parseLinks } from "../linkState";
 import ProcessingDialog from "./ProcessingDialog";
@@ -205,6 +210,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   const ask = useMessageBox();
   const prompt = usePrompt();
   const dialogs = useAppDialogs();
+  const party = usePartyStatus();
+  const [partyOpen, setPartyOpen] = useState(false);
 
   const [allSongs, setAllSongs] = useState<Song[]>([]);
   const [collSongs, setCollSongs] = useState<Song[] | null>(null);
@@ -911,6 +918,21 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       ],
     },
     {
+      label: "&Party",
+      items: [
+        {
+          label: partyLive(party) ? "Show &party…" : "&Start party…",
+          run: () => {
+            setPartyOpen(true);
+            if (party.phase === "off" || party.phase === "ended") void partyStart().catch((e) => setError(String(e)));
+          },
+        },
+        { label: "&New join code", run: () => void partyNewCode().catch((e) => setError(String(e))), disabled: party.phase !== "open" },
+        "-",
+        { label: "&End party", run: () => void partyStop(), disabled: party.phase === "off" || party.phase === "ended" },
+      ],
+    },
+    {
       label: "&Tools",
       items: [
         { label: "Player &Themes…", run: () => dialogs.open("themes") },
@@ -1364,10 +1386,17 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             "Ready"
           )}
         </StatusPane>
-        <StatusPane width={250}>
-          <Icon name="lock" />
-          Local only — nothing is uploaded
-        </StatusPane>
+        {partyLive(party) ? (
+          <StatusPane width={330} title={`While the party is open: your song list and Up next go to ${party.relay || "the party relay"}. Never your music, lyrics or files.`}>
+            <Icon name="globe" />
+            Party open — sharing your song list and Up next
+          </StatusPane>
+        ) : (
+          <StatusPane width={250}>
+            <Icon name="lock" />
+            Local only — nothing is uploaded
+          </StatusPane>
+        )}
       </StatusBar>
 
       <AddSongWizard
@@ -1381,6 +1410,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         }}
       />
       {dialogs.element}
+      <PartyDialog open={partyOpen} onClose={() => setPartyOpen(false)} status={party} />
       <ImportDialog scan={importScan} onClose={() => setImportScan(null)} onQueued={onImportQueued} />
       <CollectionPicker song={fileSong} collections={collections} onClose={() => setFileSong(null)} onAdded={() => void refresh()} />
       <LinkDialog

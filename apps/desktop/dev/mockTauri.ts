@@ -262,6 +262,20 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       song.cover_path = (args?.coverPath as string | null) ?? null;
       return r(song);
     }
+    case "party_status":
+      return r(mockParty);
+    case "party_start":
+      startMockParty();
+      return r(mockParty);
+    case "party_stop":
+      setMockParty({ phase: "off", guests: [], relay: "party.baritoad.com" });
+      return r(undefined);
+    case "party_new_code":
+      setMockParty({ ...mockParty, join_url: `https://party.baritoad.com/j/abcdefghjk/${Math.random().toString(36).slice(2, 8)}` });
+      return r(undefined);
+    case "party_kick":
+      setMockParty({ ...mockParty, guests: mockParty.guests.filter((g) => g.id !== args?.guest) });
+      return r(undefined);
     case "models_status":
       return r(modelsInfo());
     case "models_download":
@@ -439,6 +453,49 @@ function mockDownload(packs: MockPack[]) {
     void emit("karaoke://models", { kind: "finished" });
   })();
 }
+
+// Party mode: opens after a moment with a stand-in QR (a deterministic
+// pattern with real finder squares — scan it and nothing happens) and two
+// guests who arrive a little later. ?party opens it at load.
+type MockGuest = { id: string; name: string; toad: { face: string; colour: string; hat: string } };
+let mockParty: { phase: string; join_url?: string; qr?: { size: number; path: string }; guests: MockGuest[]; relay: string } = {
+  phase: "off",
+  guests: [],
+  relay: "party.baritoad.com",
+};
+function setMockParty(next: typeof mockParty) {
+  mockParty = next;
+  void emit("karaoke://party", mockParty);
+}
+function mockQr(size = 29) {
+  const dark = (x: number, y: number) => {
+    const finder = (fx: number, fy: number) => {
+      const dx = x - fx;
+      const dy = y - fy;
+      if (dx < 0 || dy < 0 || dx > 6 || dy > 6) return null;
+      return dx === 0 || dy === 0 || dx === 6 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4);
+    };
+    for (const [fx, fy] of [[0, 0], [size - 7, 0], [0, size - 7]]) {
+      const f = finder(fx, fy);
+      if (f !== null) return f;
+    }
+    if ((x <= 7 && y <= 7) || (x >= size - 8 && y <= 7) || (x <= 7 && y >= size - 8)) return false;
+    return ((x * 7 + y * 13 + ((x * y) % 5)) % 3) === 0;
+  };
+  let path = "";
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (dark(x, y)) path += `M${x} ${y}h1v1h-1z`;
+  return { size, path };
+}
+function startMockParty() {
+  if (mockParty.phase === "open" || mockParty.phase === "connecting") return;
+  setMockParty({ phase: "connecting", guests: [], relay: "party.baritoad.com" });
+  setTimeout(() => {
+    setMockParty({ phase: "open", join_url: "https://party.baritoad.com/j/abcdefghjk/mnpqrs", qr: mockQr(), guests: [], relay: "party.baritoad.com" });
+    setTimeout(() => setMockParty({ ...mockParty, guests: [...mockParty.guests, { id: "g1", name: "Cassie", toad: { face: "grin", colour: "pink", hat: "bow" } }] }), 800);
+    setTimeout(() => setMockParty({ ...mockParty, guests: [...mockParty.guests, { id: "g2", name: "Dev", toad: { face: "cool", colour: "blue", hat: "cap" } }] }), 1400);
+  }, 400);
+}
+if (typeof location !== "undefined" && new URLSearchParams(location.search).has("party")) setTimeout(startMockParty, 0);
 
 function mockQueue(): MockQueue {
   try {

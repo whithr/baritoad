@@ -28,6 +28,9 @@
 // Next as the next song in Up next (Sing now between songs), Previous as
 // back to the start, Stop as pause. The OS panel hears what's on from here.
 
+import QrCode from "../party/QrCode";
+import ToadIcon from "../party/ToadIcon";
+import { partyLive, usePartyStatus } from "../party/usePartyStatus";
 import {
   Fragment,
   memo,
@@ -66,6 +69,7 @@ import {
   readThemeImage,
   readTimingMap,
   vocalLevels,
+  type PartyStatus,
   type PlayerStatus,
   type QueueState,
   type Song,
@@ -872,6 +876,7 @@ export default function PlayerView(props: {
   // Rust owns the queue (library.rs) and emits it on every change, from
   // either window; the focus refetch is only a fallback.
   const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE);
+  const party = usePartyStatus();
   const queueRef = useRef(queue);
   queueRef.current = queue;
   useEffect(() => {
@@ -1265,6 +1270,8 @@ export default function PlayerView(props: {
           {between && (
             <BetweenSongs
               next={between.next}
+              party={party}
+              waiting={queue.entries.filter((e) => e.id !== queue.playing)}
               cd={between.cd}
               cover={nextCover}
               onSingNow={singNow}
@@ -1471,6 +1478,9 @@ function StageTitleBar(props: { title: string; active: boolean; onClose: () => v
 function BetweenSongs(props: {
   /** Null: nothing is queued — "That's the song!". */
   next: QueueEntry | null;
+  /** While a party is open: the join code and who's waiting. */
+  party: PartyStatus;
+  waiting: QueueEntry[];
   cd: Countdown;
   cover: string | null;
   onSingNow: () => void;
@@ -1491,6 +1501,12 @@ function BetweenSongs(props: {
             <div className="pk-between-text">
               <b id="pk-between-t">{next.song.title}</b>
               {next.song.artist && <span>{next.song.artist}</span>}
+              {next.singer && (
+                <span className="pk-between-singer">
+                  {next.toad && <ToadIcon toad={next.toad} scale={2} />}
+                  {next.singer}
+                </span>
+              )}
               <div className="pk-between-count">
                 {cd.held ? (
                   <span>Press Enter when the next singer is ready.</span>
@@ -1526,6 +1542,27 @@ function BetweenSongs(props: {
           </Button>
         </DialogButtons>
       </div>
+      {partyLive(props.party) && props.party.qr && (
+        <div className="pk-join w98 w-window" aria-labelledby="pk-join-t">
+          <TitleBar title="Join the party" icon={<Icon name="globe" />} active={false} />
+          <div className="pk-join-body">
+            <QrCode qr={props.party.qr} px={232} label="QR code: scan with your phone's camera to join" />
+            <b id="pk-join-t">Scan to join</b>
+            <span className="pk-join-url">{props.party.join_url?.replace(/^https?:\/\//, "")}</span>
+            {props.waiting.length > 0 && (
+              <ol className="pk-join-queue" aria-label="Up next">
+                {props.waiting.slice(0, 5).map((e) => (
+                  <li key={e.id}>
+                    {e.toad ? <ToadIcon toad={e.toad} scale={2} /> : <span className="pk-join-notoad" />}
+                    <span className="pk-join-who">{e.singer ?? "—"}</span>
+                    <span className="pk-join-song">{e.song.title}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

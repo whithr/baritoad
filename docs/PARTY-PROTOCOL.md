@@ -59,8 +59,9 @@ a host's own picks have no `singer`, `toad` or `guest`.
   refused.
 - `code` on `request_result`: `limit` (the guest has 2 songs waiting — the
   host's setting), `unknown_song`, `not_ready` (lost its timings).
-- Song list size: measure for a 500-song library before choosing whether to
-  page it.
+- Song list size: measured 85 KB for a 500-song library (long titles, two
+  collections each; `party::tests::a_500_song_list_fits_one_frame`), so it
+  goes in one frame and isn't paged. The relay accepts frames up to 512 KB.
 
 ## Guest page ⇄ relay
 

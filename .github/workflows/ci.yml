@@ -96,6 +96,28 @@ jobs:
       - name: Build
         run: cargo build --locked -p karaoke-desktop -p karaoke-cli
 
+  relay:
+    name: Party relay — typecheck, tests, build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: services/relay/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: services/relay/pnpm-lock.yaml
+      - name: Typecheck, test, build the guest page, dry-run the Worker bundle
+        working-directory: services/relay
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+          pnpm build
+          pnpm exec wrangler deploy --dry-run --outdir dist
+
   deny:
     name: cargo deny (PLAN.md §6)
     runs-on: ubuntu-22.04

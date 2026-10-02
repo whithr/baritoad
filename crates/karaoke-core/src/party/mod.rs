@@ -445,6 +445,24 @@ mod tests {
         assert_eq!(decode("not json"), Err(DecodeError::Malformed));
     }
 
+    /// docs/PARTY.md: measure the list for a 500-song library before deciding
+    /// on paging. Long-ish titles and artists, two collections each.
+    #[test]
+    fn a_500_song_list_fits_one_frame() {
+        let songs: Vec<Song> = (0..500)
+            .map(|i| {
+                let mut s = song(i, &format!("A Fairly Long Song Title Number {i}"), true);
+                s.artist = Some(format!("Some Band With A Name {}", i % 97));
+                s
+            })
+            .collect();
+        let l = listing(&songs, &|_| vec!["Cassie's hits".into(), "Christmas party".into()], "salt");
+        let bytes = encode(&AppMsg::Listing { songs: l.songs }).len();
+        println!("500-song listing: {bytes} bytes");
+        // The relay takes frames up to 512 KB (services/relay LIMITS).
+        assert!(bytes < 128 * 1024, "{bytes} bytes");
+    }
+
     #[test]
     fn names_and_toads() {
         assert_eq!(clean_name("  Cassie \t  B. "), Some("Cassie B.".into()));

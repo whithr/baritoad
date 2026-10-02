@@ -504,6 +504,37 @@ export const modelsCancel = () => invoke<void>("models_cancel");
 export const onModelsEvent = (handler: (e: ModelEvent) => void): Promise<UnlistenFn> =>
   listen<ModelEvent>("karaoke://models", (event) => handler(event.payload));
 
+// ---------------------------------------------------------------------------
+// party mode (src-tauri/src/party.rs, docs/PARTY.md)
+// ---------------------------------------------------------------------------
+
+export type PartyPhase = "off" | "connecting" | "open" | "reconnecting" | "ended";
+
+export interface PartyGuest {
+  id: string;
+  name: string;
+  toad: Toad;
+}
+
+export interface PartyStatus {
+  phase: PartyPhase;
+  join_url?: string | null;
+  /** The join QR: a size×size grid; `path` draws the dark modules. */
+  qr?: { size: number; path: string } | null;
+  guests: PartyGuest[];
+  message?: string | null;
+  /** The relay's address, said plainly in the Party dialog. */
+  relay: string;
+}
+
+export const partyStatus = () => invoke<PartyStatus>("party_status");
+export const partyStart = () => invoke<PartyStatus>("party_start");
+export const partyStop = () => invoke<void>("party_stop");
+export const partyNewCode = () => invoke<void>("party_new_code");
+export const partyKick = (guest: string) => invoke<void>("party_kick", { guest });
+export const onPartyEvent = (handler: (s: PartyStatus) => void): Promise<UnlistenFn> =>
+  listen<PartyStatus>("karaoke://party", (event) => handler(event.payload));
+
 /** A hardware media key (Windows SMTC), sent to the Stage (media_keys.rs). */
 export type MediaKey = "play" | "pause" | "toggle" | "next" | "previous" | "stop";
 

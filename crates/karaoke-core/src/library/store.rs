@@ -601,6 +601,22 @@ impl LibraryStore {
             > 0)
     }
 
+    /// Every song's collection names, by song id, in one query (party
+    /// mode's song list).
+    pub fn collection_names_by_song(&self) -> Result<std::collections::HashMap<i64, Vec<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT cs.song_id, c.name FROM collection_songs cs JOIN collections c ON c.id = cs.collection_id
+             ORDER BY c.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out: std::collections::HashMap<i64, Vec<String>> = std::collections::HashMap::new();
+        for r in rows {
+            let (song, name) = r?;
+            out.entry(song).or_default().push(name);
+        }
+        Ok(out)
+    }
+
     pub fn list_collections(&self) -> Result<Vec<CollectionInfo>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.name, c.created,

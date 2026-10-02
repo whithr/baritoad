@@ -113,5 +113,7 @@ with typed wrappers in `src/api.ts`.
 Events: `karaoke://job` (job lifecycle snapshots and karaoke-core
 `PipelineEvent`s tagged with their job id, `src-tauri/src/queue.rs`),
 `karaoke://player` (playback status, about 10 Hz while playing),
-`karaoke://library` (metadata backfill), `baritoad://stage` (the Stage
+`karaoke://library` (metadata backfill), `karaoke://models` (model downloads), `karaoke://party` (party
+mode: phase, join link, QR, guests — `party.rs`; `KARAOKE_PARTY_RELAY=ws://127.0.0.1:8787` points
+it at a local relay from `services/relay`), `baritoad://stage` (the Stage
 window), and `baritoad://prefs` (settings shared between the two windows).
