@@ -25,9 +25,6 @@ import {
   libraryCollections,
   libraryDeleteSong,
   librarySongs,
-  modelsDownload,
-  modelsStatus,
-  onModelsEvent,
   queueAdd,
   queueAddMany,
   queueClear,
@@ -44,7 +41,6 @@ import {
   type CollectionInfo,
   type ImportQueued,
   type ImportScan,
-  type ModelsInfo,
   type QueueEntry,
   type QueueState,
   type Song,
@@ -97,7 +93,6 @@ import { EXPORTS, exportWithSaveAs, folderOf } from "../exportFile";
 import AddSongWizard, { type WizardTarget } from "./AddSongWizard";
 import { useAppDialogs } from "./AppDialogs";
 import ImportDialog from "./ImportDialog";
-import { mbOf, WelcomeDialog } from "./ModelsDialog";
 import LinkDialog from "./LinkDialog";
 import { parseLinks } from "../linkState";
 import ProcessingDialog from "./ProcessingDialog";
@@ -202,24 +197,6 @@ function StatusCell(props: { s: SongStatus }) {
 const fmtDate = (unix?: number | null) =>
   unix ? new Date(unix * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
 
-// The first-run welcome shows once a session (Home remounts on the way
-// back from the Bench); the check before adding songs still catches it.
-const WELCOME_KEY = "baritoad.welcome.shown";
-const welcomeShown = () => {
-  try {
-    return sessionStorage.getItem(WELCOME_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
-const markWelcomeShown = () => {
-  try {
-    sessionStorage.setItem(WELCOME_KEY, "1");
-  } catch {
-    // private mode: it may show again
-  }
-};
-
 type SortKey = "title" | "artist" | "length" | "status" | "added" | "played";
 
 export default function Home(props: { go: (r: Route) => void; jobs: JobsState }) {
@@ -253,9 +230,6 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
   /** What a running folder scan is looking through. */
   const [scanning, setScanning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The model packs (null until known; a failed check never blocks). */
-  const [models, setModels] = useState<ModelsInfo | null>(null);
-  const [welcome, setWelcome] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const watched = useRef(new Set<number>());
@@ -454,77 +428,9 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     }
   }, [jobs, ask, go, procJob, allSongs]);
 
-  // ----------------------------------------------------------- models
-
-  // First run, or the song models gone: the welcome, once a session.
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    const check = (first: boolean) =>
-      modelsStatus()
-        .then((m) => {
-          if (disposed) return;
-          setModels(m);
-          const core = m.packs.find((p) => p.pack === "core");
-          if (first && core && !core.usable && !m.downloading && !welcomeShown()) setWelcome(true);
-        })
-        .catch(() => undefined);
-    void check(true);
-    onModelsEvent((e) => {
-      if (e.kind === "done" || e.kind === "finished") void check(false);
-    })
-      .then((u) => (disposed ? u() : (unlisten = u)))
-      .catch(() => undefined);
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-  const coreOf = (m: ModelsInfo | null) => m?.packs.find((p) => p.pack === "core");
-  const getCore = () => {
-    void modelsDownload(["core"])
-      .then(() => setModels((m) => (m ? { ...m, downloading: true } : m)))
-      .catch((e) => setError(String(e)));
-    dialogs.open("models");
-  };
-  /** Before adding songs: true (and a word about it) while the song models aren't here. */
-  const blockedOnModels = async () => {
-    const core = coreOf(models);
-    if (!core || core.usable) return false;
-    if (models?.downloading) {
-      const r = await ask({
-        kind: "info",
-        title: "Song models",
-        message: "The song models are still downloading.",
-        detail: "Songs can be added once they're here.",
-        buttons: [
-          { id: "show", label: "&Show progress", isDefault: true },
-          { id: "ok", label: "OK", cancel: true },
-        ],
-      });
-      if (r === "show") dialogs.open("models");
-      return true;
-    }
-    const r = await ask({
-      kind: "info",
-      title: "Song models",
-      message: "The song models aren't downloaded yet.",
-      detail: `Every song needs them to take the singing out and line the words up. They download once — about ${mbOf(core.bytes_total)}.`,
-      buttons: [
-        { id: "get", label: "&Download now", isDefault: true },
-        { id: "later", label: "Not now", cancel: true },
-      ],
-    });
-    if (r === "get") getCore();
-    return true;
-  };
-  const blockedRef = useRef(blockedOnModels);
-  blockedRef.current = blockedOnModels;
-
   // ----------------------------------------------------------- actions
 
   const addSong = useCallback(async () => {
-    if (await blockedRef.current()) return;
     const picked = await open({ multiple: false, filters: [{ name: "Songs (audio or video)", extensions: AUDIO_EXTS }] });
     if (typeof picked === "string") setWizard({ path: picked });
   }, []);
@@ -565,14 +471,13 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       const text = e.clipboardData?.getData("text") ?? "";
       if (parseLinks(text).length === 0) return;
       e.preventDefault();
-      void blockedRef.current().then((b) => b || setLinkText(text.trim()));
+      setLinkText(text.trim());
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
   }, []);
 
   const importFolder = useCallback(async () => {
-    if (await blockedRef.current()) return;
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked === "string") void startImport([picked]);
   }, [startImport]);
@@ -590,12 +495,8 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           // One song → the Add Song wizard; a folder or several files → a
           // scan and the Import Songs review.
           const paths = event.payload.paths;
-          if (paths.length === 0) return;
-          void blockedRef.current().then((blocked) => {
-            if (blocked) return;
-            if (paths.length === 1 && isAudioPath(paths[0])) setWizard({ path: paths[0] });
-            else void startImportRef.current(paths);
-          });
+          if (paths.length === 1 && isAudioPath(paths[0])) setWizard({ path: paths[0] });
+          else if (paths.length > 0) void startImportRef.current(paths);
         }
       })
       .then((u) => (disposed ? u() : (unlisten = u)))
@@ -955,7 +856,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
       items: [
         { label: "&Add Song…", accel: "Ctrl+O", keys: "ctrl+o", run: () => void addSong() },
         { label: "&Import Folder…", accel: "Ctrl+Shift+O", keys: "ctrl+shift+o", run: () => void importFolder(), disabled: scanning != null },
-        { label: "Add from &URL…", accel: "Ctrl+L", keys: "ctrl+l", run: () => void blockedOnModels().then((b) => b || setLinkText("")) },
+        { label: "Add from &URL…", accel: "Ctrl+L", keys: "ctrl+l", run: () => setLinkText("") },
         { label: "&New Collection…", run: () => void newCollection() },
         "-",
         { label: "E&xit", accel: "Alt+F4", run: () => void getCurrentWindow().close().catch(() => undefined) },
@@ -1464,19 +1365,6 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
         }}
       />
       {dialogs.element}
-      <WelcomeDialog
-        open={welcome}
-        coreBytes={coreOf(models)?.bytes_total ?? 0}
-        onDownload={() => {
-          setWelcome(false);
-          markWelcomeShown();
-          getCore();
-        }}
-        onClose={() => {
-          setWelcome(false);
-          markWelcomeShown();
-        }}
-      />
       <ImportDialog scan={importScan} onClose={() => setImportScan(null)} onQueued={onImportQueued} />
       <CollectionPicker song={fileSong} collections={collections} onClose={() => setFileSong(null)} onAdded={() => void refresh()} />
       <LinkDialog

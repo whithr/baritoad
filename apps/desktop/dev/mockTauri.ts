@@ -351,9 +351,16 @@ type MockEntry = { id: number; position: number; added_from_collection?: number 
 type MockQueue = { entries: MockEntry[]; playing: number | null };
 const QUEUE_KEY = "baritoad-mock-queue";
 // Model packs: all here unless ?models=none (a fresh install); a fake
-// download fills them in a few seconds. ?modelfail stops one halfway.
+// download fills them one model at a time. ?modelfail stops one halfway.
 type MockPack = "core" | "transcription" | "high_quality";
-const PACK_BYTES: Record<MockPack, number> = { core: 723_068_240, transcription: 970_412_423, high_quality: 345_195_190 };
+const MOCK_MODELS: { model: string; pack: MockPack; bytes: number }[] = [
+  { model: "htdemucs", pack: "core", bytes: 345_195_190 },
+  { model: "wav2vec2", pack: "core", bytes: 377_873_050 },
+  { model: "whisper-small", pack: "transcription", bytes: 970_412_423 },
+  { model: "htdemucs_ft_vocals", pack: "high_quality", bytes: 345_195_190 },
+];
+const PACKS: MockPack[] = ["core", "transcription", "high_quality"];
+const packBytes = (pack: MockPack) => MOCK_MODELS.filter((m) => m.pack === pack).reduce((n, m) => n + m.bytes, 0);
 const MODELS_KEY = "baritoad-mock-models";
 let modelsRunning = false;
 let modelsCancelled = false;
@@ -364,49 +371,60 @@ function havePacks(): MockPack[] {
   } catch {
     // fall through
   }
-  return new URLSearchParams(location.search).get("models") === "none" ? [] : ["core", "transcription", "high_quality"];
+  return new URLSearchParams(location.search).get("models") === "none" ? [] : [...PACKS];
 }
 function modelsInfo() {
   const have = havePacks();
   return {
     mirror: "https://models.baritoad.com",
     downloading: modelsRunning,
-    packs: (Object.keys(PACK_BYTES) as MockPack[]).map((pack) => ({
+    packs: PACKS.map((pack) => ({
       pack,
       installed: have.includes(pack),
       usable: have.includes(pack),
       outdated: [],
       missing: have.includes(pack) ? [] : ["(mock)"],
-      bytes_total: PACK_BYTES[pack],
-      bytes_present: have.includes(pack) ? PACK_BYTES[pack] : 0,
+      bytes_total: packBytes(pack),
+      bytes_present: have.includes(pack) ? packBytes(pack) : 0,
+    })),
+    models: MOCK_MODELS.map((m) => ({
+      model: m.model,
+      pack: m.pack,
+      installed: have.includes(m.pack),
+      usable: have.includes(m.pack),
+      bytes_total: m.bytes,
+      bytes_present: have.includes(m.pack) ? m.bytes : 0,
     })),
   };
 }
 function mockDownload(packs: MockPack[]) {
-  if (modelsRunning) throw new Error("a model download is already running");
+  if (modelsRunning) throw new Error("a download is already running");
   modelsRunning = true;
   modelsCancelled = false;
   const fail = new URLSearchParams(location.search).has("modelfail");
+  const stop = (kind: "cancelled" | "failed", pack: MockPack) => {
+    modelsRunning = false;
+    if (kind === "failed") void emit("karaoke://models", { kind, pack, message: "couldn't reach models.baritoad.com (mock): connection reset" });
+    else void emit("karaoke://models", { kind, pack });
+    void emit("karaoke://models", { kind: "finished" });
+  };
   void (async () => {
     for (const pack of packs) {
-      const total = PACK_BYTES[pack];
-      let done = 0;
-      while (done < total) {
-        await new Promise((res) => setTimeout(res, 100));
-        if (modelsCancelled) {
-          void emit("karaoke://models", { kind: "cancelled", pack });
-          modelsRunning = false;
-          void emit("karaoke://models", { kind: "finished" });
-          return;
+      const total = packBytes(pack);
+      let packDone = 0;
+      for (const m of MOCK_MODELS.filter((x) => x.pack === pack)) {
+        let done = 0;
+        while (done < m.bytes) {
+          await new Promise((res) => setTimeout(res, 100));
+          if (modelsCancelled) return stop("cancelled", pack);
+          if (fail && m.model === "whisper-small" && done > m.bytes / 2) return stop("failed", pack);
+          done = Math.min(m.bytes, done + m.bytes / 20);
+          void emit("karaoke://models", {
+            kind: "progress",
+            progress: { pack, file: `${m.model}.onnx`, done: packDone + done, total, model: m.model, model_done: done, model_total: m.bytes },
+          });
         }
-        if (fail && done > total / 2) {
-          modelsRunning = false;
-          void emit("karaoke://models", { kind: "failed", pack, message: "couldn't reach the model mirror (mock): connection reset" });
-          void emit("karaoke://models", { kind: "finished" });
-          return;
-        }
-        done = Math.min(total, done + total / 30);
-        void emit("karaoke://models", { kind: "progress", progress: { pack, file: "mock.onnx", done, total } });
+        packDone += m.bytes;
       }
       const have = new Set(havePacks());
       have.add(pack);

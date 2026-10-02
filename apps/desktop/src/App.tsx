@@ -15,6 +15,7 @@ import { ROLE, onStage, openStage, stageCurrent, type StageRoute } from "./stage
 import Home from "./views/Home";
 import Bench from "./views/Bench";
 import PlayerView from "./views/PlayerView";
+import { ModelsGate } from "./views/ModelsDialog";
 import { MessageBoxProvider, TipProvider } from "./win98";
 
 // Dev-only parts bin (#/kit); dead code in production builds.
@@ -253,6 +254,8 @@ export default function App() {
           ) : (
             <Home go={go} jobs={jobs} />
           )}
+          {/* First run: nothing works until the models are here. */}
+          <ModelsGate />
         </MessageBoxProvider>
       </TipProvider>
     </SettingsContext.Provider>

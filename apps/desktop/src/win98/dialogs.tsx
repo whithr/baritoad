@@ -35,13 +35,17 @@ export function Dialog(props: {
   initialFocus?: React.RefObject<HTMLElement | null>;
   /** Non-modal (e.g. the Processing dialog): the app stays usable behind it. */
   modeless?: boolean;
+  /** False: no close box, and Esc or a click outside does nothing — a step
+   *  the app can't go past without (first-run models). */
+  closable?: boolean;
 }) {
+  const closable = props.closable ?? true;
   return (
     <BaseDialog.Root
       open={props.open}
       modal={props.modeless ? false : true}
       onOpenChange={(o) => {
-        if (!o) props.onClose();
+        if (!o && closable) props.onClose();
       }}
     >
       <BaseDialog.Portal>
@@ -53,7 +57,7 @@ export function Dialog(props: {
           initialFocus={props.initialFocus}
         >
           <TitleBar title={props.title} titleAs={(t) => <BaseDialog.Title render={<span />}>{t}</BaseDialog.Title>}>
-            <CaptionButton glyph="close" label="Close" onClick={props.onClose} />
+            {closable && <CaptionButton glyph="close" label="Close" onClick={props.onClose} />}
           </TitleBar>
           {props.children}
         </BaseDialog.Popup>

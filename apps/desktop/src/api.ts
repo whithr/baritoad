@@ -462,15 +462,31 @@ export interface PackStatus {
   bytes_present: number;
 }
 
+/** One model (a pack holds one or two), as the download dialogs list them. */
+export interface ModelStatus {
+  /** "htdemucs" · "wav2vec2" · "whisper-small" · "htdemucs_ft_vocals" */
+  model: string;
+  pack: ModelPack;
+  installed: boolean;
+  usable: boolean;
+  bytes_total: number;
+  bytes_present: number;
+}
+
 export interface ModelsInfo {
   packs: PackStatus[];
+  /** The same files by model, in download order. */
+  models: ModelStatus[];
   /** Where downloads come from. */
   mirror: string;
   downloading: boolean;
 }
 
 export type ModelEvent =
-  | { kind: "progress"; progress: { pack: ModelPack; file: string; done: number; total: number } }
+  | {
+      kind: "progress";
+      progress: { pack: ModelPack; file: string; done: number; total: number; model: string; model_done: number; model_total: number };
+    }
   | { kind: "done"; pack: ModelPack }
   | { kind: "failed"; pack: ModelPack; message: string }
   | { kind: "cancelled"; pack: ModelPack }

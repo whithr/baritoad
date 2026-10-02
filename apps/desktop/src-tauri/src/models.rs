@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use karaoke_core::models::{self, Pack, PackStatus, Progress};
+use karaoke_core::models::{self, ModelStatus, Pack, PackStatus, Progress};
 use karaoke_core::separation;
 
 pub const MODELS_EVENT: &str = "karaoke://models";
@@ -35,6 +35,8 @@ pub enum ModelEvent {
 #[derive(Debug, Serialize)]
 pub struct ModelsInfo {
     pub packs: Vec<PackStatus>,
+    /// The same files by model, in download order — what the dialogs list.
+    pub models: Vec<ModelStatus>,
     /// Where downloads come from (said plainly in the dialog).
     pub mirror: String,
     pub downloading: bool,
@@ -47,7 +49,7 @@ fn dir() -> std::path::PathBuf {
 #[tauri::command]
 pub async fn models_status(downloads: State<'_, Arc<ModelDownloads>>) -> Result<ModelsInfo, String> {
     let downloading = downloads.running.lock().map(|r| r.is_some()).unwrap_or(false);
-    Ok(ModelsInfo { packs: models::status(&dir()), mirror: models::mirror_base(), downloading })
+    Ok(ModelsInfo { packs: models::status(&dir()), models: models::model_status(&dir()), mirror: models::mirror_base(), downloading })
 }
 
 /// Download these packs, in order, on a background thread.
@@ -76,7 +78,7 @@ pub async fn models_download(
                 let mut last = Instant::now() - Duration::from_secs(1);
                 let r = models::download_pack(&dir(), pack, &base, &user_agent, &cancel, &mut |p| {
                     // ~10 updates a second is plenty for a progress bar.
-                    if last.elapsed() >= Duration::from_millis(100) || p.done == p.total {
+                    if last.elapsed() >= Duration::from_millis(100) || p.model_done == p.model_total {
                         last = Instant::now();
                         let _ = app.emit(MODELS_EVENT, ModelEvent::Progress { progress: p.clone() });
                     }
@@ -123,19 +125,19 @@ pub fn missing_for(needs_transcription: bool, hq: bool) -> Option<String> {
     let usable = |p: Pack| st.iter().any(|s| s.pack == p && s.usable);
     if !usable(Pack::Core) {
         return Some(format!(
-            "The song models aren't downloaded yet (about {} MB). Get them in Tools › Models.",
+            "Demucs v4 and wav2vec 2.0 aren't downloaded yet ({} MB). Download them in Tools › Models.",
             mb(Pack::Core)
         ));
     }
     if hq && !usable(Pack::HighQuality) {
         return Some(format!(
-            "High-quality separation needs its own model (about {} MB). Get it in Tools › Models, or untick High-quality.",
+            "High-quality separation needs Demucs v4, fine-tuned ({} MB). Download it in Tools › Models, or untick High-quality separation.",
             mb(Pack::HighQuality)
         ));
     }
     if needs_transcription && !usable(Pack::Transcription) {
         return Some(format!(
-            "Songs without lyrics need the transcription models (about {} MB). Get them in Tools › Models, or paste the lyrics.",
+            "Songs without lyrics need Whisper small ({} MB). Download it in Tools › Models, or paste the lyrics.",
             mb(Pack::Transcription)
         ));
     }

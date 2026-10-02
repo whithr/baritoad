@@ -18,6 +18,7 @@
 //! is either complete and verified or absent. Network calls happen only when
 //! the person starts a download (PLAN.md §2).
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -160,6 +161,62 @@ pub fn pack_usable(models_dir: &Path, pack: Pack) -> bool {
     status(models_dir).iter().any(|s| s.pack == pack && s.usable)
 }
 
+/// The model a file belongs to: its first path segment without `.onnx`
+/// ("wav2vec2/vocab.json" → "wav2vec2", "htdemucs.onnx" → "htdemucs").
+pub fn model_id(path: &str) -> &str {
+    let first = path.split('/').next().unwrap_or(path);
+    first.strip_suffix(".onnx").unwrap_or(first)
+}
+
+/// One model (a pack holds one or two) — what the download dialogs list.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelStatus {
+    pub model: String,
+    pub pack: Pack,
+    pub installed: bool,
+    pub usable: bool,
+    pub bytes_total: u64,
+    pub bytes_present: u64,
+}
+
+/// Every model in download order (packs in [`Pack::ALL`] order, files in
+/// manifest order).
+pub fn model_status(models_dir: &Path) -> Vec<ModelStatus> {
+    model_status_of(models_dir, manifest())
+}
+
+pub fn model_status_of(models_dir: &Path, m: &Manifest) -> Vec<ModelStatus> {
+    let mut out: Vec<ModelStatus> = Vec::new();
+    for pack in Pack::ALL {
+        for f in m.files.iter().filter(|f| f.pack == pack) {
+            let id = model_id(&f.path);
+            let i = match out.iter().position(|s| s.model == id) {
+                Some(i) => i,
+                None => {
+                    out.push(ModelStatus { model: id.to_string(), pack, installed: true, usable: true, bytes_total: 0, bytes_present: 0 });
+                    out.len() - 1
+                }
+            };
+            let p = local_path(models_dir, f);
+            let s = &mut out[i];
+            s.bytes_total += f.size;
+            match std::fs::metadata(&p) {
+                Ok(md) if md.len() == f.size => s.bytes_present += f.size,
+                Ok(md) if md.is_file() => {
+                    s.installed = false;
+                    s.bytes_present += std::fs::metadata(part_path(&p)).map(|m| m.len().min(f.size)).unwrap_or(0);
+                }
+                _ => {
+                    s.installed = false;
+                    s.usable = false;
+                    s.bytes_present += std::fs::metadata(part_path(&p)).map(|m| m.len().min(f.size)).unwrap_or(0);
+                }
+            }
+        }
+    }
+    out
+}
+
 // -------------------------------------------------------------- download
 
 #[derive(Debug, Clone, Serialize)]
@@ -170,6 +227,10 @@ pub struct Progress {
     /// Bytes of the whole pack on disk so far, and the pack's size.
     pub done: u64,
     pub total: u64,
+    /// The model being fetched ([`model_id`]), and its own bytes so far and size.
+    pub model: String,
+    pub model_done: u64,
+    pub model_total: u64,
 }
 
 /// Free space where `dir` lives, when the OS says.
@@ -258,18 +319,38 @@ pub fn download_pack_from(
     }
     let agent = agent(user_agent);
     let mut done = st.bytes_present;
-    for f in m.files.iter().filter(|f| f.pack == pack) {
-        let dest = local_path(models_dir, f);
-        if std::fs::metadata(&dest).map(|md| md.len() == f.size).unwrap_or(false) {
+    let files: Vec<&ModelFile> = m.files.iter().filter(|f| f.pack == pack).collect();
+    let complete = |f: &ModelFile| std::fs::metadata(local_path(models_dir, f)).map(|md| md.len() == f.size).unwrap_or(false);
+    // Per model: its size, and the bytes of its files already complete.
+    let mut model_done: HashMap<&str, u64> = HashMap::new();
+    let mut model_total: HashMap<&str, u64> = HashMap::new();
+    for f in &files {
+        *model_total.entry(model_id(&f.path)).or_default() += f.size;
+        *model_done.entry(model_id(&f.path)).or_default() += if complete(f) { f.size } else { 0 };
+    }
+    for f in files {
+        if complete(f) {
             continue;
         }
+        let dest = local_path(models_dir, f);
         let part = part_path(&dest);
         let had = std::fs::metadata(&part).map(|md| md.len()).unwrap_or(0).min(f.size);
         done -= had; // fetch_file reports this file's bytes from zero
+        let id = model_id(&f.path);
+        let (base_done, total) = (model_done[id], model_total[id]);
         fetch_file(&agent, &url_for(base, m, f), f, &dest, cancel, &mut |file_bytes| {
-            on_progress(&Progress { pack, file: f.path.clone(), done: done + file_bytes, total: st.bytes_total });
+            on_progress(&Progress {
+                pack,
+                file: f.path.clone(),
+                done: done + file_bytes,
+                total: st.bytes_total,
+                model: id.to_string(),
+                model_done: base_done + file_bytes,
+                model_total: total,
+            });
         })?;
         done += f.size;
+        *model_done.get_mut(id).expect("counted above") += f.size;
     }
     Ok(())
 }
@@ -400,5 +481,15 @@ mod tests {
             files: vec![ModelFile { pack: Pack::Core, path: "wav2vec2/vocab.json".into(), size: 1, sha256: "0".repeat(64) }],
         };
         assert_eq!(url_for("https://m.example/", &m, &m.files[0]), "https://m.example/v1/wav2vec2/vocab.json");
+    }
+
+    #[test]
+    fn four_models_in_download_order() {
+        let ids: Vec<String> = model_status_of(Path::new("no-such-dir"), manifest()).into_iter().map(|s| s.model).collect();
+        assert_eq!(ids, ["htdemucs", "wav2vec2", "whisper-small", "htdemucs_ft_vocals"]);
+        let all = model_status_of(Path::new("no-such-dir"), manifest());
+        assert!(all.iter().all(|s| !s.usable && s.bytes_present == 0));
+        let total: u64 = all.iter().map(|s| s.bytes_total).sum();
+        assert_eq!(total, manifest().files.iter().map(|f| f.size).sum::<u64>());
     }
 }

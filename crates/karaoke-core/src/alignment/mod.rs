@@ -172,7 +172,7 @@ impl Aligner {
     fn whisper(&mut self) -> Result<&mut whisper::Whisper> {
         if self.whisper.is_none() && !self.whisper_dir.join("onnx").is_dir() {
             return Err(Error::Model(
-                "the transcription models aren't downloaded — songs without lyrics need them (Tools › Models), or paste the lyrics"
+                "Whisper small isn't downloaded — songs without lyrics need it (Tools › Models), or paste the lyrics"
                     .into(),
             ));
         }

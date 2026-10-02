@@ -272,13 +272,19 @@ Separator · icons.
 - **Properties** — tabbed property sheet (Appearance, Player, Processing). The
   Bench remembers its last view and nudge scope, so they aren't settings.
 - **Player Themes** — display-properties-style dialog with a monitor preview.
-- **Models** (Tools › Models…) — modeless: the three packs, each with what
-  it's for, its size and its state (Downloaded / an older version that still
-  works / Not downloaded) and Download or Update; one progress bar with
-  Cancel; the download address in plain words. While the song models are
-  missing, launch shows a **Welcome** once a session (what happens on this
-  computer, what goes online, the one download), and Add song, Import
-  Folder, a drop or Add from URL say so and offer Download now instead.
+- **Download the models** (first run) — the app waits behind it: no close
+  box, Esc and clicks outside do nothing. "baritoad needs these models to
+  work. They run on this computer and download once, 2.0 GB in all." Then the
+  four models by name and maker (Demucs v4 · Meta, wav2vec 2.0 · Meta,
+  Whisper small · OpenAI, Demucs v4, fine-tuned · Meta), each with what it
+  does and its size. Download fetches them one at a time: the current one
+  carries its own progress bar, the rest say Waiting, the button becomes
+  Cancel. When all four are checked, Start lets you in. A failed download
+  says why and Download picks up where it stopped.
+- **Models** (Tools › Models…) — modeless, the same list with each model's
+  state (Downloaded / Older version, still works / Not downloaded), one line
+  saying where they come from, Download or Update only when something needs
+  it, and Close.
 
 ### Full-Screen Player (signature)
 - **Lyrics:** centered lines in a masked viewport; every line lays out — and renders — at one constant size/weight/width, the display size (clamp 35.2–62px, 700, full width). **Line state is luminance and color only — lines never transform.** **One row per lyric line:** lines never flex-wrap — a line wider than the viewport shrinks its layout size by a static per-line `--fit` factor (PlayerView `fitLines` → `lineFit`, computed at mount/resize, never per-frame); a rare line past the 0.55 fit floor keeps the floor size and wraps (`data-overlong`). Never animate font-size. Sung words take the theme's sung colour with its glow; the active word carries the **wipe** — a `background-clip: text` gradient whose fill edge (`--wipe`) tracks the beat. Position of the fill edge and luminance carry the state; hue never carries it alone. During a pause the finished word holds through the 0.25s grace, then the upcoming word's glow eases in (`--glow-in`) across the last 0.6s before its onset. The scroll pre-rolls the next line only once the current line's last word is sung.
