@@ -42,7 +42,9 @@ pub const SEPARATE_STAGE_VERSION: u32 = 1;
 pub const CLEAN_LYRICS_STAGE_VERSION: u32 = 1;
 /// 3: transcribed lyrics break into lines at the singer's pauses, not
 /// whole whisper chunks (alignment::lines).
-pub const ALIGN_STAGE_VERSION: u32 = 3;
+/// 4: no word starts in or spans a long silent stretch of the vocal stem
+/// (alignment::chunk::silent_stretches).
+pub const ALIGN_STAGE_VERSION: u32 = 4;
 pub const EXPORT_STAGE_VERSION: u32 = 1;
 /// Bump when [`run_import_timings_stage`]'s conversion changes (it stands in
 /// for the align stage when a request carries UltraStar timings).

@@ -16,6 +16,12 @@
 //! not mark words unsung (its low-confidence heuristic flagged plainly sung
 //! words), so a word the recording skips is the user's to delete.
 //!
+//! A long stretch where the vocal stem is silent relative to the song's own
+//! voice level ([`chunk::silent_stretches`]) can only fall between words in
+//! the trellis — no word starts in one or spans one: wav2vec2 can read
+//! letters into amplified hiss, and a word stranded in an intro is worse
+//! than a weak one where the singing is.
+//!
 //! Output timing is **original-song time** (PLAN.md §5 hard rule): the vocal
 //! stem is time-aligned 1:1 with the user's file, and nothing here knows about
 //! tempo stretch.
@@ -120,6 +126,79 @@ pub struct AlignStats {
     /// Lyric words with no alignable characters (e.g. "42", pure punctuation);
     /// they get zero-length placeholder timings.
     pub n_unalignable: usize,
+    /// Seconds of the vocal stem the trellis kept free of words
+    /// ([`chunk::silent_stretches`]).
+    pub silent_stretch_s: f64,
+    /// The silent-stretch constraint left no valid path, so the song was
+    /// aligned without it.
+    pub silence_mask_fallback: bool,
+}
+
+/// The full-song CTC pass: token spans with every long stretch where the
+/// vocal stem is silent relative to the song's voice
+/// ([`chunk::silent_stretches`]) falling between words.
+struct StemTrellis {
+    spans: Vec<ctc::TokenSpan>,
+    n_stretches: usize,
+    silent_stretch_s: f64,
+    /// The constraint left no valid path; `spans` come from the plain trellis.
+    mask_fallback: bool,
+}
+
+/// Run the trellis over `em` (emissions of `vocals16k`) with the silent
+/// stretches between words ([`ctc::Silence`]); when that leaves no valid
+/// path, align as before rather than fail the song.
+fn trellis_over_stem(
+    em: &w2v::Emissions,
+    vocals16k: &[f32],
+    level_db: f64,
+    targets: &[usize],
+    blank: usize,
+    word_delim: usize,
+) -> Result<StemTrellis> {
+    let stretches = chunk::silent_stretches(vocals16k, SAMPLE_RATE as usize, level_db);
+    let frames = silent_frames(&stretches, em.n_frames);
+    let constrained = ctc::forced_align_constrained(
+        &em.logprobs,
+        em.n_frames,
+        em.n_vocab,
+        targets,
+        blank,
+        Some(&ctc::Silence {
+            frames: &frames,
+            word_delim,
+        }),
+    );
+    let (spans, mask_fallback) = match constrained {
+        Ok(spans) => (spans, false),
+        Err(Error::Inference(_)) if !stretches.is_empty() => (
+            ctc::forced_align(&em.logprobs, em.n_frames, em.n_vocab, targets, blank)?,
+            true,
+        ),
+        Err(e) => return Err(e),
+    };
+    Ok(StemTrellis {
+        spans,
+        n_stretches: stretches.len(),
+        silent_stretch_s: stretches.iter().map(|(s, e)| e - s).sum(),
+        mask_fallback,
+    })
+}
+
+/// Emission frames lying wholly inside a silent stretch. A frame sees a
+/// 400-sample window (25 ms at 16 kHz) every [`w2v::FRAME_SEC`].
+fn silent_frames(stretches: &[(f64, f64)], n_frames: usize) -> Vec<bool> {
+    const WINDOW_S: f64 = 400.0 / SAMPLE_RATE as f64;
+    let mut mask = vec![false; n_frames];
+    for &(s, e) in stretches {
+        let first = (s / w2v::FRAME_SEC).ceil().max(0.0) as usize;
+        let mut t = first;
+        while t < n_frames && t as f64 * w2v::FRAME_SEC + WINDOW_S <= e + 1e-9 {
+            mask[t] = true;
+            t += 1;
+        }
+    }
+    mask
 }
 
 pub struct AlignOutput {
@@ -393,8 +472,30 @@ impl Aligner {
         let norm_refs: Vec<&str> = lyric_words.iter().map(|w| w.norm.as_str()).collect();
         let (targets, ranges) = w2v::words_to_targets(&norm_refs, &self.w2v.vocab, self.w2v.word_delim);
         let t2 = Instant::now();
-        let spans = ctc::forced_align(&em.logprobs, em.n_frames, em.n_vocab, &targets, self.w2v.blank)?;
+        let tr = trellis_over_stem(
+            &em,
+            vocals16k,
+            level_db,
+            &targets,
+            self.w2v.blank,
+            self.w2v.word_delim,
+        )?;
         let trellis_s = t2.elapsed().as_secs_f64();
+        if tr.mask_fallback {
+            progress(
+                None,
+                "trellis: no path keeps the silent stretches free of words — aligned without that rule",
+            );
+        } else if tr.n_stretches > 0 {
+            progress(
+                None,
+                &format!(
+                    "trellis: {} silent stretch(es), {:.1}s kept free of words",
+                    tr.n_stretches, tr.silent_stretch_s
+                ),
+            );
+        }
+        let spans = tr.spans;
 
         // token spans -> per-word raw timings
         let mut span_by_token: Vec<Option<&ctc::TokenSpan>> = vec![None; targets.len()];
@@ -545,6 +646,8 @@ impl Aligner {
             n_transcript_words: transcript_words.len(),
             n_anchored,
             n_unalignable,
+            silent_stretch_s: tr.silent_stretch_s,
+            silence_mask_fallback: tr.mask_fallback,
         };
         progress(
             Some(1.0),
@@ -804,6 +907,176 @@ mod window_tests {
         let (vocab, blank, delim) = toy_vocab();
         let em = synth(&[1, 2, 1], 4);
         assert!(window_words_from_emissions(&em, &vocab, blank, delim, &[], 0.0, 0.0).is_err());
+    }
+}
+
+#[cfg(test)]
+mod silence_tests {
+    //! The silent-stretch rule end to end on synthetic audio + emissions:
+    //! the stem decides where letters may go, the trellis obeys.
+    use super::*;
+
+    const SR: usize = SAMPLE_RATE as usize;
+    // toy vocab: <pad> = 0, '|' = 1, 'I' = 2, 'T' = 3
+    const BLANK: usize = 0;
+    const DELIM: usize = 1;
+    const N_VOCAB: usize = 4;
+
+    fn tone(secs: f64, amp: f32) -> Vec<f32> {
+        (0..(secs * SR as f64) as usize)
+            .map(|i| amp * (i as f32 * 2.0 * std::f32::consts::PI * 220.0 / SR as f32).sin())
+            .collect()
+    }
+
+    fn n_frames(samples: usize) -> usize {
+        (samples - 400) / 320 + 1
+    }
+
+    /// Mostly-blank emissions; `peaks` are (frame, symbol, probability).
+    fn emissions(n: usize, peaks: &[(usize, usize, f32)]) -> w2v::Emissions {
+        let mut logprobs = Vec::with_capacity(n * N_VOCAB);
+        for t in 0..n {
+            let mut row = [0.1f32 / 3.0; N_VOCAB];
+            row[BLANK] = 0.9;
+            for &(f, c, p) in peaks {
+                if f == t {
+                    row = [(1.0 - p) / 3.0; N_VOCAB];
+                    row[c] = p;
+                }
+            }
+            logprobs.extend(row.iter().map(|p| p.ln()));
+        }
+        w2v::Emissions {
+            logprobs,
+            n_frames: n,
+            n_vocab: N_VOCAB,
+        }
+    }
+
+    fn vocab() -> std::collections::HashMap<String, usize> {
+        [("<pad>", 0), ("|", 1), ("I", 2), ("T", 3)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect()
+    }
+
+    /// First word's start (seconds) from its letter spans.
+    fn first_word_start(spans: &[ctc::TokenSpan], range: (usize, usize)) -> f64 {
+        let f = spans
+            .iter()
+            .find(|s| s.token_index >= range.0 && s.token_index < range.1)
+            .expect("first word placed")
+            .start_frame;
+        f as f64 * w2v::FRAME_SEC
+    }
+
+    #[test]
+    fn first_word_is_not_stranded_in_a_silent_intro() {
+        // 20 s intro of hiss 80 dB under the voice, then 6 s of singing —
+        // the 1925 Titanic transfer's shape. Per-chunk normalization makes
+        // the hiss look like speech, so the emissions carry a confident
+        // "IT" at 10 s and only a weak one where the singing starts.
+        let mut audio = tone(20.0, 0.3e-4);
+        audio.extend(tone(6.0, 0.3));
+        let n = n_frames(audio.len());
+        let sung = (20.0 / w2v::FRAME_SEC) as usize + 10; // 20.2 s
+        let em = emissions(
+            n,
+            &[
+                (500, 2, 0.95), // 10.0 s: hallucinated I
+                (501, 3, 0.95), //         and T
+                (sung, 2, 0.4),
+                (sung + 1, 3, 0.4),
+            ],
+        );
+        let vocab = vocab();
+        let (targets, ranges) = w2v::words_to_targets(&["IT"], &vocab, DELIM);
+        let level = chunk::voice_level_db(&audio, SR);
+
+        // the plain trellis reproduces the bug
+        let free =
+            ctc::forced_align(&em.logprobs, em.n_frames, em.n_vocab, &targets, BLANK).unwrap();
+        assert!((first_word_start(&free, ranges[0]) - 10.0).abs() < 1e-9);
+
+        let tr = trellis_over_stem(&em, &audio, level, &targets, BLANK, DELIM).unwrap();
+        assert!(!tr.mask_fallback);
+        assert_eq!(tr.n_stretches, 1);
+        assert!((tr.silent_stretch_s - (20.0 - chunk::SILENT_EDGE_GUARD_S)).abs() < 1e-9);
+        let start = first_word_start(&tr.spans, ranges[0]);
+        assert!(
+            (start - sung as f64 * w2v::FRAME_SEC).abs() < 1e-9,
+            "first word at {start}s"
+        );
+    }
+
+    #[test]
+    fn a_word_never_spans_a_silent_break() {
+        // 3 s singing, a 5 s break of bleed 60 dB under, 3 s singing; the
+        // emissions are surest of I before the break and of T after it.
+        let mut audio = tone(3.0, 0.3);
+        audio.extend(tone(5.0, 0.3e-3));
+        audio.extend(tone(3.0, 0.3));
+        let n = n_frames(audio.len());
+        let em = emissions(n, &[(100, 2, 0.95), (450, 3, 0.9)]);
+        let (targets, ranges) = w2v::words_to_targets(&["IT"], &vocab(), DELIM);
+        let level = chunk::voice_level_db(&audio, SR);
+
+        let word_span = |spans: &[ctc::TokenSpan]| {
+            let letters: Vec<&ctc::TokenSpan> = spans
+                .iter()
+                .filter(|s| s.token_index >= ranges[0].0 && s.token_index < ranges[0].1)
+                .collect();
+            (letters[0].start_frame, letters[letters.len() - 1].end_frame)
+        };
+        let free =
+            ctc::forced_align(&em.logprobs, em.n_frames, em.n_vocab, &targets, BLANK).unwrap();
+        assert_eq!(
+            word_span(&free),
+            (100, 451),
+            "the plain trellis bridges the break"
+        );
+
+        let tr = trellis_over_stem(&em, &audio, level, &targets, BLANK, DELIM).unwrap();
+        assert!(!tr.mask_fallback);
+        let (a, z) = word_span(&tr.spans);
+        let (a_s, z_s) = (a as f64 * w2v::FRAME_SEC, z as f64 * w2v::FRAME_SEC);
+        assert!(
+            z_s <= 4.0 || a_s >= 7.0,
+            "word spans {a_s}..{z_s}s across the 3-8 s break"
+        );
+    }
+
+    #[test]
+    fn infeasible_mask_falls_back_to_the_plain_trellis() {
+        // 3 s of singing, then 3 s of digital silence, and more letters than
+        // the singing has frames: every valid path crosses the silence. The
+        // song must still align — the rule never fails a song.
+        let mut audio = tone(3.0, 0.3);
+        audio.extend(tone(3.0, 0.0));
+        let n = n_frames(audio.len());
+        let em = emissions(n, &[]);
+        let vocab = vocab();
+        let long = "IT".repeat(80);
+        let (targets, _) = w2v::words_to_targets(&[long.as_str()], &vocab, DELIM);
+        let unmasked = ((3.0 + chunk::SILENT_EDGE_GUARD_S) / w2v::FRAME_SEC).round() as usize;
+        assert!(targets.len() > unmasked);
+        let level = chunk::voice_level_db(&audio, SR);
+        let tr = trellis_over_stem(&em, &audio, level, &targets, BLANK, DELIM).unwrap();
+        assert!(tr.mask_fallback);
+        assert_eq!(tr.spans.len(), targets.len());
+    }
+
+    #[test]
+    fn silent_frames_cover_whole_windows_only() {
+        // frame t sees [0.02 t, 0.02 t + 0.025): inside (1.0, 2.0) are 50..=98
+        let m = silent_frames(&[(1.0, 2.0)], 200);
+        let on: Vec<usize> = (0..200).filter(|&t| m[t]).collect();
+        assert_eq!(on.first(), Some(&50));
+        assert_eq!(on.last(), Some(&98));
+        assert_eq!(on.len(), 49);
+        // a stretch past the last frame is clipped, not a panic
+        let m = silent_frames(&[(3.0, 10.0)], 160);
+        assert!(m[150] && m[159]);
     }
 }
 

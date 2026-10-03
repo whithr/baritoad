@@ -1,4 +1,6 @@
-//! Silence-aware chunk planning for whisper transcription.
+//! Silence analysis of the vocal stem: chunk planning for whisper
+//! transcription, and the long silent stretches the CTC trellis may only
+//! place between words ([`silent_stretches`]).
 //!
 //! The spike used fixed 30 s windows, which can split a word at a boundary
 //! (spikes/alignment/REPORT.md risk 6). Production cuts each chunk at the
@@ -110,6 +112,62 @@ pub fn is_silent(audio: &[f32], chunk: &Chunk, sr: usize, level_db: f64) -> bool
     (voiced as f64) < MIN_VOICED_FRACTION * db.len() as f64
 }
 
+/// A frame is "silent" for the trellis when it is this many dB or more below
+/// the song's loud vocal level ([`voice_level_db`]) — further down than
+/// [`VOICED_BELOW_PEAK_DB`], so quiet singing is never in doubt; what is left
+/// is separation bleed, hiss, and digital silence.
+const SILENT_BELOW_VOICE_DB: f64 = 40.0;
+/// Only runs of silent frames at least this long count: a breath or a gap
+/// between words is the trellis's to judge.
+const MIN_SILENT_STRETCH_S: f64 = 1.0;
+/// Each stretch gives up this much at an edge that touches sound, so a soft
+/// onset or a fading note next to the silence stays alignable.
+pub(crate) const SILENT_EDGE_GUARD_S: f64 = 0.2;
+
+/// Long stretches where the vocal stem is effectively silent relative to the
+/// song's own voice level, as `(start_s, end_s)` — the CTC trellis lets one
+/// fall only between words ([`super::ctc::Silence`]).
+/// wav2vec2 normalizes each chunk to unit variance, so a near-silent intro
+/// reaches the model as full-scale noise it can read letters into (a 1925
+/// 78-rpm transfer: hiss 80 dB below the voice drew the first word ~20 s
+/// early). Relative to the song, like [`is_silent`].
+pub fn silent_stretches(audio: &[f32], sr: usize, level_db: f64) -> Vec<(f64, f64)> {
+    let db = frame_db(audio, sr);
+    let min_frames = (MIN_SILENT_STRETCH_S / RMS_FRAME_S).round() as usize;
+    let end_s = audio.len() as f64 / sr as f64;
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < db.len() {
+        if db[i] > level_db - SILENT_BELOW_VOICE_DB {
+            i += 1;
+            continue;
+        }
+        let a = i;
+        while i < db.len() && db[i] <= level_db - SILENT_BELOW_VOICE_DB {
+            i += 1;
+        }
+        if i - a < min_frames {
+            continue;
+        }
+        // A run that reaches the start or end of the song has no sound to
+        // guard on that side (frame_db drops a trailing partial frame).
+        let s = if a == 0 {
+            0.0
+        } else {
+            a as f64 * RMS_FRAME_S + SILENT_EDGE_GUARD_S
+        };
+        let e = if i == db.len() {
+            end_s
+        } else {
+            i as f64 * RMS_FRAME_S - SILENT_EDGE_GUARD_S
+        };
+        if e > s {
+            out.push((s, e));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +200,46 @@ mod tests {
         audio.extend(tone(2.0, 0.1));
         let level = voice_level_db(&tone(10.0, 0.1), SR);
         assert!(!is_silent(&audio, &Chunk { start: 0, len: 25 * SR }, SR, level));
+    }
+
+    #[test]
+    fn silent_stretches_are_long_quiet_runs_relative_to_the_song() {
+        // quiet master (-40 dBFS singing): 10 s of hiss 60 dB under it, 5 s
+        // singing, a 0.5 s gap (a breath — not a stretch), 5 s singing, a 3 s
+        // break of bleed 45 dB under, 5 s singing, then 2 s of digital silence
+        let mut audio = tone(10.0, 0.00001);
+        audio.extend(tone(5.0, 0.01));
+        audio.extend(tone(0.5, 0.00001));
+        audio.extend(tone(5.0, 0.01));
+        audio.extend(tone(3.0, 0.01 * 10f32.powf(-45.0 / 20.0)));
+        audio.extend(tone(5.0, 0.01));
+        audio.extend(vec![0.0; 2 * SR]);
+        let level = voice_level_db(&audio, SR);
+        let s = silent_stretches(&audio, SR, level);
+        assert_eq!(s.len(), 3, "{s:?}");
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        // the intro has no sound before it to guard; its end gives up the guard
+        assert!(
+            close(s[0].0, 0.0) && close(s[0].1, 10.0 - SILENT_EDGE_GUARD_S),
+            "{s:?}"
+        );
+        // the break is guarded on both sides
+        assert!(close(s[1].0, 20.5 + SILENT_EDGE_GUARD_S), "{s:?}");
+        assert!(close(s[1].1, 23.5 - SILENT_EDGE_GUARD_S), "{s:?}");
+        // the trailing silence runs to the end of the audio
+        assert!(
+            close(s[2].0, 28.5 + SILENT_EDGE_GUARD_S) && close(s[2].1, 30.5),
+            "{s:?}"
+        );
+    }
+
+    #[test]
+    fn quiet_singing_is_never_a_silent_stretch() {
+        // a soft verse 30 dB under the chorus is singing, not silence
+        let mut audio = tone(10.0, 0.3 * 10f32.powf(-30.0 / 20.0));
+        audio.extend(tone(10.0, 0.3));
+        let level = voice_level_db(&audio, SR);
+        assert!(silent_stretches(&audio, SR, level).is_empty());
     }
 
     #[test]
