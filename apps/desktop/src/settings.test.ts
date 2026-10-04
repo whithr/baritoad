@@ -44,9 +44,16 @@ describe("parseSettings", () => {
       whileGaming: "cpu",
       libraryGroupBy: "none",
       lookupLyrics: false,
+      playbackSpeedDownloads: false,
       autoAdvance: true,
       advanceSeconds: 10,
     });
+  });
+
+  it("downloads at full speed until playback speed is ticked", () => {
+    expect(parseSettings(null).playbackSpeedDownloads).toBe(false);
+    expect(parseSettings(JSON.stringify({ playbackSpeedDownloads: true })).playbackSpeedDownloads).toBe(true);
+    expect(parseSettings(JSON.stringify({ playbackSpeedDownloads: 1 })).playbackSpeedDownloads).toBe(false);
   });
 
   it("starts the next song by itself unless that was switched off", () => {

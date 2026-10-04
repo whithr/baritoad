@@ -72,3 +72,29 @@ fn ytdlp_checks_a_public_domain_link() {
     assert_eq!(links[0].title, "Take Me Out To The Ball Game");
     assert_eq!(links[0].artist.as_deref(), Some("Harvey Hindermeyer"));
 }
+
+/// Playback speed: the 157.6 s recording (66 MB of FLAC) should take about
+/// as long to download as it plays. Without ffmpeg, as v1.0 ships.
+#[test]
+#[ignore = "network + yt-dlp; takes about 2.5 minutes"]
+fn ytdlp_downloads_at_playback_speed() {
+    let mut tools = Tools::locate(&[]).expect("set KARAOKE_YTDLP or put yt-dlp on PATH");
+    tools.ffmpeg = None;
+    let dir = std::env::temp_dir().join("baritoad-online-smoke");
+    let _ = std::fs::remove_dir_all(&dir);
+    let start = std::time::Instant::now();
+    let mut said = std::collections::BTreeSet::new();
+    let path = tools
+        .download(PD_URL, &dir.join("ballgame"), true, &mut |_, msg| {
+            said.insert(msg.to_string());
+        }, &|| false)
+        .expect("download");
+    let secs = start.elapsed().as_secs_f64();
+    let bytes = std::fs::metadata(&path).unwrap().len();
+    println!("{} ({bytes} bytes) in {secs:.1} s for a 157.6 s song; progress said {said:?}", path.display());
+    let leftovers: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(said.contains("Downloading at playback speed"), "{said:?}");
+    assert_eq!(leftovers.len(), 1, "the lookup's info file is cleaned up: {leftovers:?}");
+    assert!((140.0..200.0).contains(&secs), "took {secs:.1} s");
+}

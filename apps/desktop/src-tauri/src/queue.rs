@@ -25,6 +25,14 @@
 //! written back to the saved job, so a restart neither downloads nor looks
 //! up twice. Progress goes out as [`JobEventPayload::Prep`].
 //!
+//! A site that turns a download away for rate limiting (YouTube's bot
+//! check, HTTP 429) would turn the next ones away too, and every request
+//! stretches the block. So the queued songs still waiting to download from
+//! that site fail with the same reason without asking it
+//! ([`JobQueue::fail_waiting_on`]); Try again picks them up later. To keep
+//! from getting there, downloads from one site start 10–20 s apart
+//! ([`FETCH_GAP`]) — usually free, since processing a song takes longer.
+//!
 //! Last before the pipeline, gaming mode ([`crate::gaming`]): when the app in
 //! front is a game using the graphics card, separation runs on the processor
 //! (or the job waits, per the person's choice). The verdict is taken once per
@@ -34,7 +42,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -65,6 +73,11 @@ const LRCLIB_SYNCED: &str = "lrclib.lrc";
 const LRCLIB_RECORD: &str = "lrclib.json";
 /// A fetched song's thumbnail, applied as cover art once it registers.
 const FETCHED_COVER: &str = "fetched-cover";
+/// Downloads from one site start at least this far apart, plus up to
+/// [`FETCH_JITTER`] more: yt-dlp's `-t sleep` spacing (10–20 s), which its
+/// wiki recommends for YouTube. Every site gets the same treatment.
+const FETCH_GAP: Duration = Duration::from_secs(10);
+const FETCH_JITTER: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -159,6 +172,9 @@ pub struct LinkPrep {
     /// JPEG/PNG thumbnail for cover art.
     #[serde(default)]
     pub thumbnail: Option<String>,
+    /// Download about as fast as the song plays (the person's choice).
+    #[serde(default)]
+    pub playback_speed: bool,
 }
 
 /// Library steps a job takes once its song registers (bulk import).
@@ -225,6 +241,8 @@ pub struct JobQueue {
     store: Option<PathBuf>,
     /// Serializes queue-file writes (outside the `inner` lock).
     store_lock: Mutex<()>,
+    /// When the last download from each site ([`site_of`]) ended.
+    last_fetch: Mutex<HashMap<String, Instant>>,
 }
 
 /// Panic payload used to unwind out of `pipeline::generate` on cancel. The
@@ -242,6 +260,7 @@ impl JobQueue {
             next_id: AtomicU64::new(1),
             store: None,
             store_lock: Mutex::new(()),
+            last_fetch: Mutex::new(HashMap::new()),
         }
     }
 
@@ -500,6 +519,12 @@ impl JobQueue {
                 Ok(request) => run_one(&app, id, &request, &cancel, &mut worker),
                 Err(end) => end,
             };
+            let turned_away = match (&outcome, &prep.link) {
+                (RunOutcome::RateLimited { message }, Some(link)) => {
+                    site_of(&link.url).map(|site| (site, message.clone()))
+                }
+                _ => None,
+            };
 
             // Library registration happens outside the queue lock (it reads
             // the manifest + tags from disk) and must not fail the job — the
@@ -583,7 +608,7 @@ impl JobQueue {
                     RunOutcome::Cancelled => {
                         entry.snapshot.status = JobStatus::Cancelled;
                     }
-                    RunOutcome::Failed { message } => {
+                    RunOutcome::Failed { message } | RunOutcome::RateLimited { message } => {
                         entry.snapshot.status = JobStatus::Failed;
                         entry.snapshot.error = Some(message);
                     }
@@ -592,7 +617,63 @@ impl JobQueue {
             };
             self.persist();
             emit_lifecycle(&app, &snapshot);
+            if let Some((site, message)) = turned_away {
+                for stopped in self.fail_waiting_on(&site, &message) {
+                    emit_lifecycle(&app, &stopped);
+                }
+            }
         }
+    }
+
+    /// Fail the queued jobs that still have to download from `site`, without
+    /// asking it — it just turned a download away (module docs). Each keeps
+    /// its saved steps, so Try again picks it up once the site lets go.
+    fn fail_waiting_on(&self, site: &str, message: &str) -> Vec<JobSnapshot> {
+        let stopped: Vec<JobSnapshot> = {
+            let mut guard = self.inner.lock().unwrap();
+            let inner = &mut *guard;
+            let waiting = |e: &JobEntry| {
+                e.saved.prep.link.as_ref().is_some_and(|l| site_of(&l.url).as_deref() == Some(site))
+                    && e.request.as_ref().is_some_and(|r| !r.audio.is_file())
+            };
+            let ids: Vec<u64> = inner
+                .pending
+                .iter()
+                .copied()
+                .filter(|id| inner.jobs.get(id).is_some_and(&waiting))
+                .collect();
+            inner.pending.retain(|id| !ids.contains(id));
+            ids.iter()
+                .filter_map(|id| {
+                    let e = inner.jobs.get_mut(id)?;
+                    e.request = None;
+                    e.snapshot.status = JobStatus::Failed;
+                    e.snapshot.error = Some(message.to_string());
+                    Some(e.snapshot.clone())
+                })
+                .collect()
+        };
+        if !stopped.is_empty() {
+            self.persist();
+        }
+        stopped
+    }
+}
+
+/// The site a link asks: its host, lowercased, without "www.", "m." or
+/// "music." — every YouTube link is "youtube.com" (youtu.be too).
+fn site_of(url: &str) -> Option<String> {
+    let (_, rest) = url.trim().split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?.split(':').next()?.to_ascii_lowercase();
+    let host = ["www.", "m.", "music."]
+        .iter()
+        .find_map(|p| host.strip_prefix(p))
+        .unwrap_or(host.as_str());
+    match host {
+        "" => None,
+        "youtu.be" => Some("youtube.com".into()),
+        h => Some(h.to_string()),
     }
 }
 
@@ -629,12 +710,22 @@ impl JobQueue {
             if let Some(msg) = tools.update_if_due(&t) {
                 emit_prep(app, id, PrepStep::Fetch, None, &format!("yt-dlp: {msg}"));
             }
+            let site = site_of(&link.url);
+            if let Some(site) = &site {
+                self.space_out(app, id, site, cancel)?;
+            }
             let mut on_progress =
                 |fraction: Option<f64>, message: &str| emit_prep(app, id, PrepStep::Fetch, fraction, message);
-            let audio = t
-                .download(&link.url, &link.stem_path, &mut on_progress, &|| cancel.load(Ordering::Relaxed))
+            let fetched = t.download(&link.url, &link.stem_path, link.playback_speed, &mut on_progress, &|| {
+                cancel.load(Ordering::Relaxed)
+            });
+            if let Some(site) = site {
+                self.last_fetch.lock().unwrap().insert(site, Instant::now());
+            }
+            let audio = fetched
                 .map_err(|e| match e {
                     karaoke_core::Error::Cancelled => RunOutcome::Cancelled,
+                    karaoke_core::Error::RateLimited(message) => RunOutcome::RateLimited { message },
                     e => RunOutcome::Failed { message: e.to_string() },
                 })?;
             if let Some(thumb) = &link.thumbnail {
@@ -706,6 +797,44 @@ impl JobQueue {
         }
         Ok(request)
     }
+
+    /// Wait out what's left of the gap since the last download from `site`
+    /// ([`FETCH_GAP`]), counting down in the job's progress.
+    fn space_out(&self, app: &AppHandle, id: u64, site: &str, cancel: &Arc<AtomicBool>) -> Result<(), RunOutcome> {
+        let since = self.last_fetch.lock().unwrap().get(site).map(Instant::elapsed);
+        let Some(left) = gap_left(since, fetch_gap()) else {
+            return Ok(());
+        };
+        let until = Instant::now() + left;
+        let mut told = None;
+        while let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(RunOutcome::Cancelled);
+            }
+            let secs = left.as_secs() + 1;
+            if told != Some(secs) {
+                emit_prep(app, id, PrepStep::Fetch, None, &format!("Waiting {secs} s between downloads from {site}"));
+                told = Some(secs);
+            }
+            std::thread::sleep(left.min(Duration::from_millis(200)));
+        }
+        Ok(())
+    }
+}
+
+/// This download's gap: [`FETCH_GAP`] plus a random part of
+/// [`FETCH_JITTER`] (the standard library's randomly keyed hasher).
+fn fetch_gap() -> Duration {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(unix_nanos());
+    FETCH_GAP + FETCH_JITTER.mul_f64((h.finish() % 1000) as f64 / 1000.0)
+}
+
+/// How long to wait before downloading again, `since` the last download
+/// from the same site; `None` when it's been long enough (or never).
+fn gap_left(since: Option<Duration>, gap: Duration) -> Option<Duration> {
+    gap.checked_sub(since?).filter(|d| !d.is_zero())
 }
 
 /// Gaming mode, just before the pipeline: with a game using the graphics
@@ -834,6 +963,8 @@ enum RunOutcome {
     Completed { map_path: PathBuf },
     Cancelled,
     Failed { message: String },
+    /// The download's site is turning this network away (module docs).
+    RateLimited { message: String },
 }
 
 /// Run one job in the worker process, starting it if needed; falls back to
@@ -945,9 +1076,13 @@ fn emit_lifecycle(app: &AppHandle, snapshot: &JobSnapshot) {
 }
 
 fn unix_now() -> u64 {
+    (unix_nanos() / 1_000_000_000) as u64
+}
+
+fn unix_nanos() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_nanos())
         .unwrap_or(0)
 }
 
@@ -1032,6 +1167,100 @@ mod tests {
         let bare = json.replace(r#","post":{"collection":"Party","mark_checked":true}"#, "");
         let back: Vec<PersistedJob> = serde_json::from_str(&bare).unwrap();
         assert!(back[0].post.collection.is_none() && !back[0].post.mark_checked);
+    }
+
+    /// A queued job straight into the queue's state (no app to emit to).
+    fn queued(q: &JobQueue, url: Option<&str>, audio: PathBuf) -> u64 {
+        let id = q.next_id.fetch_add(1, Ordering::Relaxed);
+        let request = GenerateRequest::new(audio);
+        let prep = Prep {
+            link: url.map(|u| LinkPrep {
+                url: u.into(),
+                stem_path: request.audio.clone(),
+                duration_s: None,
+                thumbnail: None,
+                playback_speed: false,
+            }),
+            ..Prep::default()
+        };
+        let snapshot = JobSnapshot {
+            id,
+            audio: request.audio.clone(),
+            title: format!("song {id}"),
+            artist: None,
+            out_dir: PathBuf::new(),
+            map_path: None,
+            library_song_id: None,
+            status: JobStatus::Queued,
+            error: None,
+            cancel_requested: false,
+            queued_unix: 0,
+            source_url: url.map(Into::into),
+            lookup_lyrics: false,
+        };
+        let saved = PersistedJob {
+            request: request.clone(),
+            title: snapshot.title.clone(),
+            artist: None,
+            out_dir: PathBuf::new(),
+            post: PostImport::default(),
+            prep,
+        };
+        let mut inner = q.inner.lock().unwrap();
+        inner.jobs.insert(
+            id,
+            JobEntry { snapshot, request: Some(request), saved, cancel: Arc::new(AtomicBool::new(false)) },
+        );
+        inner.order.push(id);
+        inner.pending.push_back(id);
+        id
+    }
+
+    #[test]
+    fn a_rate_limited_site_fails_its_waiting_downloads_and_nothing_else() {
+        let q = JobQueue::new();
+        let nowhere = || PathBuf::from(r"C:\nowhere\not-downloaded-yet");
+        let watch = queued(&q, Some("https://www.youtube.com/watch?v=a1&list=PL1"), nowhere());
+        let short = queued(&q, Some("https://youtu.be/b2"), nowhere());
+        let other = queued(&q, Some("https://archive.org/details/x"), nowhere());
+        let file = queued(&q, None, nowhere());
+        // Already downloaded: what's left doesn't ask YouTube.
+        let fetched = queued(&q, Some("https://youtube.com/watch?v=c3"), std::env::current_exe().unwrap());
+        let music = queued(&q, Some("https://music.youtube.com/watch?v=d4"), nowhere());
+
+        let stopped = q.fail_waiting_on("youtube.com", "turned away");
+        assert_eq!(stopped.iter().map(|s| s.id).collect::<Vec<_>>(), [watch, short, music]);
+        assert!(stopped.iter().all(|s| s.status == JobStatus::Failed && s.error.as_deref() == Some("turned away")));
+        let inner = q.inner.lock().unwrap();
+        assert_eq!(inner.pending.iter().copied().collect::<Vec<_>>(), [other, file, fetched]);
+        // Try again needs the saved link.
+        assert!(inner.jobs[&watch].saved.prep.link.is_some());
+    }
+
+    #[test]
+    fn downloads_from_one_site_wait_out_the_gap() {
+        let gap = Duration::from_secs(15);
+        assert_eq!(gap_left(None, gap), None, "first download from a site");
+        assert_eq!(gap_left(Some(Duration::from_secs(4)), gap), Some(Duration::from_secs(11)));
+        assert_eq!(gap_left(Some(gap), gap), None);
+        assert_eq!(gap_left(Some(Duration::from_secs(60)), gap), None, "processing took longer");
+        for _ in 0..50 {
+            let g = fetch_gap();
+            assert!(g >= FETCH_GAP && g <= FETCH_GAP + FETCH_JITTER, "{g:?}");
+        }
+    }
+
+    #[test]
+    fn links_name_their_site() {
+        let site = |u: &str| site_of(u);
+        assert_eq!(site("https://www.youtube.com/watch?v=a").as_deref(), Some("youtube.com"));
+        assert_eq!(site("https://m.youtube.com/watch?v=a").as_deref(), Some("youtube.com"));
+        assert_eq!(site("https://music.youtube.com/playlist?list=a").as_deref(), Some("youtube.com"));
+        assert_eq!(site("https://youtu.be/a?t=3").as_deref(), Some("youtube.com"));
+        assert_eq!(site("https://ARCHIVE.org/details/x").as_deref(), Some("archive.org"));
+        assert_eq!(site("https://artist.bandcamp.com:443/track/x").as_deref(), Some("artist.bandcamp.com"));
+        assert_eq!(site("not a link"), None);
+        assert_eq!(site("https:///nohost"), None);
     }
 
     #[test]

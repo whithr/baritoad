@@ -310,7 +310,9 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       cancelled.add(args?.jobId as number);
       return r(true);
     case "check_links": {
-      // Every link is one song; a link with "fail" in it doesn't work.
+      // Every link is one song; a link with "fail" in it doesn't work. A
+      // music.youtube.com link is album audio (an "Artist - Topic" upload),
+      // the rest are music videos.
       const urls = (args?.urls as string[]) ?? [];
       return new Promise((res) =>
         setTimeout(
@@ -318,7 +320,11 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
             res({
               links: urls
                 .filter((u) => !/fail/i.test(u))
-                .map((u, i) => ({ url: u, id: `v${i}`, title: `Linked Song ${i + 1}`, artist: "Some Band", duration_s: 180 + i * 7, site: "Youtube", in_library: false })),
+                .map((u, i) =>
+                  /music\.youtube\.com/.test(u)
+                    ? { url: u, id: `m${i}`, title: "Linked Song (album version)", artist: "Some Band", duration_s: 171, site: "Youtube", channel: "Some Band - Topic", in_library: false }
+                    : { url: u, id: `v${i}`, title: `Linked Song ${i + 1}`, artist: "Some Band", duration_s: 180 + i * 7, site: "Youtube", channel: "Some Band", in_library: false },
+                ),
               failures: urls.filter((u) => /fail/i.test(u)).map((u) => ({ url: u, message: "Video unavailable" })),
             }),
           900,
@@ -327,10 +333,27 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     }
     case "queue_links": {
       const items = (args?.items as { url: string; title: string; artist?: string }[]) ?? [];
+      if (new URLSearchParams(location.search).has("botcheck")) return r({ jobs: fakeTurnedAway(items), failures: [] });
       return r({ jobs: items.map((i) => fakeJob({ audio_path: `C:/downloads/${i.title}`, title: i.title, artist: i.artist }, 0.4)), failures: [] });
     }
-    case "find_lyrics":
-      return r({ text: LYRICS.join("\n"), track_name: String(args?.title ?? "Song"), artist_name: String(args?.artist ?? "Someone"), duration_s: 200, synced: true });
+    case "search_album_version":
+      // The real one opens YouTube Music in the browser.
+      console.info("[mock] search_album_version:", args?.query);
+      (window as unknown as { __albumSearches?: unknown[] }).__albumSearches = [
+        ...((window as unknown as { __albumSearches?: unknown[] }).__albumSearches ?? []),
+        args?.query,
+      ];
+      return r(undefined);
+    case "find_lyrics": {
+      // ?lrclibbusy: each title's first lookup fails the way a busy LRCLIB
+      // does once the retries run out; asking again works.
+      const title = String(args?.title ?? "Song");
+      if (new URLSearchParams(location.search).has("lrclibbusy") && !busyAsked.has(title)) {
+        busyAsked.add(title);
+        return Promise.reject("network error: LRCLIB is busy right now (HTTP 503) — try again in a moment");
+      }
+      return r({ text: LYRICS.join("\n"), track_name: title, artist_name: String(args?.artist ?? "Someone"), duration_s: 200, synced: true });
+    }
     case "game_status":
       return r({ gaming: true, app: "RuneLite", gpu_percent: 18.7, supported: true });
     case "set_game_policy":
@@ -579,6 +602,8 @@ if (LABEL === "player" && typeof window !== "undefined") {
 // the title mentions "fail", a failure right after separating (drives the
 // failure message box).
 let nextJob = 100;
+/** Titles already looked up once under ?lrclibbusy. */
+const busyAsked = new Set<string>();
 const cancelled = new Set<number>();
 // Bulk import stand-in: a folder with every lyrics kind, a sub-folder
 // collection, a song the library already has, and one that fails (its title
@@ -614,6 +639,32 @@ function importScan(paths: string[]) {
 
 // The real queue runs one job at a time; so does the stand-in.
 let busyUntil = 0;
+
+// ?botcheck: the site turns the first download away (YouTube's bot check),
+// and the queue fails the other links from it without asking (queue.rs
+// fail_waiting_on).
+function fakeTurnedAway(items: { title: string; artist?: string }[]) {
+  const message =
+    "YouTube is asking whether this computer is a bot. It does that when lots of traffic comes from one internet address — and many internet providers share one address between homes, as VPNs do. It usually passes on its own; try again in a few hours.";
+  const snaps = items.map((i) => ({
+    id: nextJob++,
+    audio: `C:/downloads/${i.title}`,
+    title: i.title,
+    artist: i.artist,
+    out_dir: "C:/jobs/new",
+    status: "queued",
+    cancel_requested: false,
+    queued_unix: 0,
+    source_url: "https://www.youtube.com/watch?v=mock",
+    lookup_lyrics: false,
+  }));
+  const life = (s: (typeof snaps)[number], over: Record<string, unknown>) =>
+    emit("karaoke://job", { kind: "lifecycle", job: { ...s, ...over } });
+  setTimeout(() => snaps.forEach((s) => life(s, { status: "queued" })), 0);
+  if (snaps[0]) setTimeout(() => life(snaps[0], { status: "running" }), 300);
+  setTimeout(() => snaps.forEach((s) => life(s, { status: "failed", error: message })), 1500);
+  return snaps;
+}
 
 function fakeJob(req: { audio_path: string; title?: string; artist?: string; out_dir?: string }, speed = 1) {
   const id = nextJob++;

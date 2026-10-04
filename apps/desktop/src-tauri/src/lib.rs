@@ -119,6 +119,7 @@ pub fn run() {
             commands::queue_links,
             commands::reveal_path,
             commands::open_notices,
+            commands::search_album_version,
             media_keys::media_now_playing,
             models::models_status,
             models::models_download,

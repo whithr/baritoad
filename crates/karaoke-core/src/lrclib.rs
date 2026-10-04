@@ -29,6 +29,16 @@ pub const DEFAULT_BASE: &str = "https://lrclib.net";
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Tries per request. LRCLIB is a free community server that sometimes
+/// answers 503 when busy — on 2026-10-02, 3 of 9 requests within a few
+/// seconds, each fine when repeated — and one such answer used to end the
+/// whole lookup ("Couldn't check").
+const TRIES: usize = 3;
+/// Waits before the second and third tries; LRCLIB's own `Retry-After`, up
+/// to [`MAX_RETRY_AFTER`], replaces them.
+const RETRY_WAITS: [Duration; TRIES - 1] = [Duration::from_secs(1), Duration::from_secs(3)];
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(10);
+
 /// Duration slack when choosing between search results: a candidate within
 /// this many seconds (or [`DURATION_SLACK_FRACTION`] of the song, whichever is
 /// larger) can be the same song; further off is a different cut.
@@ -124,61 +134,71 @@ impl Client {
         }
     }
 
+    /// GET `path` with `query`, trying again ([`TRIES`]) when LRCLIB is busy
+    /// (HTTP 429, 502, 503, 504) or the connection drops. Timeouts aren't
+    /// retried — at 15 s each they'd stack up. The final status and body.
+    fn fetch(&self, path: &str, query: &[(&str, String)]) -> Result<(u16, String)> {
+        let mut attempt = 0;
+        loop {
+            let last = attempt + 1 >= TRIES;
+            let mut req = self.agent.get(format!("{}{path}", self.base));
+            for (k, v) in query {
+                req = req.query(*k, v);
+            }
+            let wait = match req.call() {
+                Ok(mut resp) => {
+                    let status = resp.status().as_u16();
+                    if last || !busy(status) {
+                        let body = resp.body_mut().read_to_string().map_err(net)?;
+                        return Ok((status, body));
+                    }
+                    retry_after(&resp)
+                }
+                Err(ureq::Error::Io(_) | ureq::Error::ConnectionFailed) if !last => None,
+                Err(e) => return Err(net(e)),
+            };
+            std::thread::sleep(wait.unwrap_or(RETRY_WAITS[attempt]));
+            attempt += 1;
+        }
+    }
+
     /// `/api/get`: LRCLIB's exact match. `Ok(None)` when it has no record.
     pub fn get(&self, q: &Query, artist: &str) -> Result<Option<Record>> {
-        let mut req = self
-            .agent
-            .get(format!("{}/api/get", self.base))
-            .query("track_name", q.title.trim())
-            .query("artist_name", artist.trim());
+        let mut query = vec![("track_name", q.title.trim().to_string()), ("artist_name", artist.trim().to_string())];
         if let Some(album) = q.album.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
-            req = req.query("album_name", album);
+            query.push(("album_name", album.to_string()));
         }
         if let Some(d) = q.duration_s.filter(|d| (1.0..=3600.0).contains(d)) {
-            req = req.query("duration", format!("{}", d.round() as i64));
+            query.push(("duration", format!("{}", d.round() as i64)));
         }
-        let mut resp = req.call().map_err(net)?;
-        let status = resp.status().as_u16();
-        let body = resp.body_mut().read_to_string().map_err(net)?;
+        let (status, body) = self.fetch("/api/get", &query)?;
         match status {
             200 => serde_json::from_str(&body).map(Some).map_err(|e| bad_reply(&e)),
             404 => Ok(None),
-            s => Err(Error::Network(format!("LRCLIB answered HTTP {s}"))),
+            s => Err(answered(s)),
         }
     }
 
     /// `/api/search` by title (and artist, when given).
     pub fn search(&self, title: &str, artist: Option<&str>) -> Result<Vec<Record>> {
-        let mut req = self
-            .agent
-            .get(format!("{}/api/search", self.base))
-            .query("track_name", title.trim());
+        let mut query = vec![("track_name", title.trim().to_string())];
         if let Some(a) = artist.map(str::trim).filter(|a| !a.is_empty()) {
-            req = req.query("artist_name", a);
+            query.push(("artist_name", a.to_string()));
         }
-        let mut resp = req.call().map_err(net)?;
-        let status = resp.status().as_u16();
-        let body = resp.body_mut().read_to_string().map_err(net)?;
+        let (status, body) = self.fetch("/api/search", &query)?;
         match status {
             200 => serde_json::from_str(&body).map_err(|e| bad_reply(&e)),
-            s => Err(Error::Network(format!("LRCLIB answered HTTP {s}"))),
+            s => Err(answered(s)),
         }
     }
 
     /// `/api/search?q=` — LRCLIB's free-text search over title, artist and
     /// album.
     pub fn search_text(&self, text: &str) -> Result<Vec<Record>> {
-        let mut resp = self
-            .agent
-            .get(format!("{}/api/search", self.base))
-            .query("q", text.trim())
-            .call()
-            .map_err(net)?;
-        let status = resp.status().as_u16();
-        let body = resp.body_mut().read_to_string().map_err(net)?;
+        let (status, body) = self.fetch("/api/search", &[("q", text.trim().to_string())])?;
         match status {
             200 => serde_json::from_str(&body).map_err(|e| bad_reply(&e)),
-            s => Err(Error::Network(format!("LRCLIB answered HTTP {s}"))),
+            s => Err(answered(s)),
         }
     }
 
@@ -241,6 +261,25 @@ impl Client {
 
 fn net(e: ureq::Error) -> Error {
     Error::Network(format!("LRCLIB: {e}"))
+}
+
+/// LRCLIB's "busy, try again" answers.
+fn busy(status: u16) -> bool {
+    matches!(status, 429 | 502 | 503 | 504)
+}
+
+fn answered(status: u16) -> Error {
+    if busy(status) {
+        Error::Network(format!("LRCLIB is busy right now (HTTP {status}) — try again in a moment"))
+    } else {
+        Error::Network(format!("LRCLIB answered HTTP {status}"))
+    }
+}
+
+/// A `Retry-After` in seconds, capped at [`MAX_RETRY_AFTER`].
+fn retry_after<B>(resp: &ureq::http::Response<B>) -> Option<Duration> {
+    let secs: u64 = resp.headers().get("retry-after")?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(secs).min(MAX_RETRY_AFTER))
 }
 
 fn bad_reply(e: &serde_json::Error) -> Error {

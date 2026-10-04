@@ -545,6 +545,7 @@ pub struct LinkItem {
 /// lyrics up (when asked, and when none were pasted), then runs the pipeline
 /// like any import.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn queue_links(
     app: AppHandle,
     queue: State<'_, Arc<JobQueue>>,
@@ -553,6 +554,7 @@ pub async fn queue_links(
     lookup_lyrics: bool,
     hq_separation: bool,
     cpu_only: bool,
+    playback_speed: bool,
 ) -> Result<ImportQueued, String> {
     if let Some(why) = crate::models::missing_for(false, hq_separation) {
         return Err(why);
@@ -599,6 +601,7 @@ pub async fn queue_links(
                 stem_path,
                 duration_s: item.duration_s,
                 thumbnail: item.thumbnail.clone(),
+                playback_speed,
             }),
             lookup_lyrics,
             lyrics_looked_up: false,
@@ -947,4 +950,58 @@ pub async fn open_notices(app: AppHandle) -> Result<(), String> {
         c
     };
     cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the notices: {e}"))
+}
+
+/// Add from URL's Find Album Version: YouTube Music's search for `query`
+/// ("artist title"), in the person's browser. The app only opens the page —
+/// the person picks a song there and pastes its link back, so what downloads
+/// is still a link they gave (PLAN.md §7). Takes words, never a URL.
+#[tauri::command]
+pub async fn search_album_version(query: String) -> Result<(), String> {
+    let q: String = query.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();
+    if q.is_empty() {
+        return Err("nothing to search for".into());
+    }
+    let url = format!("https://music.youtube.com/search?q={}", percent_encode(&q));
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("explorer.exe");
+        c.arg(&url);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(&url);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the browser: {e}"))
+}
+
+/// Every byte but the URL-safe ones as `%XX`.
+fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percent_encode;
+
+    #[test]
+    fn search_words_are_percent_encoded() {
+        assert_eq!(percent_encode("Elk Darling"), "Elk%20Darling");
+        assert_eq!(percent_encode("AC/DC & Co?"), "AC%2FDC%20%26%20Co%3F");
+        assert_eq!(percent_encode("Björk"), "Bj%C3%B6rk");
+    }
 }

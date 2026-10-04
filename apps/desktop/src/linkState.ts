@@ -46,7 +46,7 @@ export function lyricsCell(
     case "missing":
       return { icon: "warn", label: "Not found — will transcribe", tip: "LRCLIB doesn't have this song. Paste the lyrics for the best timing." };
     case "failed":
-      return { icon: "warn", label: "Couldn't check", tip: l.message };
+      return { icon: "warn", label: "Couldn't check", tip: `${l.message} — right-click to look it up again` };
     default:
       return { icon: "working", label: "Checking…" };
   }
@@ -95,6 +95,23 @@ export function linkItems(links: FoundLink[], checked: Set<string>, lyrics: Reco
         lyrics_text: s?.kind === "pasted" ? s.text : undefined,
       };
     });
+}
+
+/** A YouTube song that isn't YouTube's own album audio (posted by an
+ *  "Artist - Topic" channel): a music video, a lyric video, an upload. Its
+ *  album version usually has no intro or skit and matches LRCLIB's lyrics
+ *  better, so the review list offers to find it. */
+export const mayHaveAlbumVersion = (l: FoundLink) =>
+  siteLabel(l.site) === "YouTube" && !/ - Topic$/.test(l.channel?.trim() ?? "");
+
+/** What to search YouTube Music for: "artist title". */
+export const albumSearchWords = (l: FoundLink) => [l.artist, l.title].filter(Boolean).join(" ");
+
+/** The list with the song at `oldUrl` replaced by `album` (the link the
+ *  person pasted for its album version), in the same place. A row already
+ *  showing that link is dropped, so it isn't listed twice. */
+export function swapLink(links: FoundLink[], oldUrl: string, album: FoundLink): FoundLink[] {
+  return links.filter((l) => l.url !== album.url || l.url === oldUrl).map((l) => (l.url === oldUrl ? album : l));
 }
 
 /** yt-dlp's extractor names, as people say them. */

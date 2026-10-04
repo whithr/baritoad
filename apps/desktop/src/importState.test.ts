@@ -4,6 +4,7 @@ import {
   batchProgress,
   commonFolder,
   defaultChecked,
+  failureLines,
   importItems,
   importSummary,
   lyricsLabel,
@@ -79,5 +80,39 @@ describe("batch progress", () => {
     expect(
       batchProgress([job(1, "completed"), job(2, "failed"), job(3, "running"), job(4, "queued"), job(5, "cancelled"), undefined]),
     ).toEqual({ total: 6, done: 1, failed: 1, cancelled: 1, remaining: 3 });
+  });
+
+  const failed = (title: string, error: string | null, failure: string | null = null): JobProgress => {
+    const p = job(0, "failed");
+    return { ...p, job: { ...p.job, title, error: error ?? undefined }, failure };
+  };
+  const BOT = "YouTube is asking whether this computer is a bot.";
+
+  it("gives one shared reason once, after the titles", () => {
+    const songs = Array.from({ length: 9 }, (_, i) => failed(`Song ${i + 1}`, BOT));
+    expect(failureLines(songs)).toEqual([
+      "Couldn't finish: Song 1, Song 2, Song 3, Song 4, Song 5, Song 6, Song 7, Song 8, ….",
+      BOT,
+    ]);
+  });
+
+  it("groups several reasons, most common first, and says when nobody said why", () => {
+    const lines = failureLines([
+      failed("Lithium", "Video unavailable"),
+      failed("Waterloo", BOT),
+      failed("Rhapsody", BOT),
+      failed("Mystery", null),
+      failed("Crash", "ignored", "vocal stem not found"),
+    ]);
+    expect(lines).toEqual([
+      [
+        "Couldn't finish 5 songs:",
+        `Waterloo, Rhapsody — ${BOT}`,
+        "Lithium — Video unavailable",
+        "Mystery — The pipeline stopped without saying why.",
+        "…and 1 more for other reasons.",
+      ].join("\n"),
+    ]);
+    expect(failureLines([])).toEqual([]);
   });
 });

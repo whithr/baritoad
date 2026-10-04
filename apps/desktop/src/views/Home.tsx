@@ -60,7 +60,7 @@ import {
   searchSongs,
   type GroupBy,
 } from "../categories";
-import { batchProgress } from "../importState";
+import { batchProgress, failureLines } from "../importState";
 import { progressHeadline, type JobProgress, type JobsState } from "../jobEvents";
 import { fmtDuration, sortBy, statusFor, type SongStatus, type SortDir } from "../libraryState";
 import {
@@ -567,9 +567,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
     setProcOpen(false);
     const lines = [
       b.done > 0 ? `${b.done === 1 ? "1 song is" : `${b.done} songs are`} in your library. Songs baritoad timed wait under Needs checking for a quick listen.` : "",
-      b.failed > 0
-        ? `Couldn't finish: ${failed.map((p) => p!.job.title).slice(0, 8).join(", ")}${b.failed > 8 ? ", …" : ""}.`
-        : "",
+      ...failureLines(failed.map((p) => p!)),
       b.cancelled > 0 ? `${b.cancelled} cancelled.` : "",
     ].filter(Boolean);
     void ask({

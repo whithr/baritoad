@@ -116,3 +116,32 @@ export function batchProgress(jobs: (JobProgress | undefined)[]): BatchProgress 
   }
   return out;
 }
+
+const UNSAID = "The pipeline stopped without saying why.";
+
+/** The batch report's paragraphs about failed songs, grouped by why they
+ *  failed, most common first. One shared reason (a site turning every
+ *  download away) is one list of titles and then the reason. */
+export function failureLines(failed: JobProgress[]): string[] {
+  const groups = new Map<string, string[]>();
+  for (const p of failed) {
+    const why = p.failure ?? p.job.error ?? UNSAID;
+    groups.set(why, [...(groups.get(why) ?? []), p.job.title]);
+  }
+  const titles = (t: string[], max: number) => `${t.slice(0, max).join(", ")}${t.length > max ? ", …" : ""}`;
+  const sorted = [...groups].sort((a, b) => b[1].length - a[1].length);
+  if (sorted.length === 0) return [];
+  if (sorted.length === 1) {
+    const [why, t] = sorted[0];
+    return [`Couldn't finish: ${titles(t, 8)}.`, why];
+  }
+  const SHOWN = 3;
+  const rest = sorted.slice(SHOWN).reduce((n, [, t]) => n + t.length, 0);
+  return [
+    [
+      `Couldn't finish ${failed.length} songs:`,
+      ...sorted.slice(0, SHOWN).map(([why, t]) => `${titles(t, 4)} — ${why}`),
+      ...(rest > 0 ? [`…and ${rest} more for other reasons.`] : []),
+    ].join("\n"),
+  ];
+}

@@ -67,6 +67,11 @@ opt-level = 2
 # took 5.3 s vs 0.18 s in release (job manifests, 2026-09-30, RTX 2080 box).
 [profile.dev.package.karaoke-core]
 opt-level = 2
+# Incremental + optimized broke links three times on 2026-10-02: after edits,
+# reused codegen units referenced `anon.*.llvm.*` symbols the recompiled ones
+# no longer had (LNK2019 in libkaraoke_core, fixed only by `cargo clean -p
+# karaoke-core`). Without incremental each edit rebuilds the crate whole.
+incremental = false
 
 # The stretch engine's C++ (Signalsmith via cc) and its Rust glue run inside
 # the real-time audio callback — keep them optimized in dev too (cc compiles

@@ -7,6 +7,9 @@ import path from "node:path";
 const mock = path.resolve(__dirname, "dev/mockTauri.ts");
 export default defineConfig({
   plugins: [react()],
+  // Its own pre-bundle cache: sharing node_modules/.vite with the real config
+  // made each `tauri dev` after a mock run re-optimize its dependencies.
+  cacheDir: "node_modules/.vite-mock",
   resolve: {
     alias: [
       { find: /^@tauri-apps\/api\/(core|event|webview|window)$/, replacement: mock },

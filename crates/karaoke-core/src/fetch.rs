@@ -124,7 +124,7 @@ impl Tools {
     pub fn update(&self) -> Result<String> {
         let mut cmd = self.command();
         cmd.arg("-U");
-        let run = run_collect(cmd, UPDATE_TIMEOUT, &self.ytdlp)?;
+        let run = run_collect(cmd, UPDATE_TIMEOUT, &self.ytdlp, &|| false)?;
         let last = run.stdout.lines().chain(run.stderr.lines()).rfind(|l| !l.trim().is_empty());
         let msg = last.unwrap_or("").trim().to_string();
         if run.ok {
@@ -148,9 +148,9 @@ impl Tools {
         }
         let mut cmd = self.command();
         cmd.args(["-J", "--flat-playlist", "--no-playlist", "--"]).arg(url);
-        let run = run_collect(cmd, CHECK_TIMEOUT, &self.ytdlp)?;
+        let run = run_collect(cmd, CHECK_TIMEOUT, &self.ytdlp, &|| false)?;
         if !run.ok {
-            return Err(Error::Fetch(error_message(&run.stderr)));
+            return Err(fetch_error(&run.stderr));
         }
         let info: RawInfo = serde_json::from_str(run.stdout.trim())
             .map_err(|e| Error::Fetch(format!("yt-dlp sent something we couldn't read: {e}")))?;
@@ -162,19 +162,34 @@ impl Tools {
     /// it turns true yt-dlp is stopped and the result is
     /// [`Error::Cancelled`]. A finished file already at that path is reused
     /// (yt-dlp skips the download), so a resumed job doesn't fetch twice.
+    ///
+    /// `playback_speed` downloads about as fast as the song plays: the link
+    /// is looked up first ([`Self::look_ahead`]) for the chosen format's
+    /// rate, then downloaded from that lookup (`--load-info-json`, no second
+    /// visit to the page) with `--limit-rate`.
     pub fn download(
         &self,
         url: &str,
         stem_path: &Path,
+        playback_speed: bool,
         on_progress: &mut dyn FnMut(Option<f64>, &str),
         cancelled: &dyn Fn() -> bool,
     ) -> Result<PathBuf> {
         if let Some(dir) = stem_path.parent() {
             std::fs::create_dir_all(dir)?;
         }
+        let ahead = if playback_speed {
+            on_progress(None, "Looking up the song's playback speed");
+            Some(self.look_ahead(url, stem_path, cancelled)?)
+        } else {
+            None
+        };
         let template = format!("{}.%(ext)s", stem_path.display().to_string().replace('%', "%%"));
         let mut cmd = self.command();
-        cmd.args(["--no-playlist", "--newline", "--progress", "--no-mtime"])
+        // The requests one download makes (page, player, formats) go out
+        // 0.75 s apart: the request half of yt-dlp's `-t sleep`, which its
+        // wiki recommends for YouTube. The queue spaces downloads themselves.
+        cmd.args(["--no-playlist", "--newline", "--progress", "--no-mtime", "--sleep-requests", "0.75"])
             .arg("--progress-template")
             .arg(format!(
                 "download:{PROGRESS_PREFIX}%(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s"
@@ -183,19 +198,29 @@ impl Tools {
             .arg(format!("postprocess:{POSTPROCESS_PREFIX}%(progress.postprocessor)s"))
             .args(["--print", "after_move:filepath"])
             .arg("-o")
-            .arg(&template);
-        match &self.ffmpeg {
-            Some(ff) => {
-                cmd.args(["-f", FORMAT_ANY])
-                    .arg("--ffmpeg-location")
-                    .arg(ff)
-                    .args(["-x", "--audio-format", "opus>flac/webm>flac/best"]);
+            .arg(&template)
+            .args(["-f", self.format()]);
+        if let Some(ff) = &self.ffmpeg {
+            cmd.arg("--ffmpeg-location")
+                .arg(ff)
+                .args(["-x", "--audio-format", "opus>flac/webm>flac/best"]);
+        }
+        let downloading = match &ahead {
+            Some(a) => {
+                cmd.arg("--load-info-json").arg(&a.info_json.0);
+                match a.rate {
+                    Some(rate) => {
+                        cmd.arg("--limit-rate").arg(rate.to_string());
+                        "Downloading at playback speed"
+                    }
+                    None => "Downloading (the site didn't say how big the file is, so at full speed)",
+                }
             }
             None => {
-                cmd.args(["-f", FORMAT_DECODABLE]);
+                cmd.arg("--").arg(url);
+                "Downloading"
             }
-        }
-        cmd.arg("--").arg(url);
+        };
 
         let mut child = cmd.spawn().map_err(|e| spawn_err(&self.ytdlp, e))?;
         let stdout = child.stdout.take().expect("piped stdout");
@@ -230,7 +255,7 @@ impl Tools {
                 Ok(Some(line)) => {
                     if let Some(rest) = line.strip_prefix(PROGRESS_PREFIX) {
                         if let Some(f) = progress_fraction(rest) {
-                            on_progress(Some(f), "Downloading");
+                            on_progress(Some(f), downloading);
                         }
                     } else if line.starts_with(POSTPROCESS_PREFIX) {
                         on_progress(None, "Converting the audio");
@@ -255,13 +280,84 @@ impl Tools {
         let _ = err_thread.join();
         let stderr_text: String = tail.lock().unwrap().iter().map(|l| format!("{l}\n")).collect();
         if !status.success() {
-            return Err(Error::Fetch(error_message(&stderr_text)));
+            return Err(fetch_error(&stderr_text));
         }
         match final_path.filter(|p| p.is_file()) {
             Some(p) => Ok(p),
             None => Err(Error::Fetch("yt-dlp finished but didn't say where it saved the file".into())),
         }
     }
+
+    /// The format choice: what the decoder reads, or anything with ffmpeg
+    /// to convert it.
+    fn format(&self) -> &'static str {
+        if self.ffmpeg.is_some() {
+            FORMAT_ANY
+        } else {
+            FORMAT_DECODABLE
+        }
+    }
+
+    /// Look `url` up the way the download will (same format choice) and save
+    /// what yt-dlp found beside the download, for `--load-info-json`. This is
+    /// the page visit; the download that follows only fetches the audio.
+    fn look_ahead(&self, url: &str, stem_path: &Path, cancelled: &dyn Fn() -> bool) -> Result<LookedAhead> {
+        let mut cmd = self.command();
+        cmd.args(["-J", "--no-playlist", "--sleep-requests", "0.75", "-f", self.format(), "--"]).arg(url);
+        let run = run_collect(cmd, CHECK_TIMEOUT, &self.ytdlp, cancelled)?;
+        if !run.ok {
+            return Err(fetch_error(&run.stderr));
+        }
+        let json = run.stdout.trim();
+        let chosen: RawFormat = serde_json::from_str(json)
+            .map_err(|e| Error::Fetch(format!("yt-dlp sent something we couldn't read: {e}")))?;
+        let mut path = stem_path.as_os_str().to_owned();
+        path.push(".info.json");
+        let info_json = RemoveOnDrop(PathBuf::from(path));
+        std::fs::write(&info_json.0, json)?;
+        Ok(LookedAhead { info_json, rate: playback_rate(&chosen) })
+    }
+}
+
+/// A download looked up ahead ([`Tools::look_ahead`]).
+struct LookedAhead {
+    info_json: RemoveOnDrop,
+    /// Bytes per second that download it in about the time it plays.
+    rate: Option<u64>,
+}
+
+/// A scratch file, deleted however the download ends.
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// The chosen format's size and bitrate (`-J` puts them at the top level).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct RawFormat {
+    filesize: Option<f64>,
+    filesize_approx: Option<f64>,
+    tbr: Option<f64>,
+    abr: Option<f64>,
+    duration: Option<f64>,
+}
+
+/// Slowest cap we set: below it the site's numbers are suspect.
+const MIN_RATE: u64 = 8_000;
+
+/// Bytes per second that download `f` in about the time it plays: its size
+/// over its length, else its bitrate.
+fn playback_rate(f: &RawFormat) -> Option<u64> {
+    let by_size = match (f.filesize.or(f.filesize_approx), f.duration) {
+        (Some(bytes), Some(secs)) if bytes > 0.0 && secs > 0.0 => Some(bytes / secs),
+        _ => None,
+    };
+    let by_bitrate = f.tbr.or(f.abr).filter(|k| *k > 0.0).map(|kbps| kbps * 1000.0 / 8.0);
+    by_size.or(by_bitrate).map(|r| (r.ceil() as u64).max(MIN_RATE))
 }
 
 /// One song a link points at.
@@ -277,6 +373,10 @@ pub struct Link {
     pub site: String,
     /// A JPEG/PNG thumbnail for cover art, when the site lists one.
     pub thumbnail: Option<String>,
+    /// Who posted it, as the site names them ("Artist - Topic" is YouTube's
+    /// auto-generated album audio).
+    #[serde(default)]
+    pub channel: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -342,6 +442,7 @@ fn link_from(e: RawInfo, asked: Option<&str>, site: &str) -> Option<Link> {
         duration_s: e.duration.filter(|d| *d > 0.0),
         site: e.ie_key.clone().or(e.extractor_key.clone()).unwrap_or_else(|| site.to_string()),
         thumbnail: pick_thumbnail(&e),
+        channel: e.channel.clone().or_else(|| e.uploader.clone()).filter(|c| !c.trim().is_empty() && !c.contains('@')),
     })
 }
 
@@ -506,8 +607,9 @@ fn progress_fraction(rest: &str) -> Option<f64> {
 }
 
 /// yt-dlp's "ERROR: …" lines, minus the "[site] id:" prefix, with a plain
-/// explanation for the failures people actually hit.
-fn error_message(stderr: &str) -> String {
+/// explanation for the failures people actually hit. A site turning this
+/// network away is [`Error::RateLimited`], so a queue can stop asking it.
+fn fetch_error(stderr: &str) -> Error {
     let errors: Vec<&str> = stderr
         .lines()
         .filter_map(|l| l.trim().strip_prefix("ERROR:"))
@@ -524,12 +626,20 @@ fn error_message(stderr: &str) -> String {
         None => raw.clone(),
     };
     if msg.contains("Requested format is not available") {
-        return "This link doesn't offer audio baritoad can read (AAC, MP3, FLAC, WAV or Vorbis), and there's no ffmpeg to convert it.".into();
+        return Error::Fetch("This link doesn't offer audio baritoad can read (AAC, MP3, FLAC, WAV or Vorbis), and there's no ffmpeg to convert it.".into());
     }
     if msg.contains("Unsupported URL") {
-        return "yt-dlp doesn't know how to get audio from this link.".into();
+        return Error::Fetch("yt-dlp doesn't know how to get audio from this link.".into());
     }
-    msg
+    // YouTube's answer once it rate-limits an IP (HTTP 429 underneath). The
+    // advice yt-dlp appends is command-line flags nobody here can pass.
+    if msg.contains("Sign in to confirm you") {
+        return Error::RateLimited("YouTube is asking whether this computer is a bot. It does that when lots of traffic comes from one internet address — and many internet providers share one address between homes, as VPNs do. It usually passes on its own; try again in a few hours.".into());
+    }
+    if msg.contains("HTTP Error 429") {
+        return Error::RateLimited("This site is turning away downloads from this network for now (too many requests). It usually passes on its own; try again in a few hours.".into());
+    }
+    Error::Fetch(msg)
 }
 
 struct Collected {
@@ -538,8 +648,9 @@ struct Collected {
     stderr: String,
 }
 
-/// Run to completion with a time limit, collecting both streams.
-fn run_collect(mut cmd: Command, limit: Duration, exe: &Path) -> Result<Collected> {
+/// Run to completion with a time limit, collecting both streams; stopped
+/// with [`Error::Cancelled`] once `cancelled` turns true.
+fn run_collect(mut cmd: Command, limit: Duration, exe: &Path, cancelled: &dyn Fn() -> bool) -> Result<Collected> {
     let mut child = cmd.spawn().map_err(|e| spawn_err(exe, e))?;
     let mut out = child.stdout.take().expect("piped stdout");
     let mut err = child.stderr.take().expect("piped stderr");
@@ -557,6 +668,11 @@ fn run_collect(mut cmd: Command, limit: Duration, exe: &Path) -> Result<Collecte
     let status = loop {
         if let Some(st) = child.try_wait()? {
             break st;
+        }
+        if cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Error::Cancelled);
         }
         if start.elapsed() > limit {
             let _ = child.kill();
@@ -689,10 +805,38 @@ mod tests {
 
     #[test]
     fn errors_read_plainly() {
+        let msg = |stderr: &str| fetch_error(stderr).to_string();
         let stderr = "WARNING: something\nERROR: [youtube] abc: Video unavailable. This video is private\n";
-        assert_eq!(error_message(stderr), "Video unavailable. This video is private");
+        assert_eq!(msg(stderr), "Video unavailable. This video is private");
+        assert!(matches!(fetch_error(stderr), Error::Fetch(_)));
         let fmt = "ERROR: [archive.org] x: Requested format is not available. Use --list-formats";
-        assert!(error_message(fmt).contains("doesn't offer audio baritoad can read"));
-        assert_eq!(error_message("plain failure\n"), "plain failure");
+        assert!(msg(fmt).contains("doesn't offer audio baritoad can read"));
+        assert_eq!(msg("plain failure\n"), "plain failure");
+    }
+
+    #[test]
+    fn playback_speed_is_the_files_size_over_its_length_else_its_bitrate() {
+        // archive.org's 1908 recording: 66 MB of FLAC over 157.62 s.
+        let flac = RawFormat { filesize: Some(65_967_940.0), duration: Some(157.62), ..RawFormat::default() };
+        assert_eq!(playback_rate(&flac), Some(418_526));
+        // YouTube's AAC (format 140) often lists only its bitrate.
+        let aac = RawFormat { tbr: Some(129.5), duration: Some(210.0), ..RawFormat::default() };
+        assert_eq!(playback_rate(&aac), Some(16_188));
+        let tiny = RawFormat { abr: Some(8.0), ..RawFormat::default() };
+        assert_eq!(playback_rate(&tiny), Some(MIN_RATE));
+        assert_eq!(playback_rate(&RawFormat { duration: Some(200.0), ..RawFormat::default() }), None);
+    }
+
+    #[test]
+    fn a_site_turning_us_away_is_rate_limited_and_says_so_plainly() {
+        let bot = "ERROR: [youtube] ziOihAEi_qM: Sign in to confirm you\u{2019}re not a bot. Use --cookies-from-browser or --cookies for the authentication.";
+        let e = fetch_error(bot);
+        assert!(matches!(e, Error::RateLimited(_)), "{e:?}");
+        assert!(e.to_string().contains("try again in a few hours"));
+        assert!(!e.to_string().contains("--cookies"));
+        let busy = "ERROR: [soundcloud] 123: Unable to download JSON metadata: HTTP Error 429: Too Many Requests";
+        assert!(matches!(fetch_error(busy), Error::RateLimited(_)));
+        let gone = "ERROR: [soundcloud] 123: Unable to download JSON metadata: HTTP Error 404: Not Found";
+        assert!(matches!(fetch_error(gone), Error::Fetch(_)));
     }
 }

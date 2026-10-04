@@ -33,6 +33,10 @@ export interface Settings {
    *  the person ticks it once in an import dialog (PLAN.md §2: features
    *  reach out only when asked); remembered after. */
   lookupLyrics: boolean;
+  /** Add from URL downloads each song about as fast as it plays, instead of
+   *  at full speed — slower, gentler on the site. Off until ticked in the
+   *  Add from URL dialog; remembered after. */
+  playbackSpeedDownloads: boolean;
   /** At the end of a song, start the next one in Up next by itself after a
    *  short countdown on the Stage. Off = wait for Sing next. */
   autoAdvance: boolean;
@@ -53,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   whileGaming: "cpu",
   libraryGroupBy: "none",
   lookupLyrics: false,
+  playbackSpeedDownloads: false,
   autoAdvance: true,
   advanceSeconds: 10,
 };
@@ -87,6 +92,8 @@ export function parseSettings(raw: string | null | undefined): Settings {
       whileGaming: pick(WHILE_GAMING, v.whileGaming, DEFAULT_SETTINGS.whileGaming),
       libraryGroupBy: pick(GROUP_BYS, v.libraryGroupBy, DEFAULT_SETTINGS.libraryGroupBy),
       lookupLyrics: typeof v.lookupLyrics === "boolean" ? v.lookupLyrics : DEFAULT_SETTINGS.lookupLyrics,
+      playbackSpeedDownloads:
+        typeof v.playbackSpeedDownloads === "boolean" ? v.playbackSpeedDownloads : DEFAULT_SETTINGS.playbackSpeedDownloads,
       autoAdvance: typeof v.autoAdvance === "boolean" ? v.autoAdvance : DEFAULT_SETTINGS.autoAdvance,
       advanceSeconds:
         typeof v.advanceSeconds === "number" && Number.isFinite(v.advanceSeconds)

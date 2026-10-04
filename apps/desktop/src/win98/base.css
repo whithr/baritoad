@@ -1197,6 +1197,11 @@ html[data-dragging] * {
   user-select: text;
 }
 
+/* A string detail's line breaks are its paragraphs (batch reports). */
+.w-msg-detail {
+  white-space: pre-line;
+}
+
 .w-msg-buttons {
   display: flex;
   justify-content: center;

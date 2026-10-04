@@ -24,6 +24,9 @@ pub enum Error {
     Network(String),
     /// yt-dlp couldn't fetch a link (Add from URL).
     Fetch(String),
+    /// A site is turning this network away for now (YouTube's bot check,
+    /// HTTP 429) — asking it again only stretches the block.
+    RateLimited(String),
     /// Stopped on request (a cancelled download).
     Cancelled,
 }
@@ -42,7 +45,7 @@ impl fmt::Display for Error {
             Error::Db(m) => write!(f, "library db error: {m}"),
             Error::Device(m) => write!(f, "audio device error: {m}"),
             Error::Network(m) => write!(f, "network error: {m}"),
-            Error::Fetch(m) => write!(f, "{m}"),
+            Error::Fetch(m) | Error::RateLimited(m) => write!(f, "{m}"),
             Error::Cancelled => write!(f, "cancelled"),
         }
     }

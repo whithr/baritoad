@@ -267,7 +267,7 @@ export function MessageBoxProvider(props: { children: ReactNode; appName?: strin
                   <Icon name={KIND_ICON[current.o.kind]} size={32} />
                   <div className="w-msg-text">
                     <AlertDialog.Description render={<div />}>{current.o.message}</AlertDialog.Description>
-                    {current.o.detail && <div>{current.o.detail}</div>}
+                    {current.o.detail && <div className="w-msg-detail">{current.o.detail}</div>}
                   </div>
                 </div>
                 <div className="w-msg-buttons">

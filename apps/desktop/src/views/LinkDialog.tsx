@@ -8,18 +8,34 @@
 // online lookup is on), so a song LRCLIB doesn't have is visible before
 // anything runs — and can get pasted lyrics right there instead of being
 // transcribed.
+//
+// A music video can swap for its album version (no intro, the edit LRCLIB's
+// lyrics match): Find Album Version opens YouTube Music's search in the
+// browser, and the link the person pastes back replaces the row. The app
+// never picks a different link itself (PLAN.md §7).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkLinks, findLyrics, queueLinks, type FoundLink, type ImportQueued, type LinksChecked } from "../api";
+import {
+  checkLinks,
+  findLyrics,
+  queueLinks,
+  searchAlbumVersion,
+  type FoundLink,
+  type ImportQueued,
+  type LinksChecked,
+} from "../api";
 import { useSettings } from "../App";
 import { fmtDuration } from "../libraryState";
 import {
+  albumSearchWords,
   defaultCheckedLinks,
   linkItems,
   lyricsCell,
   lyricsSummary,
+  mayHaveAlbumVersion,
   parseLinks,
   siteLabel,
+  swapLink,
   type LinkLyrics,
 } from "../linkState";
 import { Button, Checkbox, Dialog, DialogButtons, FieldLabel, Glyph, Icon, ListView, TextArea, TextField, type MenuEntry } from "../win98";
@@ -54,6 +70,11 @@ export default function LinkDialog(props: {
   const generation = useRef(0);
   const [pasteFor, setPasteFor] = useState<FoundLink | null>(null);
   const [pasteText, setPasteText] = useState("");
+  /** Find Album Version: the song it's for, the pasted link, its check. */
+  const [albumFor, setAlbumFor] = useState<FoundLink | null>(null);
+  const [albumText, setAlbumText] = useState("");
+  const [albumBusy, setAlbumBusy] = useState(false);
+  const [albumError, setAlbumError] = useState<string | null>(null);
 
   useEffect(() => {
     if (props.initialText === null) return;
@@ -133,6 +154,7 @@ export default function LinkDialog(props: {
         lookup_lyrics: lookupOn,
         hq_separation: hq,
         cpu_only: settings.importOn === "cpu",
+        playback_speed: settings.playbackSpeedDownloads,
       });
       props.onQueued(r);
     } catch (e) {
@@ -185,14 +207,72 @@ export default function LinkDialog(props: {
     setLookupTick((t) => t + 1);
   };
 
+  const canFindAlbum = !!selectedLink && mayHaveAlbumVersion(selectedLink);
+  const openAlbum = (l: FoundLink | null) => {
+    if (!l) return;
+    setAlbumText("");
+    setAlbumError(null);
+    setAlbumFor(l);
+  };
+  const searchAlbum = () => {
+    if (!albumFor) return;
+    searchAlbumVersion(albumSearchWords(albumFor)).catch((e) => setAlbumError(String(e)));
+  };
+  // Check the pasted link like any other, then put it in the video's row —
+  // checked as the video was, keeping lyrics pasted for it; a lookup for the
+  // new link runs by itself (it's a different length).
+  const useAlbum = async () => {
+    if (!albumFor || !result || albumBusy) return;
+    const url = parseLinks(albumText)[0];
+    if (!url) {
+      setAlbumError("Paste the song's link — it starts with https://");
+      return;
+    }
+    setAlbumBusy(true);
+    setAlbumError(null);
+    try {
+      const r = await checkLinks([url]);
+      const album = r.links[0];
+      if (!album) {
+        setAlbumError(r.failures[0]?.message ?? "No song at that link.");
+      } else if (r.links.length > 1) {
+        setAlbumError("That link is a playlist — open the song itself and copy its link.");
+      } else {
+        const old = albumFor.url;
+        setResult({ ...result, links: swapLink(result.links, old, album) });
+        setChecked((c) => {
+          const next = new Set(c);
+          if (next.delete(old)) next.add(album.url);
+          return next;
+        });
+        setLyrics((cur) => {
+          const next = { ...cur };
+          const mine = cur[old];
+          delete next[old];
+          if (mine?.kind === "pasted") next[album.url] = mine;
+          return next;
+        });
+        setSelected(album.url);
+        setAlbumFor(null);
+      }
+    } catch (e) {
+      setAlbumError(String(e));
+    } finally {
+      setAlbumBusy(false);
+    }
+  };
+
   const menu: MenuEntry[] = [
     { label: checked.has(selected ?? "") ? "&Uncheck" : "&Check", accel: "Space", run: () => toggle(selected), disabled: !selected },
     { label: "&Paste lyrics…", run: () => openPaste(selectedLink), disabled: !selectedLink },
+    { label: "&Find album version…", run: () => openAlbum(selectedLink), disabled: !canFindAlbum },
     {
       label: lookupOn ? "&Look the lyrics up instead" : "&Transcribe instead",
       run: () => clearPaste(selectedLink),
       disabled: lyrics[selected ?? ""]?.kind !== "pasted",
     },
+    // A lookup that errored (LRCLIB busy, offline) — forget it and ask again.
+    { label: "Look the lyrics up a&gain", run: () => clearPaste(selectedLink), disabled: !lookupOn || lyrics[selected ?? ""]?.kind !== "failed" },
     "-",
     { label: "Check &all", run: () => setAll(() => true) },
     { label: "Check only &new songs", run: () => setAll((l) => !l.in_library) },
@@ -326,6 +406,9 @@ export default function LinkDialog(props: {
               />
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <span style={{ flexGrow: 1, lineHeight: "18px" }}>{lyricsSummary(links, checked, lyrics, lookupOn)}</span>
+                <Button onClick={() => openAlbum(selectedLink)} disabled={!canFindAlbum}>
+                  {"&Find album version…"}
+                </Button>
                 <Button onClick={() => openPaste(selectedLink)} disabled={!selectedLink}>
                   {"&Paste lyrics…"}
                 </Button>
@@ -360,6 +443,11 @@ export default function LinkDialog(props: {
                   label="Find &lyrics online (LRCLIB) — sends only the title, artist and length"
                 />
                 <Checkbox checked={hq} onChange={setHq} label="&High-quality separation (cleaner, about 3× slower)" />
+                <Checkbox
+                  checked={settings.playbackSpeedDownloads}
+                  onChange={(v) => update({ playbackSpeedDownloads: v })}
+                  label="Download at playback &speed (gentler on the site; a 4-minute song takes 4 minutes)"
+                />
               </div>
             </>
           )}
@@ -406,6 +494,59 @@ export default function LinkDialog(props: {
             OK
           </Button>
           <Button onClick={() => setPasteFor(null)}>Cancel</Button>
+        </DialogButtons>
+      </Dialog>
+
+      <Dialog
+        open={!!albumFor}
+        onClose={() => !albumBusy && setAlbumFor(null)}
+        title={`Album Version - ${albumFor?.title ?? ""}`}
+        width={480}
+      >
+        <div className="w-dialog-body" style={{ gap: 8 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start", lineHeight: "18px" }}>
+            <Icon name="globe" size={32} />
+            <span>
+              Music videos often add an intro, a skit or a different edit. The album version usually lines up with the
+              lyrics better.
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", lineHeight: "18px" }}>
+            <span style={{ flexGrow: 1 }}>1. Find the song on YouTube Music:</span>
+            <Button onClick={searchAlbum} disabled={albumBusy}>
+              {"&Search YouTube Music"}
+            </Button>
+          </div>
+          <FieldLabel htmlFor="album-link" text="2. Open the song (not the video), copy its &link, and paste it here:" />
+          <TextField
+            id="album-link"
+            value={albumText}
+            onChange={(e) => setAlbumText(e.target.value)}
+            placeholder="https://music.youtube.com/watch?v=…"
+            spellCheck={false}
+            disabled={albumBusy}
+            autoFocus
+          />
+          {albumBusy && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <Icon name="working" />
+              Checking the link…
+            </div>
+          )}
+          {albumError && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }} role="alert">
+              <Icon name="error" />
+              <span style={{ userSelect: "text" }}>{albumError}</span>
+            </div>
+          )}
+        </div>
+        <DialogButtons>
+          <Button isDefault onClick={() => void useAlbum()} disabled={albumBusy || !albumText.trim()}>
+            {"&Use it"}
+          </Button>
+          <Button onClick={() => setAlbumFor(null)} disabled={albumBusy}>
+            Cancel
+          </Button>
         </DialogButtons>
       </Dialog>
     </>

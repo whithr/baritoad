@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { FoundLink } from "./api";
-import { defaultCheckedLinks, linkItems, lyricsCell, lyricsSummary, parseLinks, siteLabel, type LinkLyrics } from "./linkState";
+import {
+  albumSearchWords,
+  defaultCheckedLinks,
+  linkItems,
+  lyricsCell,
+  lyricsSummary,
+  mayHaveAlbumVersion,
+  parseLinks,
+  siteLabel,
+  swapLink,
+  type LinkLyrics,
+} from "./linkState";
 
 const link = (url: string, extra: Partial<FoundLink> = {}): FoundLink => ({
   url,
@@ -57,6 +68,12 @@ describe("review defaults", () => {
     expect(items.map((i) => i.lyrics_text)).toEqual(["made up line one\nmade up line two", undefined, undefined]);
   });
 
+  it("says a failed lookup can be tried again", () => {
+    const c = lyricsCell({ kind: "failed", message: "LRCLIB is busy right now (HTTP 503) — try again in a moment" }, true);
+    expect(c.label).toBe("Couldn't check");
+    expect(c.tip).toMatch(/HTTP 503.*right-click to look it up again/);
+  });
+
   it("labels each song's lyrics, lookup on or off", () => {
     expect(lyricsCell({ kind: "found", track: "T", artist: "A", lines: 12 }, true)).toMatchObject({ icon: "ready", label: "On LRCLIB" });
     expect(lyricsCell({ kind: "missing" }, true).label).toContain("will transcribe");
@@ -84,5 +101,29 @@ describe("review defaults", () => {
     expect(siteLabel("YoutubeTab")).toBe("YouTube");
     expect(siteLabel("ArchiveOrg")).toBe("Internet Archive");
     expect(siteLabel("generic:html5")).toBe("generic");
+  });
+});
+
+describe("album version", () => {
+  it("is offered for YouTube songs that aren't YouTube's own album audio", () => {
+    expect(mayHaveAlbumVersion(link("v1", { channel: "Elk Darling" }))).toBe(true);
+    expect(mayHaveAlbumVersion(link("v2"))).toBe(true);
+    expect(mayHaveAlbumVersion(link("v3", { channel: "Elk Darling - Topic" }))).toBe(false);
+    expect(mayHaveAlbumVersion(link("v4", { site: "archive.org" }))).toBe(false);
+  });
+
+  it("searches for the artist and title", () => {
+    expect(albumSearchWords(link("v1", { title: "Fool", artist: "Elk Darling" }))).toBe("Elk Darling Fool");
+    expect(albumSearchWords(link("v2", { title: "Fool", artist: null }))).toBe("Fool");
+  });
+
+  it("swaps the pasted album version into the video's place, once", () => {
+    const list = [link("a"), link("b"), link("c")];
+    const album = link("z", { title: "Song b", channel: "Band - Topic" });
+    expect(swapLink(list, "b", album).map((l) => l.url)).toEqual(["a", "z", "c"]);
+    // Already listed further down: it moves up into the video's place.
+    expect(swapLink([...list, album], "b", album).map((l) => l.url)).toEqual(["a", "z", "c"]);
+    // The same link pasted back changes nothing.
+    expect(swapLink(list, "b", link("b")).map((l) => l.url)).toEqual(["a", "b", "c"]);
   });
 });

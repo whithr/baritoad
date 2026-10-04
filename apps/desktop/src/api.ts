@@ -196,6 +196,9 @@ export interface FoundLink {
   /** yt-dlp's name for the site ("Youtube", "ArchiveOrg"). */
   site: string;
   thumbnail?: string | null;
+  /** Who posted it ("Artist - Topic" is YouTube's auto-generated album
+   *  audio), when the site says. */
+  channel?: string | null;
   /** Fetched before — the library has it. */
   in_library: boolean;
 }
@@ -223,7 +226,7 @@ export interface LinkItem {
 /** Queue reviewed links: each downloads, finds its lyrics, then imports. */
 export const queueLinks = (
   items: LinkItem[],
-  opts: { collection?: string; lookup_lyrics: boolean; hq_separation: boolean; cpu_only: boolean },
+  opts: { collection?: string; lookup_lyrics: boolean; hq_separation: boolean; cpu_only: boolean; playback_speed: boolean },
 ) =>
   invoke<ImportQueued>("queue_links", {
     items,
@@ -231,7 +234,12 @@ export const queueLinks = (
     lookupLyrics: opts.lookup_lyrics,
     hqSeparation: opts.hq_separation,
     cpuOnly: opts.cpu_only,
+    playbackSpeed: opts.playback_speed,
   });
+
+/** YouTube Music's search for these words, in the person's browser (the
+ *  review list's Find Album Version; the app doesn't fetch anything). */
+export const searchAlbumVersion = (query: string) => invoke<void>("search_album_version", { query });
 
 export interface FoundLyrics {
   text: string;
