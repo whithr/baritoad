@@ -100,7 +100,9 @@
   padding: 0.078125em 0;
   width: 100%;
   margin-inline: auto;
-  font-size: calc(clamp(35.2px, 4.6vw, 62px) * var(--fit, 1));
+  /* grows with the screen — a 4K TV gets ~177 px — and with the height too,
+     so a wide, short window doesn't overflow its page */
+  font-size: calc(clamp(35.2px, min(4.6vw, 8.2vh), 220px) * var(--fit, 1));
   font-family: var(--th-font, inherit);
   font-weight: 700;
   line-height: 1.25;
@@ -124,6 +126,46 @@
 .pk-line.next {
   opacity: 0.8;
   color: var(--stage-text);
+}
+
+/* Karaoke pages: only the page on screen shows (PlayerView pages it with the
+   scroller); every other row keeps its layout — offsets stay measurable —
+   but hides. A wait row shows only while it counts, over the page it leads
+   into. */
+.pk-line.off,
+.pk-gap:not(.counting) {
+  visibility: hidden;
+}
+
+/* Lead-ins stay on screen: a line led in after a pause keeps a gutter on
+   both sides (it stays centred), so the pips left of its first word and the
+   lead-in bar's run never fall off the edge, however wide the line. The
+   gutter is px, so fitLines fits the words into what's inside it. */
+.pk-line[data-cue] {
+  box-sizing: border-box;
+  padding-inline: 2.2em;
+}
+
+
+/* The lead-in bar: on a line after a pause, a cap-height bar in the theme
+   accent runs in at the line's singing pace and meets the first word as it
+   starts (playerView leadBarAt). Moved only by the frame loop's transform
+   (Four-Hook 7); shown while it runs. No transitions. */
+.pk-leadbar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 6px; /* the frame loop sets it to the line's size when a run starts */
+  background: var(--th-accent, var(--stage-accent));
+  box-shadow: 0 0 calc(14px * var(--th-glow, 1)) var(--th-accent-glow, var(--stage-accent-glow));
+  visibility: hidden;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.pk-leadbar[data-on="1"] {
+  visibility: visible;
 }
 
 /* Word states: sung = sung colour + glow; active = the wipe (fill edge
@@ -191,6 +233,7 @@
   transition: opacity 340ms ease-out;
 }
 
+
 .pk-gap.counting {
   opacity: 1;
 }
@@ -234,6 +277,34 @@
   text-shadow: 0 0 14px var(--th-accent-glow, var(--stage-accent-glow));
 }
 
+/* On a 4K-class stage the wait row doubles to sit with the lyrics, which
+   grow with the screen: every size an exact 2x (the pixel font crisp at
+   64 px). Sizes, not zoom — zoom skews the offsets PlayerView measures. */
+@media (min-width: 2400px) {
+  .pk-gap {
+    gap: 36px;
+    padding: 40px 0;
+  }
+
+  .pk-gap-word {
+    font-size: 64px;
+  }
+
+  .pk-gap-meter {
+    width: clamp(480px, 26vw, 840px);
+    height: 48px;
+    padding: 6px;
+  }
+
+  .pk-gap-meter-fill {
+    background: repeating-linear-gradient(90deg, var(--th-accent, var(--stage-accent)) 0 24px, transparent 24px 30px);
+  }
+
+  .pk-gap-secs {
+    font-size: 60px;
+  }
+}
+
 /* Lead-in pips: three square lamps counting 3-2-1 into a line that follows
    a silence, on a zero-width anchor so the line never re-flows. */
 .pk-cue {
@@ -243,13 +314,15 @@
   vertical-align: middle;
 }
 
+/* Sized in em, so they grow with the lyrics (22 px squares at 62 px text);
+   the line's 2.2 em gutter always holds them (~2 em all told). */
 .pk-cue-pips {
   position: absolute;
-  right: 34px;
+  right: 0.55em;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
-  gap: 12px;
+  gap: 0.19em;
   opacity: 0;
   transition: opacity 120ms ease-out;
 }
@@ -261,10 +334,10 @@
 }
 
 .pk-cue-pips i {
-  width: 22px;
-  height: 22px;
+  width: 0.355em;
+  height: 0.355em;
   background: #000;
-  border: 2px solid #505060;
+  border: max(2px, 0.032em) solid #505060;
 }
 
 .pk-cue[data-lit="3"] .pk-cue-pips i:nth-last-child(-n + 3),
@@ -302,12 +375,6 @@
 
 /* On a TV-sized window the captions read from the couch at an exact 2×
    (crisp pixel font). Wins over Large text's 1.25×, which would make 2.5×. */
-@media (min-width: 1600px) {
-  :root .player-stage .pk-caption.w98 {
-    zoom: 2;
-  }
-}
-
 .controls-hidden .pk-caption,
 .controls-hidden .pk-dock {
   visibility: hidden;
@@ -511,9 +578,9 @@
   font-family: var(--w-font-lcd);
 }
 
-/* Reduced motion: line, wait-row and pip changes land at once (the scroll
-   and the approach glow do the same in PlayerView), and the visualizer is
-   off. The wipe stays: its fill edge is the timing, not decoration. */
+/* Reduced motion: line, wait-row and pip changes land at once (the
+   approach glow does the same in PlayerView), and the visualizer is off. The
+   wipe and the lead-in bar stay: they are the timing, not decoration. */
 @media (prefers-reduced-motion: reduce) {
   .pk-line,
   .pk-gap,

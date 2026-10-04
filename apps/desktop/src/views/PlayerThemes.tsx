@@ -456,6 +456,8 @@ export default function PlayerThemes(props: { open: boolean; onClose: () => void
               />
               <span />
               <Checkbox checked={theme.pips} disabled={!editable} onChange={(v) => patch({ pips: v })} label="Lead-in countdown pips" />
+              <span />
+              <Checkbox checked={theme.leadBar !== false} disabled={!editable} onChange={(v) => patch({ leadBar: v })} label="Lead-in bar" />
               <label htmlFor="pt-font">Lyric font</label>
               <TextField
                 id="pt-font"

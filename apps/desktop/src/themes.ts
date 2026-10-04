@@ -37,6 +37,9 @@ export interface ThemeSpec {
   font: string | null;
   /** 3-2-1 lead-in pips on lines that follow a silence. */
   pips: boolean;
+  /** The lead-in bar that runs into a line after a pause (in the accent
+   *  colour). On unless false — themes saved before it existed have none. */
+  leadBar?: boolean;
   visualizer: VisualizerMode;
 }
 
@@ -52,6 +55,7 @@ export const DIGITAL_DASH: ThemeSpec = {
   glow: 1,
   font: null,
   pips: true,
+  leadBar: true,
   visualizer: "off",
 };
 
@@ -68,6 +72,7 @@ export const BARITOAD_98: ThemeSpec = {
   glow: 0.8,
   font: null,
   pips: true,
+  leadBar: true,
   visualizer: "off",
 };
 
@@ -87,6 +92,7 @@ export const BUILTIN_THEMES: ThemeSpec[] = [
     glow: 1.3,
     font: null,
     pips: true,
+    leadBar: true,
     visualizer: "bars",
   },
   {
@@ -100,6 +106,7 @@ export const BUILTIN_THEMES: ThemeSpec[] = [
     glow: 0.7,
     font: null,
     pips: false,
+    leadBar: true,
     visualizer: "pulse",
   },
   {
@@ -113,6 +120,7 @@ export const BUILTIN_THEMES: ThemeSpec[] = [
     glow: 1.15,
     font: null,
     pips: true,
+    leadBar: true,
     visualizer: "bars",
   },
   {
@@ -126,6 +134,7 @@ export const BUILTIN_THEMES: ThemeSpec[] = [
     glow: 0.85,
     font: null,
     pips: false,
+    leadBar: true,
     visualizer: "off",
   },
 ];

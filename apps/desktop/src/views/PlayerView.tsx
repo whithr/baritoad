@@ -103,13 +103,15 @@ import { groupByLine } from "../highlight";
 import { applyReport, estimate, initClock, type InterpClock } from "../playerClock";
 import {
   activeGapAt,
-  cueLineFlags,
   gapCues,
+  leadBarAt,
+  leadBarRunS,
+  leadInKinds,
   lineFit,
   lyricFrameAt,
+  pagesOf,
+  pageViewAt,
   pipsLitAt,
-  scrollStep,
-  UPCOMING_LEAD_S,
   type GapCue,
   type LyricFrame,
 } from "../playerView";
@@ -261,12 +263,19 @@ export default function PlayerView(props: {
   const statusRef = useRef<PlayerStatus | null>(null);
   const wordEls = useRef<(HTMLSpanElement | null)[]>([]);
   const lineEls = useRef<(HTMLDivElement | null)[]>([]);
-  const lineTops = useRef<number[]>([]);
+  // Karaoke pages: where the scroller jumps for each page (and for a
+  // counting wait row with the page it leads into), measured with the lines.
+  const pageTops = useRef<number[]>([]);
   // Wait-cue instruments (gap meters + pips), rAF-mutated like the words.
   const gapRowEls = useRef<(HTMLDivElement | null)[]>([]);
   const gapFillEls = useRef<(HTMLDivElement | null)[]>([]);
   const gapSecsEls = useRef<(HTMLSpanElement | null)[]>([]);
   const gapTops = useRef<number[]>([]);
+  // The lead-in bar: its run per "bar" line (scroller px: from x0 to x1, the
+  // first word's left edge, at y with height h), measured with the lines.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const barRuns = useRef<({ x0: number; x1: number; y: number; h: number; w: number } | null)[]>([]);
+  const prevBar = useRef<number | null>(null);
   const cueEls = useRef<(HTMLSpanElement | null)[]>([]);
   const prevGap = useRef<number | null>(null);
   const prevGapSecs = useRef<number | null>(null);
@@ -276,8 +285,8 @@ export default function PlayerView(props: {
   const fillRef = useRef<HTMLDivElement | null>(null);
   const timeRef = useRef<HTMLSpanElement | null>(null);
   const scrollY = useRef(0);
-  const scrollVel = useRef(0);
   const prevFrame = useRef<LyricFrame | null>(null);
+  const prevView = useRef<{ page: number; gap: number | null } | null>(null);
   const hideTimer = useRef<number | null>(null);
   // Measurement harness (inert without a launcher-provided plan).
   const rec = useRef<{
@@ -293,10 +302,36 @@ export default function PlayerView(props: {
   const words = map?.words ?? [];
   const lines = useMemo(() => (map ? groupByLine(map.words) : []), [map]);
   const gaps = useMemo(() => (map ? gapCues(lines, map.words) : []), [map, lines]);
-  const cues = useMemo(
-    () => (map && theme.pips ? cueLineFlags(lines, map.words) : []),
-    [map, lines, theme.pips],
+  // Lead-ins (playerView leadInKinds): a line after a really long gap counts
+  // down with pips; one after a shorter pause gets the lead-in bar. Either
+  // way the line keeps a gutter so the lead-in stays on screen (stage.css).
+  const leadIns = useMemo(() => (map ? leadInKinds(lines, map.words) : []), [map, lines]);
+  const barOn = theme.leadBar !== false;
+  const cues = useMemo(() => (theme.pips ? leadIns.map((k) => k === "pips") : []), [leadIns, theme.pips]);
+  const barKinds = useMemo(() => (barOn ? leadIns : []), [leadIns, barOn]);
+  const leadInLines = useMemo(
+    () => leadIns.map((k, li) => !!cues[li] || (barOn && k === "bar")),
+    [leadIns, cues, barOn],
   );
+  const pages = useMemo(() => pagesOf(lines, gaps), [lines, gaps]);
+  const pageOfLine = useMemo(() => {
+    const of: number[] = [];
+    pages.forEach((pg, pi) => pg.forEach((li) => (of[li] = pi)));
+    return of;
+  }, [pages]);
+
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const gapsRef = useRef(gaps);
+  gapsRef.current = gaps;
+  const pageOfLineRef = useRef(pageOfLine);
+  pageOfLineRef.current = pageOfLine;
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const barKindsRef = useRef(barKinds);
+  barKindsRef.current = barKinds;
+  const mapRef = useRef(map);
+  mapRef.current = map;
   const title = song?.title ?? "Karaoke";
 
   // ---- load: map + metadata, then hand the song to the engine -------------
@@ -384,7 +419,18 @@ export default function PlayerView(props: {
       el.style.setProperty("--fit", "1");
       el.removeAttribute("data-overlong");
     }
-    const fits = els.map((el) => lineFit(el.scrollWidth, el.clientWidth));
+    // Fit the words' own extent into what's inside the line's padding — a
+    // lead-in line's gutter is px and doesn't scale with --fit, and an
+    // overflowing flex row's scrollWidth leaves out its end padding, so
+    // scrollWidth can't be trusted once there is any.
+    const fits = els.map((el) => {
+      const cs = getComputedStyle(el);
+      const avail = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const first = el.firstElementChild as HTMLElement | null;
+      const last = el.lastElementChild as HTMLElement | null;
+      const natural = first && last ? last.offsetLeft + last.offsetWidth - first.offsetLeft : el.scrollWidth;
+      return lineFit(natural, avail);
+    });
     els.forEach((el, i) => {
       el.style.justifyContent = "";
       const f = fits[i];
@@ -394,13 +440,43 @@ export default function PlayerView(props: {
   }, []);
 
   const measureLines = useCallback(() => {
-    // Center of the element relative to the scroller, offset so the current
-    // one sits at ~40% of the viewport height (singer looks slightly up).
+    // Scroll targets that center a page — or a counting wait row and the page
+    // under it — at ~45% of the viewport height (singer looks slightly up).
+    // Rows off the page are only hidden, so every offset here is stable.
     const vh = viewportRef.current?.clientHeight ?? window.innerHeight;
-    const centerOf = (el: HTMLElement | null) =>
-      el ? el.offsetTop + el.offsetHeight / 2 - vh * 0.4 : 0;
-    lineTops.current = lineEls.current.map(centerOf);
-    gapTops.current = gapRowEls.current.map(centerOf);
+    const top = (el: HTMLElement | null | undefined) => el?.offsetTop ?? 0;
+    const bottom = (el: HTMLElement | null | undefined) => (el ? el.offsetTop + el.offsetHeight : 0);
+    const center = (a: number, b: number) => (a + b) / 2 - vh * 0.45;
+    const pgs = pagesRef.current;
+    pageTops.current = pgs.map((pg) => center(top(lineEls.current[pg[0]]), bottom(lineEls.current[pg[pg.length - 1]])));
+    gapTops.current = gapsRef.current.map((g, gi) => {
+      const pg = pgs[pageOfLineRef.current[g.afterLine + 1]];
+      return center(top(gapRowEls.current[gi]), bottom(pg ? lineEls.current[pg[pg.length - 1]] : null));
+    });
+    // Lead-in bar runs: words sit in unpositioned lines, so offsets are
+    // relative to the scroller — the frame the bar moves in. The bar travels
+    // at the line's own singing pace (its words' width over their time), so
+    // it flows straight into the wipe, starting no further left than the
+    // stage's edge; it ends just before the first letter, cap-height tall.
+    const ls = linesRef.current;
+    const ws = mapRef.current?.words ?? [];
+    barRuns.current = barKindsRef.current.map((kind, li) => {
+      const g = ls[li];
+      if (kind !== "bar" || !g) return null;
+      const first = wordEls.current[g.indices[0]];
+      const last = wordEls.current[g.indices[g.indices.length - 1]];
+      if (!first || !last) return null;
+      const x1 = first.offsetLeft - first.offsetHeight * 0.08;
+      const width = last.offsetLeft + last.offsetWidth - first.offsetLeft;
+      const time = ws[g.indices[g.indices.length - 1]].end - ws[g.indices[0]].start;
+      const pace = time > 0 ? width / time : 0;
+      const room = Math.max(0, x1 - 12); // the scroller's x 0 is the stage's left edge
+      const dist = Math.min(room, Math.max(first.offsetHeight, pace * leadBarRunS(ls, ws, li)));
+      const h = first.offsetHeight * 0.74;
+      return { x0: x1 - dist, x1, y: first.offsetTop + first.offsetHeight * 0.14, h, w: Math.max(4, Math.round(h * 0.07)) };
+    });
+    prevBar.current = -1; // re-place the bar on the next frame
+    scrollY.current = Number.NaN; // re-place the scroller on the next frame
   }, []);
 
   // Visualizer canvas tracks the viewport size (CSS pixels — soft background
@@ -426,7 +502,7 @@ export default function PlayerView(props: {
     if (viewportRef.current) ro.observe(viewportRef.current);
     if (scrollerRef.current) ro.observe(scrollerRef.current);
     return () => ro.disconnect();
-  }, [map, visActive, fitLines, measureLines, sizeVisualizer]);
+  }, [map, pages, barKinds, leadInLines, visActive, fitLines, measureLines, sizeVisualizer]);
 
   // ---- the render loop ----------------------------------------------------
   useEffect(() => {
@@ -456,17 +532,6 @@ export default function PlayerView(props: {
         for (let i = 0; i < map.words.length; i++) {
           const el = wordEls.current[i];
           if (el) el.className = wordClass(i, frame);
-        }
-        for (let li = 0; li < lines.length; li++) {
-          const el = lineEls.current[li];
-          if (el) {
-            el.className =
-              li === frame.lineIndex
-                ? "pk-line current"
-                : li === frame.lineIndex + 1
-                  ? "pk-line next"
-                  : "pk-line";
-          }
         }
       } else {
         if (prev.activeWord !== frame.activeWord) {
@@ -505,16 +570,6 @@ export default function PlayerView(props: {
             const el = wordEls.current[i];
             if (el) el.className = wordClass(i, frame);
           }
-        }
-        if (prev.lineIndex !== frame.lineIndex) {
-          const p = lineEls.current[prev.lineIndex];
-          if (p) p.className = "pk-line";
-          const c = lineEls.current[frame.lineIndex];
-          if (c) c.className = "pk-line current";
-          const n = lineEls.current[frame.lineIndex + 1];
-          if (n) n.className = "pk-line next";
-          const pn = lineEls.current[prev.lineIndex + 1];
-          if (pn && pn !== c && pn !== n) pn.className = "pk-line";
         }
       }
       // Active-word wipe: two CSS vars on one element (--wipe drives the
@@ -589,21 +644,59 @@ export default function PlayerView(props: {
         prevPips.current = { line: pipLine, lit: pipsLit };
       }
 
-      // Smooth scroll toward the current line — or the counting wait-meter,
-      // until the upcoming line takes over (same lead as lineIndexAt).
-      const target =
-        gi != null && gaps[gi].end - t > UPCOMING_LEAD_S
-          ? (gapTops.current[gi] ?? lineTops.current[frame.lineIndex] ?? 0)
-          : (lineTops.current[frame.lineIndex] ?? 0);
-      // Critically damped glide — velocity survives retargeting, so a line
-      // switch bends the scroll's trajectory instead of kicking it (owner
-      // asked for smoother motion; pace ≈ the old 260 ms glide).
-      // Reduced motion: straight to the line, no glide.
-      const glide = reducedMotion ? { pos: target, vel: 0 } : scrollStep(scrollY.current, scrollVel.current, target, dt);
-      scrollY.current = glide.pos;
-      scrollVel.current = glide.vel;
-      if (scrollerRef.current) {
-        scrollerRef.current.style.transform = `translate3d(0, ${-scrollY.current}px, 0)`;
+      // Karaoke pages: the page holding the current line — or, while a wait
+      // row counts, that row over the page it leads into. Line classes change
+      // only on a page or line switch (hook 4): this page's lines take
+      // done / current / coming states, every other row hides.
+      const view = pageViewAt(pageOfLine, gaps, frame.lineIndex, gi);
+      const pv = prevView.current;
+      if (!pv || !prev || pv.page !== view.page || prev.lineIndex !== frame.lineIndex) {
+        const shown = pages[view.page] ?? [];
+        const lineClass = (li: number) =>
+          !shown.includes(li)
+            ? "pk-line off"
+            : li === frame.lineIndex
+              ? "pk-line current"
+              : li > frame.lineIndex
+                ? "pk-line next"
+                : "pk-line";
+        const touch = pv ? [...(pages[pv.page] ?? []), ...shown] : lines.map((_, li) => li);
+        for (const li of touch) {
+          const el = lineEls.current[li];
+          if (el) el.className = lineClass(li);
+        }
+      }
+      prevView.current = view;
+      // The page turns by a jump of the scroller (hook 1) — at once, like a
+      // karaoke screen; no glide to tune or to reduce.
+      const target = view.gap != null ? (gapTops.current[view.gap] ?? 0) : (pageTops.current[view.page] ?? 0);
+      if (target !== scrollY.current && scrollerRef.current) {
+        scrollY.current = target;
+        scrollerRef.current.style.transform = `translate3d(0, ${-target}px, 0)`;
+      }
+
+      // The lead-in bar (hook 7): on a line after a pause, a bar in the theme
+      // accent runs in at the line's singing pace and meets its first word as
+      // the word starts. One transform per frame while it runs; data-on and
+      // its height change only when a run starts or ends. It is timing, like
+      // the wipe, so it runs under reduced motion too.
+      const bar = barRef.current;
+      if (bar) {
+        const run = leadBarAt(lines, map.words, barKinds, [frame.lineIndex, frame.lineIndex + 1], t);
+        const spot = run ? barRuns.current[run.line] : null;
+        const on = run && spot ? run.line : null;
+        if (on !== prevBar.current) {
+          bar.dataset.on = on != null ? "1" : "0";
+          if (spot) {
+            bar.style.height = `${spot.h.toFixed(1)}px`;
+            bar.style.width = `${spot.w}px`;
+          }
+          prevBar.current = on;
+        }
+        if (run && spot) {
+          const x = spot.x0 + (spot.x1 - spot.x0) * run.q - spot.w / 2;
+          bar.style.transform = `translate3d(${x.toFixed(1)}px, ${spot.y.toFixed(1)}px, 0)`;
+        }
       }
 
       // Progress + clock text (direct DOM — these spans have no React children).
@@ -651,7 +744,7 @@ export default function PlayerView(props: {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, lines, gaps, cues]);
+  }, [map, lines, gaps, cues, pages, pageOfLine, barKinds]);
 
   // ---- measurement harness (dev-only launcher contract, player.rs) --------
   const finishMeasurement = useCallback(async () => {
@@ -1325,6 +1418,8 @@ export default function PlayerView(props: {
                   lines={lines}
                   gaps={gaps}
                   cues={cues}
+                  leadIn={leadInLines}
+                  firstPage={pages[0]?.length ?? 0}
                   setWordEl={setWordEl}
                   setLineEl={setLineEl}
                   setGapRowEl={setGapRowEl}
@@ -1332,6 +1427,10 @@ export default function PlayerView(props: {
                   setGapSecsEl={setGapSecsEl}
                   setCueEl={setCueEl}
                 />
+                {barOn && (
+                  // The lead-in bar (stage.css .pk-leadbar), moved by the frame loop.
+                  <div className="pk-leadbar" ref={barRef} data-on="0" aria-hidden />
+                )}
               </div>
             ) : (
               !error && <p className="pk-loading">Loading…</p>
@@ -1695,6 +1794,10 @@ const LyricStage = memo(function LyricStage(props: {
   lines: { indices: number[] }[];
   gaps: GapCue[];
   cues: boolean[];
+  /** Lines led in after a pause (pips or the bar): they keep a gutter. */
+  leadIn: boolean[];
+  /** Lines on the first page — the rest start hidden until the loop pages them in. */
+  firstPage: number;
   setWordEl: (i: number, el: HTMLSpanElement | null) => void;
   setLineEl: (i: number, el: HTMLDivElement | null) => void;
   setGapRowEl: (i: number, el: HTMLDivElement | null) => void;
@@ -1724,7 +1827,8 @@ const LyricStage = memo(function LyricStage(props: {
               </div>
             )}
             <div
-              className={li === 0 ? "pk-line current" : li === 1 ? "pk-line next" : "pk-line"}
+              className={li === 0 ? "pk-line current" : li < props.firstPage ? "pk-line next" : "pk-line off"}
+              data-cue={props.leadIn[li] ? "" : undefined}
               ref={(el) => props.setLineEl(li, el)}
             >
               {props.cues[li] && (

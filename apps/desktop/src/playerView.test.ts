@@ -2,16 +2,21 @@ import { describe, expect, it } from "vitest";
 import { groupByLine, type TimedWord } from "./highlight";
 import {
   activeGapAt,
-  CUE_PIPS_MIN_GAP_S,
-  cueLineFlags,
   GAP_METER_MIN_S,
   gapCues,
+  LEAD_BAR_MIN_GAP_S,
+  LEAD_BAR_S,
+  leadBarAt,
+  leadBarRunS,
+  leadInKinds,
   LINE_FIT_MIN,
   lineFit,
   lineIndexAt,
   lyricFrameAt,
+  PAGE_LINES,
+  pagesOf,
+  pageViewAt,
   pipsLitAt,
-  scrollStep,
   UPCOMING_LEAD_S,
   wipeFraction,
 } from "./playerView";
@@ -212,19 +217,21 @@ describe("gapCues", () => {
   });
 });
 
-describe("cueLineFlags", () => {
-  it("flags lines preceded by enough silence, including the intro line", () => {
-    // Intro 0→1.0 is under the pip threshold; L0→L1 gap is 1.9→2.5 (0.6 s);
-    // L1→L2 gap is 3.4→10.0.
-    expect(cueLineFlags(lines, words)).toEqual([false, false, true]);
+describe("leadInKinds", () => {
+  it("counts down after a really long gap and runs the bar after a pause", () => {
+    // L0 follows a 1.0 s intro (nothing); L1 a 0.6 s pause (nothing);
+    // L2 the 6.6 s gap (a wait row's — pips)
+    expect(leadInKinds(lines, words)).toEqual([null, null, "pips"]);
+    expect(leadInKinds(lines, words, LEAD_BAR_MIN_GAP_S, 7)).toEqual([null, null, "bar"]);
   });
-
-  it("uses the pip threshold, not the meter threshold", () => {
+  it("treats the intro as a gap; a breath between lines gets nothing", () => {
     const w: TimedWord[] = [
-      { start: CUE_PIPS_MIN_GAP_S, end: 3.0, unsung: false, line: 0 },
-      { start: 3.2, end: 3.6, unsung: false, line: 1 },
+      { start: 3.0, end: 3.5, unsung: false, line: 0 },
+      { start: 4.9, end: 5.2, unsung: false, line: 1 },
+      { start: 6.0, end: 6.4, unsung: false, line: 2 },
     ];
-    expect(cueLineFlags(groupByLine(w), w)).toEqual([true, false]);
+    expect(leadInKinds(groupByLine(w), w)).toEqual(["bar", null, null]);
+    expect(GAP_METER_MIN_S).toBeGreaterThan(LEAD_BAR_MIN_GAP_S);
   });
 });
 
@@ -255,60 +262,57 @@ describe("activeGapAt", () => {
   });
 });
 
-describe("scrollStep", () => {
-  it("approaches the target and eventually snaps", () => {
-    let s = { pos: 0, vel: 0 };
-    for (let i = 0; i < 400; i++) s = scrollStep(s.pos, s.vel, 500, 8.33);
-    expect(s.pos).toBe(500);
-    expect(s.vel).toBe(0);
+describe("pagesOf", () => {
+  const lineOf = (n: number) => Array.from({ length: n }, (_, i) => ({ line: i, indices: [i] }));
+  it("groups up to PAGE_LINES lines a page", () => {
+    expect(PAGE_LINES).toBe(3);
+    expect(pagesOf(lineOf(7), [])).toEqual([[0, 1, 2], [3, 4, 5], [6]]);
   });
-
-  it("is frame-rate independent (same trajectory at 60 vs 120 Hz)", () => {
-    // Advance 96 ms as 6×16 ms and as 12×8 ms — closed form, so exact.
-    let a = { pos: 0, vel: 0 };
-    for (let i = 0; i < 6; i++) a = scrollStep(a.pos, a.vel, 300, 16, 8, 0, 0);
-    let b = { pos: 0, vel: 0 };
-    for (let i = 0; i < 12; i++) b = scrollStep(b.pos, b.vel, 300, 8, 8, 0, 0);
-    expect(Math.abs(a.pos - b.pos)).toBeLessThan(1e-6);
-    expect(Math.abs(a.vel - b.vel)).toBeLessThan(1e-6);
+  it("starts a new page at every wait row, the intro's included", () => {
+    const gaps = [
+      { afterLine: -1, start: 0, end: 8 },
+      { afterLine: 1, start: 20, end: 30 },
+    ];
+    expect(pagesOf(lineOf(6), gaps)).toEqual([[0, 1], [2, 3, 4], [5]]);
   });
-
-  it("starts gently from rest — no first-frame kick", () => {
-    // One 120 Hz frame: the spring covers ~0.2% of the distance where the
-    // old exponential jumped ~3% (the line-switch "kick").
-    const s = scrollStep(0, 0, 1000, 8);
-    expect(s.pos).toBeGreaterThan(0);
-    expect(s.pos).toBeLessThan(5);
+  it("handles a song with no lines", () => {
+    expect(pagesOf([], [])).toEqual([]);
   });
+});
 
-  it("keeps position and velocity continuous across a retarget", () => {
-    let s = { pos: 0, vel: 0 };
-    for (let i = 0; i < 30; i++) s = scrollStep(s.pos, s.vel, 200, 8);
-    // Mid-glide the target jumps (a line switch): after a near-zero step
-    // the state must be unchanged — no teleport, no velocity kick.
-    const after = scrollStep(s.pos, s.vel, 600, 0.01);
-    // Position advances by ~vel·dt and velocity by ~accel·dt — both → 0 with
-    // dt, which is what continuity means (the old exponential teleported to
-    // full retarget speed regardless of dt).
-    const dtS = 0.01 / 1000;
-    const accel = Math.abs(-2 * 8 * s.vel - 8 * 8 * (s.pos - 600));
-    expect(Math.abs(after.pos - s.pos)).toBeLessThan(Math.abs(s.vel) * dtS * 2 + 1e-6);
-    expect(Math.abs(after.vel - s.vel)).toBeLessThan(accel * dtS * 2 + 1e-6);
+describe("pageViewAt", () => {
+  const gaps = [{ afterLine: 1, start: 3.4, end: 10.0 }];
+  const pageOfLine = [0, 0, 1];
+  it("shows the page holding the frame's line", () => {
+    expect(pageViewAt(pageOfLine, gaps, 1, null)).toEqual({ page: 0, gap: null });
   });
-
-  it("moves monotonically toward the target from rest (no overshoot)", () => {
-    let s = { pos: 100, vel: 0 };
-    let prev = s.pos;
-    for (let i = 0; i < 300; i++) {
-      s = scrollStep(s.pos, s.vel, 200, 8.33);
-      expect(s.pos).toBeGreaterThanOrEqual(prev);
-      expect(s.pos).toBeLessThanOrEqual(200);
-      prev = s.pos;
-    }
-    expect(s.pos).toBe(200);
+  it("while a wait row counts, shows it with the page it leads into", () => {
+    expect(pageViewAt(pageOfLine, gaps, 1, 0)).toEqual({ page: 1, gap: 0 });
   });
+});
 
-  it("snaps within the settle threshold", () => {
-    expect(scrollStep(100.4, 0, 100, 8)).toEqual({ pos: 100, vel: 0 });
+describe("leadBarAt", () => {
+  // L0 3.0–3.4; a 3 s pause; L1 6.4–6.8; a 0.6 s pause; L2 7.4–7.8
+  const ws: TimedWord[] = [
+    { start: 3.0, end: 3.4, unsung: false, line: 0 },
+    { start: 6.4, end: 6.8, unsung: false, line: 1 },
+    { start: 7.4, end: 7.8, unsung: false, line: 2 },
+  ];
+  const ls = groupByLine(ws);
+  const kinds = leadInKinds(ls, ws); // ["bar", "bar", null]
+  it("runs LEAD_BAR_S before a line after a pause, meeting its first word", () => {
+    expect(kinds).toEqual(["bar", "bar", null]);
+    expect(leadBarRunS(ls, ws, 1)).toBe(LEAD_BAR_S);
+    expect(leadBarAt(ls, ws, kinds, [0, 1], 6.4 - LEAD_BAR_S - 0.01)).toBeNull();
+    expect(leadBarAt(ls, ws, kinds, [0, 1], 6.4 - LEAD_BAR_S)).toEqual({ line: 1, q: 0 });
+    expect(leadBarAt(ls, ws, kinds, [0, 1], 6.4 - LEAD_BAR_S / 2)!.q).toBeCloseTo(0.5);
+    expect(leadBarAt(ls, ws, kinds, [0, 1], 6.4)).toBeNull(); // the word has it now
+  });
+  it("never runs longer than the pause", () => {
+    const w: TimedWord[] = [{ start: 1.5, end: 2.0, unsung: false, line: 0 }];
+    expect(leadBarRunS(groupByLine(w), w, 0)).toBe(1.5);
+  });
+  it("only on the candidate lines", () => {
+    expect(leadBarAt(ls, ws, kinds, [2], 5.5)).toBeNull();
   });
 });

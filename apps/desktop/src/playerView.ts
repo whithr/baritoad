@@ -1,5 +1,5 @@
 // Pure view logic for the full-screen player: which line is current, the
-// per-word highlight wipe, and the smooth-scroll step. All times are
+// per-word highlight wipe, the wait cues and lead-ins, and the karaoke pages. All times are
 // original-song seconds (PLAN.md §5 — the map's only time base, and exactly
 // what the interpolated engine clock reports).
 //
@@ -142,13 +142,14 @@ export function lyricFrameAt(
 
 // ---- wait cues (gap meters + lead-in pips) --------------------------------
 // Long instrumental gaps get a draining wait-meter row between the lines, and
-// lines that start after a silence get a 3-2-1 pip countdown into their first
-// word — so a singer staring at a chorus gap knows how long to wait.
+// the line after one gets a 3-2-1 pip countdown into its first word — so a
+// singer staring at a chorus gap knows how long to wait. A line after a
+// shorter pause gets the lead-in bar instead (below).
 
 /** A silence long enough to earn a wait-meter row between its lines. */
 export const GAP_METER_MIN_S = 5;
-/** Lead-in silence that earns a line its countdown pips. */
-export const CUE_PIPS_MIN_GAP_S = 2.5;
+/** A pause long enough to earn a line the lead-in bar. */
+export const LEAD_BAR_MIN_GAP_S = 1.5;
 /** The pip countdown window: 3 pips over the last 3 seconds. */
 export const CUE_PIPS_LEAD_S = 3;
 
@@ -183,16 +184,22 @@ export function gapCues(
   return gaps;
 }
 
-/** Which lines get countdown pips: those preceded by >= `minGapS` of silence
- *  (the intro counts). Indexed by line. */
-export function cueLineFlags(
+/** How a line is led in after a silence: one after a really long gap (a
+ *  wait row's, >= `longGapS`) counts down with pips; one after a shorter
+ *  pause (>= `barMinGapS`) gets the lead-in bar; the rest, nothing. The
+ *  intro counts as a gap. Indexed by line. */
+export type LeadIn = "pips" | "bar" | null;
+
+export function leadInKinds(
   lines: LineGroup[],
   words: TimedWord[],
-  minGapS: number = CUE_PIPS_MIN_GAP_S,
-): boolean[] {
+  barMinGapS: number = LEAD_BAR_MIN_GAP_S,
+  longGapS: number = GAP_METER_MIN_S,
+): LeadIn[] {
   return lines.map((g, li) => {
     const prevEnd = li === 0 ? 0 : lineEndS(lines[li - 1], words);
-    return lineStartS(g, words) - prevEnd >= minGapS;
+    const gap = lineStartS(g, words) - prevEnd;
+    return gap >= longGapS ? "pips" : gap >= barMinGapS ? "bar" : null;
   });
 }
 
@@ -218,36 +225,84 @@ export function activeGapAt(gaps: GapCue[], t: number): number | null {
   return null;
 }
 
-/**
- * One smooth-scroll step: a critically damped spring toward `target`.
- * Closed-form (exact) integration, so the trajectory is frame-rate
- * independent — identical at 60 and 120 Hz. Unlike the exponential approach
- * this replaced, the spring is velocity-continuous: when the target jumps at
- * a line switch the scroll bends toward it from its current velocity instead
- * of instantly moving at maximum speed, which read as a kick. `omega` (rad/s)
- * sets the pace — 8 covers 63% of a step in ~270 ms, the old 260 ms glide's
- * pace without its hard launch. Snaps once position and velocity are both
- * negligible so the transform settles to an exact value instead of
- * asymptoting forever.
- */
-export function scrollStep(
-  pos: number,
-  vel: number,
-  target: number,
-  dtMs: number,
-  omega = 8,
-  snapPx = 0.5,
-  snapVelPxPerS = 4,
-): { pos: number; vel: number } {
-  const dt = Math.max(0, dtMs) / 1000;
-  const offset = pos - target;
-  const slope = vel + omega * offset;
-  const decay = Math.exp(-omega * dt);
-  const drifted = offset + slope * dt;
-  const nextOffset = drifted * decay;
-  const nextVel = (slope - omega * drifted) * decay;
-  if (Math.abs(nextOffset) <= snapPx && Math.abs(nextVel) <= snapVelPxPerS) {
-    return { pos: target, vel: 0 };
+// ---- karaoke pages ----------------------------------------------------------
+// The stage shows a page at a time, karaoke style: up to PAGE_LINES lines,
+// and a wait row (a gap >= GAP_METER_MIN_S) always starts a new page, so a
+// verse after an instrumental gets a fresh screen with the counting meter
+// above it. Pages turn by jumping the scroller (Four-Hook 1); rows off the
+// page hide by class (hook 4).
+
+export const PAGE_LINES = 3;
+
+/** Line indices per page, in order. */
+export function pagesOf(
+  lines: LineGroup[],
+  gaps: GapCue[],
+  perPage: number = PAGE_LINES,
+): number[][] {
+  const waitBefore = new Set(gaps.map((g) => g.afterLine + 1));
+  const pages: number[][] = [];
+  let page: number[] = [];
+  for (let li = 0; li < lines.length; li++) {
+    if (page.length && (page.length >= perPage || waitBefore.has(li))) {
+      pages.push(page);
+      page = [];
+    }
+    page.push(li);
   }
-  return { pos: target + nextOffset, vel: nextVel };
+  if (page.length) pages.push(page);
+  return pages;
+}
+
+/** What's on screen: the page holding the frame's line — or, while a wait
+ *  row counts, that row with the page it leads into. (lineIndexAt already
+ *  holds a line until it's sung and pre-rolls the next one, so a page turns
+ *  once its last line is done and the next line is close.) */
+export function pageViewAt(
+  pageOfLine: number[],
+  gaps: GapCue[],
+  frameLine: number,
+  activeGap: number | null,
+): { page: number; gap: number | null } {
+  if (activeGap != null) {
+    return { page: pageOfLine[gaps[activeGap].afterLine + 1] ?? 0, gap: activeGap };
+  }
+  return { page: pageOfLine[frameLine] ?? 0, gap: null };
+}
+
+// ---- the lead-in bar --------------------------------------------------------
+// A line after a pause (leadInKinds "bar") gets a bar that runs in at the
+// line's singing pace and meets its first word as it starts. Its one
+// transform per frame is Four-Hook 7.
+
+/** The lead-in bar's run: at most this long before the line, never more
+ *  than the pause itself. */
+export const LEAD_BAR_S = 2;
+
+/** Seconds the lead-in bar runs before line `li` (whose kind is "bar"). */
+export function leadBarRunS(lines: LineGroup[], words: TimedWord[], li: number): number {
+  const prevEnd = li === 0 ? 0 : lineEndS(lines[li - 1], words);
+  return Math.max(0, Math.min(LEAD_BAR_S, lineStartS(lines[li], words) - prevEnd));
+}
+
+/**
+ * The lead-in bar at `t`, if one is running: on a "bar" line among
+ * `candidates` (the frame's line and the next — lineIndexAt pre-rolls the
+ * upcoming one), `q` 0 → 1 across its run, reaching 1 as the first word
+ * starts — so the bar meets the word on the beat and the wipe carries on.
+ */
+export function leadBarAt(
+  lines: LineGroup[],
+  words: TimedWord[],
+  kinds: LeadIn[],
+  candidates: number[],
+  t: number,
+): { line: number; q: number } | null {
+  for (const li of candidates) {
+    if (kinds[li] !== "bar" || !lines[li]) continue;
+    const start = lineStartS(lines[li], words);
+    const run = leadBarRunS(lines, words, li);
+    if (run > 0 && t >= start - run && t < start) return { line: li, q: (t - (start - run)) / run };
+  }
+  return null;
 }
