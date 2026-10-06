@@ -1265,7 +1265,7 @@ mod tests {
 
     #[test]
     fn meta_artist_title() {
-        let (t, a) = meta_from_filename(Path::new(r"C:\music\Robyn - Dancing On My Own.mp3"));
+        let (t, a) = meta_from_filename(&Path::new("music").join("Robyn - Dancing On My Own.mp3"));
         assert_eq!(t, "Dancing On My Own");
         assert_eq!(a.as_deref(), Some("Robyn"));
     }

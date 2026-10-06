@@ -896,7 +896,7 @@ mod tests {
 
     #[test]
     fn filename_meta() {
-        let (t, a) = meta_from_filename(Path::new(r"C:\music\Robyn - Dancing_On My Own.mp3"));
+        let (t, a) = meta_from_filename(&Path::new("music").join("Robyn - Dancing_On My Own.mp3"));
         assert_eq!((t.as_str(), a.as_deref()), ("Dancing On My Own", Some("Robyn")));
         let (t, a) = meta_from_filename(Path::new("Solo.mp3"));
         assert_eq!((t.as_str(), a), ("Solo", None));

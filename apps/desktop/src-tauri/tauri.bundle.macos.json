@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "publisher": "baritoad",
+    "copyright": "baritoad contributors — GPL-3.0-or-later",
+    "license": "GPL-3.0-or-later",
+    "category": "Music",
+    "shortDescription": "Karaoke from the songs you already have",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "resources": {
+      "runtime/LICENSE.txt": "LICENSE.txt",
+      "runtime/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
+      "tools/yt-dlp": "tools/yt-dlp",
+      "tools/deno": "tools/deno",
+      "tools/DENO-LICENSE.md": "tools/DENO-LICENSE.md",
+      "tools/VERSIONS.json": "tools/VERSIONS.json",
+      "tools/source/*": "tools/source/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.4",
+      "signingIdentity": "-"
+    }
+  }
+}

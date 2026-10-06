@@ -88,6 +88,7 @@ import {
   Toolbar,
   Trackbar,
   Vr,
+  accelLabel,
   isInOverlay,
   useAccelerators,
   useCloseGuard,
@@ -995,7 +996,7 @@ function BenchEditor(props: Props & { map: TimingMap; song: Song | null; sources
             ] as [string, string][]
           ).map(([k, v]) => (
             <div key={k} style={{ display: "contents" }}>
-              <span>{k}</span>
+              <span>{accelLabel(k)}</span>
               <span>{v}</span>
             </div>
           ))}

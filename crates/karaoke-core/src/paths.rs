@@ -1,11 +1,11 @@
 //! Where baritoad keeps its per-user data, and the one-time move from the
 //! folder it used before the rename.
 //!
-//! `%LOCALAPPDATA%\baritoad` on Windows (elsewhere, for now,
-//! `~/.local/share/baritoad`). Everything lives under it: `library.db`,
-//! `covers`, `jobs`, `downloads`, `tools`, `themes`, `models`, and the
-//! webview's own profile (`webview` — so settings don't depend on the app
-//! identifier).
+//! `%LOCALAPPDATA%\baritoad` on Windows, `~/Library/Application
+//! Support/baritoad` on macOS (elsewhere, for now, `~/.local/share/baritoad`).
+//! Everything lives under it: `library.db`, `covers`, `jobs`, `downloads`,
+//! `tools`, `themes`, `models`, and on Windows the webview's own profile
+//! (`webview` — so settings don't depend on the app identifier).
 //!
 //! Until the move has happened (or if it failed), [`data_dir`] keeps
 //! answering with the old `karaoke` folder, so nothing ever opens an empty
@@ -29,13 +29,18 @@ const LIBRARY_DB: &str = "library.db";
 const MODELS: &str = "models";
 const WEBVIEW: &str = "webview";
 
-/// `%LOCALAPPDATA%` (POSIX: `~/.local/share`).
+/// `%LOCALAPPDATA%` (macOS: `~/Library/Application Support`; other POSIX:
+/// `~/.local/share`).
 fn local_root() -> PathBuf {
     if let Ok(lad) = std::env::var("LOCALAPPDATA") {
         return PathBuf::from(lad);
     }
     if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(".local").join("share");
+        let home = PathBuf::from(home);
+        if cfg!(target_os = "macos") {
+            return home.join("Library").join("Application Support");
+        }
+        return home.join(".local").join("share");
     }
     PathBuf::from(".")
 }

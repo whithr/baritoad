@@ -109,7 +109,7 @@ fn install_ytdlp(bundled: &[PathBuf], data: &Path) -> std::io::Result<()> {
     };
     let dest = data.join(&name);
     let replace = if dest.is_file() {
-        let bundled_version = Tools { ytdlp: src.clone(), deno: None, ffmpeg: None }.version().unwrap_or_default();
+        let bundled_version = bundled_ytdlp_version(&src);
         let data_version = Tools { ytdlp: dest.clone(), deno: None, ffmpeg: None }.version().unwrap_or_default();
         !bundled_version.is_empty() && bundled_version > data_version
     } else {
@@ -118,8 +118,37 @@ fn install_ytdlp(bundled: &[PathBuf], data: &Path) -> std::io::Result<()> {
     if replace {
         std::fs::create_dir_all(data)?;
         let tmp = data.join(format!("{name}.new"));
-        std::fs::copy(&src, &tmp)?;
+        copy_contents(&src, &tmp)?;
         std::fs::rename(&tmp, &dest)?;
+    }
+    Ok(())
+}
+
+/// The bundled yt-dlp's version, from the VERSIONS.json `pnpm fetch-tools`
+/// wrote beside it, without running it — on macOS the bundled copy carries
+/// the download's quarantine flag, and yt-dlp isn't notarized. Asks the
+/// program itself only when the file isn't there (a dev checkout's tools).
+fn bundled_ytdlp_version(src: &Path) -> String {
+    let listed = src
+        .parent()
+        .and_then(|d| std::fs::read_to_string(d.join("VERSIONS.json")).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["yt-dlp"]["version"].as_str().map(str::to_string));
+    listed.unwrap_or_else(|| Tools { ytdlp: src.to_path_buf(), deno: None, ffmpeg: None }.version().unwrap_or_default())
+}
+
+/// Copy the bytes only. `fs::copy` brings the extended attributes too, and
+/// on macOS those include the quarantine flag every file of a downloaded app
+/// carries: Gatekeeper would then refuse to run this copy, which sits outside
+/// the app the person approved.
+fn copy_contents(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let mut from = std::fs::File::open(src)?;
+    let mut to = std::fs::File::create(dest)?;
+    std::io::copy(&mut from, &mut to)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))?;
     }
     Ok(())
 }
@@ -138,4 +167,69 @@ fn unix_now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// A stand-in yt-dlp: a script that prints `version`, beside a
+    /// VERSIONS.json that lists `listed`.
+    fn fake_bundle(dir: &Path, version: &str, listed: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(dir).unwrap();
+        let exe = dir.join("yt-dlp");
+        std::fs::write(&exe, format!("#!/bin/sh\necho {version}\n")).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(dir.join("VERSIONS.json"), format!(r#"{{"yt-dlp": {{"version": "{listed}"}}}}"#)).unwrap();
+        exe
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("baritoad-tools-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn installs_a_runnable_copy_without_the_quarantine_flag() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("install");
+        let src = fake_bundle(&root.join("bundled"), "2026.08.19", "2026.08.19");
+        #[cfg(target_os = "macos")]
+        assert!(std::process::Command::new("xattr")
+            .args(["-w", "com.apple.quarantine", "0081;00000000;Safari;"])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success());
+        let data = root.join("data");
+        install_ytdlp(&[root.join("bundled")], &data).unwrap();
+        let dest = data.join("yt-dlp");
+        assert_eq!(std::fs::read(&dest).unwrap(), std::fs::read(&src).unwrap());
+        assert_eq!(std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o755);
+        #[cfg(target_os = "macos")]
+        assert!(!std::process::Command::new("xattr")
+            .args(["-p", "com.apple.quarantine"])
+            .arg(&dest)
+            .output()
+            .unwrap()
+            .status
+            .success());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_newer_bundled_copy_replaces_the_data_copy_going_by_versions_json() {
+        let root = scratch("update");
+        // The bundled program would say an old version if it were run; the
+        // listed one is what counts.
+        fake_bundle(&root.join("bundled"), "2000.01.01", "2026.08.19");
+        let data = root.join("data");
+        fake_bundle(&data, "2026.01.01", "unused");
+        install_ytdlp(&[root.join("bundled")], &data).unwrap();
+        let installed = Tools { ytdlp: data.join("yt-dlp"), deno: None, ffmpeg: None }.version().unwrap();
+        assert_eq!(installed, "2000.01.01", "the bundled copy should have replaced the older data copy");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

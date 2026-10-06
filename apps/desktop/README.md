@@ -82,7 +82,12 @@ Other commands:
   `pnpm notices`), checks the `pnpm fetch-tools` files are there, and merges
   `src-tauri/tauri.bundle.json` over `tauri.conf.json` — everyday builds never
   need any of it. `src-tauri/nsis/hooks.nsh` makes the uninstaller's "Delete
-  the application data" box remove `%LOCALAPPDATA%\baritoad`
+  the application data" box remove `%LOCALAPPDATA%\baritoad`. On a Mac the
+  same command makes `baritoad.app` and a `.dmg` (Apple Silicon, macOS 13.4+:
+  ONNX Runtime's floor) at `target/release/bundle/dmg/`, with
+  `src-tauri/tauri.bundle.macos.json` instead and no DirectML. It's ad-hoc
+  signed unless `APPLE_SIGNING_IDENTITY` names a Developer ID certificate.
+  The data folder there is `~/Library/Application Support/baritoad`
 - `pnpm icons` — the app icons, redrawn from the 16-px toad in
   `src/win98/icons.tsx` at whole-pixel multiples
 - `cargo test -p karaoke-desktop` — Rust-side unit tests

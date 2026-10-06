@@ -543,7 +543,7 @@ export const partyKick = (guest: string) => invoke<void>("party_kick", { guest }
 export const onPartyEvent = (handler: (s: PartyStatus) => void): Promise<UnlistenFn> =>
   listen<PartyStatus>("karaoke://party", (event) => handler(event.payload));
 
-/** A hardware media key (Windows SMTC), sent to the Stage (media_keys.rs). */
+/** A hardware media key (Windows SMTC, macOS Now Playing), sent to the Stage (media_keys.rs). */
 export type MediaKey = "play" | "pause" | "toggle" | "next" | "previous" | "stop";
 
 export const onMediaKey = (handler: (k: MediaKey) => void): Promise<UnlistenFn> =>

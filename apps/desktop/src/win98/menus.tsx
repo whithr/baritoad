@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Glyph } from "./icons";
 import { activeDialog } from "./accessKeys";
 import { AccessLabel, accessKeyOf, stripAccess } from "./label";
+import { accelLabel, chordKey, matchKeys, modKey } from "./keys";
 
 export interface Command {
   /** "&Save" — the & marks the access key. */
@@ -97,7 +98,7 @@ function MenuItems(props: { items: MenuEntry[] }) {
             <span>
               <AccessLabel text={it.label} />
             </span>
-            <span className="w-menu-accel">{it.accel}</span>
+            <span className="w-menu-accel">{it.accel && accelLabel(it.accel)}</span>
             <span />
           </>
         );
@@ -120,7 +121,7 @@ function MenuItems(props: { items: MenuEntry[] }) {
               <span>
                 <AccessLabel text={it.label} />
               </span>
-              <span className="w-menu-accel">{it.accel}</span>
+              <span className="w-menu-accel">{it.accel && accelLabel(it.accel)}</span>
               <span />
             </Menu.CheckboxItem>
           );
@@ -227,8 +228,9 @@ export function MenuBar(props: { menus: MenuDef[]; disabled?: boolean }) {
         }
         return;
       }
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
-        const idx = menusRef.current.findIndex((m) => accessKeyOf(m.label) === e.key.toLowerCase());
+      const letter = chordKey(e);
+      if (e.altKey && !e.ctrlKey && !e.metaKey && letter.length === 1) {
+        const idx = menusRef.current.findIndex((m) => accessKeyOf(m.label) === letter.toLowerCase());
         const trigger = idx >= 0 ? triggers.current[idx] : null;
         if (trigger) {
           e.preventDefault();
@@ -422,21 +424,7 @@ export function isInOverlay(el: Element | null = document.activeElement): boolea
   return !!el?.closest('[role="menu"], [role="menubar"], [role="dialog"], [role="alertdialog"], [role="listbox"]');
 }
 
-export function matchKeys(e: KeyboardEvent, spec: string): boolean {
-  const parts = spec.toLowerCase().split("+");
-  const key = parts[parts.length - 1];
-  const want = { ctrl: parts.includes("ctrl"), shift: parts.includes("shift"), alt: parts.includes("alt") };
-  if (e.ctrlKey !== want.ctrl || e.altKey !== want.alt) return false;
-  const k = e.key.toLowerCase();
-  // shift only matters for named keys and letters; "/" or "?" carry it implicitly
-  if (key.length > 1 || /[a-z]/.test(key)) {
-    if (e.shiftKey !== want.shift) return false;
-  }
-  if (key === "delete") return k === "delete";
-  if (key === "enter") return k === "enter";
-  if (key === "escape" || key === "esc") return k === "escape";
-  return k === key;
-}
+// Matching a key spec, and how shortcuts read on a Mac: keys.ts.
 
 function flatten(entries: (MenuEntry | MenuDef)[], out: Command[] = []): Command[] {
   for (const it of entries) {
@@ -459,15 +447,15 @@ export function useAccelerators(entries: (MenuEntry | MenuDef)[], opts?: { enabl
       const typing = isTyping(document.activeElement);
       // A focused menu-bar title (no menu open) still lets chords and F-keys
       // through; open menus and dialogs own every key.
-      const chord = e.ctrlKey || /^F\d+$/.test(e.key);
+      const chord = modKey(e) || /^F\d+$/.test(e.key);
       const barOnly = !!document.activeElement?.closest('[role="menubar"]') && !document.querySelector('[role="menu"]');
       if (isInOverlay() && !(barOnly && chord)) return;
       for (const c of ref.current) {
         if (!c.keys || c.disabled) continue;
         const specs = c.keys.split(",").map((s) => s.trim());
         if (!specs.some((s) => matchKeys(e, s))) continue;
-        // plain keys never fire while typing; chords with Ctrl still do
-        if (typing && !e.ctrlKey && !/^f\d+$/i.test(e.key)) continue;
+        // plain keys never fire while typing; chords with Ctrl (⌘) still do
+        if (typing && !modKey(e) && !/^f\d+$/i.test(e.key)) continue;
         e.preventDefault();
         c.run?.();
         return;

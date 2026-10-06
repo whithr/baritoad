@@ -253,7 +253,46 @@ pub fn free_space(dir: &Path) -> Option<u64> {
         let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut avail, &mut total, &mut free) };
         (ok != 0).then_some(avail)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::{c_char, c_int, c_ulong, CString};
+        use std::os::unix::ffi::OsStrExt;
+        /// `struct statvfs` from <sys/statvfs.h>; the counts are 32-bit on macOS.
+        #[repr(C)]
+        struct StatVfs {
+            f_bsize: c_ulong,
+            f_frsize: c_ulong,
+            f_blocks: u32,
+            f_bfree: u32,
+            f_bavail: u32,
+            f_files: u32,
+            f_ffree: u32,
+            f_favail: u32,
+            f_fsid: c_ulong,
+            f_flag: c_ulong,
+            f_namemax: c_ulong,
+        }
+        extern "C" {
+            fn statvfs(path: *const c_char, buf: *mut StatVfs) -> c_int;
+        }
+        // The folder may not exist yet: ask about its nearest existing parent.
+        let mut probe = dir.to_path_buf();
+        while !probe.exists() {
+            probe = probe.parent()?.to_path_buf();
+        }
+        let path = CString::new(probe.as_os_str().as_bytes()).ok()?;
+        let mut st = std::mem::MaybeUninit::<StatVfs>::zeroed();
+        // SAFETY: a NUL-terminated path and a buffer laid out as the C struct.
+        if unsafe { statvfs(path.as_ptr(), st.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        // SAFETY: statvfs filled it (and it started zeroed).
+        let st = unsafe { st.assume_init() };
+        // What a non-root user can use. APFS's purgeable space isn't counted,
+        // so this can read lower than Finder's "available".
+        Some(u64::from(st.f_bavail) * st.f_frsize as u64)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = dir;
         None
@@ -491,5 +530,19 @@ mod tests {
         assert!(all.iter().all(|s| !s.usable && s.bytes_present == 0));
         let total: u64 = all.iter().map(|s| s.bytes_total).sum();
         assert_eq!(total, manifest().files.iter().map(|f| f.size).sum::<u64>());
+    }
+
+    /// The hand-written statvfs agrees with `df` (within what other
+    /// processes might write in between), even for a folder not made yet.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn free_space_matches_df() {
+        let dir = std::env::temp_dir();
+        let ours = free_space(&dir.join("not-made-yet").join("models")).expect("free space");
+        let out = std::process::Command::new("df").arg("-k").arg(&dir).output().expect("df");
+        let text = String::from_utf8_lossy(&out.stdout);
+        let avail_kb: u64 = text.lines().nth(1).and_then(|l| l.split_whitespace().nth(3)).and_then(|v| v.parse().ok()).expect("df's Available column");
+        let df = avail_kb * 1024;
+        assert!(ours.abs_diff(df) < 256 * 1024 * 1024, "statvfs says {ours}, df says {df}");
     }
 }

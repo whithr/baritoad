@@ -1,8 +1,9 @@
 // THIRD-PARTY-NOTICES.txt for the installer (scripts/package.mjs): every
-// Rust crate the desktop app links on Windows, every production npm package
-// in the webview bundle, and the parts that aren't packages (ONNX Runtime,
-// DirectML, Signalsmith Stretch, yt-dlp, Deno, fonts, models). License texts
-// come from each package's own files; identical texts are printed once.
+// Rust crate the desktop app links on this platform (Windows or macOS), every
+// production npm package in the webview bundle, and the parts that aren't
+// packages (ONNX Runtime, DirectML on Windows, Signalsmith Stretch, yt-dlp,
+// Deno, fonts, models). License texts come from each package's own files;
+// identical texts are printed once.
 //
 //   node scripts/notices.mjs [out-file]
 import { execFileSync, execSync } from "node:child_process";
@@ -15,6 +16,12 @@ const app = resolve(here, "..");
 const repo = resolve(app, "..", "..");
 const out = process.argv[2] ?? join(app, "src-tauri", "runtime", "THIRD-PARTY-NOTICES.txt");
 const LICENSE_FILE = /^(licen[cs]e|copying|notice|unlicense|copyright)([-_.].*)?$/i;
+const win = process.platform === "win32";
+// The target the installer is built for (package.mjs builds on its own platform).
+const target = win ? "x86_64-pc-windows-msvc" : "aarch64-apple-darwin";
+// Paths inside the installed app, as the person would look for them.
+const tool = (name) => (win ? `tools\\${name}.exe` : `tools/${name}`);
+const toolSource = (file) => (win ? `tools\\source\\${file}` : `tools/source/${file}`);
 
 const read = (p) => readFileSync(p, "utf8").replace(/\r\n/g, "\n").trim();
 function licenseFiles(dir) {
@@ -31,7 +38,7 @@ function licenseFiles(dir) {
 const meta = JSON.parse(
   execFileSync(
     "cargo",
-    ["metadata", "--format-version", "1", "--filter-platform", "x86_64-pc-windows-msvc", "--manifest-path", join(repo, "Cargo.toml")],
+    ["metadata", "--format-version", "1", "--filter-platform", target, "--manifest-path", join(repo, "Cargo.toml")],
     { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
   ),
 );
@@ -171,23 +178,27 @@ const manual = [
     "ONNX Runtime (Microsoft), linked into the app through the ort crate's prebuilt libraries",
     `${MIT("Microsoft Corporation")}\n\nONNX Runtime 1.28.0's own third-party notices:\n\n${vendored("onnxruntime-1.28.0-ThirdPartyNotices.txt")}`,
   ],
-  [
-    "DirectML.dll (Microsoft DirectML redistributable), beside the app",
-    "Microsoft's DirectML 1.15.4 redistributable, shipped unmodified under its license terms below. It isn't covered by the GPL; the additional permission above lets baritoad use it.\n\n" +
-      vendored("DirectML-1.15.4-LICENSE.txt") +
-      "\n\nDirectML's third-party notices:\n\n" +
-      vendored("DirectML-1.15.4-ThirdPartyNotices.txt"),
-  ],
+  ...(win
+    ? [
+        [
+          "DirectML.dll (Microsoft DirectML redistributable), beside the app",
+          "Microsoft's DirectML 1.15.4 redistributable, shipped unmodified under its license terms below. It isn't covered by the GPL; the additional permission above lets baritoad use it.\n\n" +
+            vendored("DirectML-1.15.4-LICENSE.txt") +
+            "\n\nDirectML's third-party notices:\n\n" +
+            vendored("DirectML-1.15.4-ThirdPartyNotices.txt"),
+        ],
+      ]
+    : []),
   ["Signalsmith Stretch (key and tempo), compiled in", file("crates", "karaoke-stretch-sys", "vendor", "signalsmith-stretch", "LICENSE.txt")],
   ["Signalsmith Linear, compiled in", file("crates", "karaoke-stretch-sys", "vendor", "signalsmith-linear", "LICENSE.txt")],
   [
-    `yt-dlp ${versions["yt-dlp"].version} (tools\\yt-dlp.exe), run as a separate program`,
-    "yt-dlp is released into the public domain (The Unlicense). The release executable is a combined work that also contains GPLv3+ components, so it is distributed under GPLv3+; its matching source is tools\\source\\" +
-      versions["yt-dlp"].source.split("/").pop() +
+    `yt-dlp ${versions["yt-dlp"].version} (${tool("yt-dlp")}), run as a separate program`,
+    "yt-dlp is released into the public domain (The Unlicense). The release executable is a combined work that also contains GPLv3+ components, so it is distributed under GPLv3+; its matching source is " +
+      toolSource(versions["yt-dlp"].source.split("/").pop()) +
       ". https://github.com/yt-dlp/yt-dlp\n\nThe executable bundles Python and the packages below under their own licenses (yt-dlp's THIRD_PARTY_LICENSES.txt for this version); their sources are available from the projects named there.\n\n" +
       vendored(`yt-dlp-${versions["yt-dlp"].version}-THIRD_PARTY_LICENSES.txt`),
   ],
-  [`Deno ${versions.deno.version} (tools\\deno.exe), run as a separate program`, read(join(app, "src-tauri", "tools", versions.deno.license))],
+  [`Deno ${versions.deno.version} (${tool("deno")}), run as a separate program`, read(join(app, "src-tauri", "tools", versions.deno.license))],
   ["98.css (bevel and palette recipes, adapted by hand)", vendored("98css-LICENSE.txt")],
   ["Barlow (lyrics typeface)", file("apps", "desktop", "src", "assets", "fonts", "BARLOW-LICENSE-OFL.txt")],
   ["DSEG (seven-segment clock face)", file("apps", "desktop", "src", "assets", "fonts", "DSEG-LICENSE-OFL.txt")],
@@ -218,6 +229,6 @@ if (unlicensedText.length) {
   parts.push(rule, "Packages without a license file (license as stated in their metadata)", rule, "", ...unlicensedText, "");
 }
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, parts.join("\n").replace(/\n/g, "\r\n"));
+writeFileSync(out, win ? parts.join("\n").replace(/\n/g, "\r\n") : parts.join("\n"));
 console.log(`${out}\n  ${crates.length} crates, ${npm.length} npm packages, ${groups.size} distinct license texts, ${unlicensedText.length} without a file`);
 if (unlicensedText.length) console.log("  without a file:\n    " + unlicensedText.join("\n    "));

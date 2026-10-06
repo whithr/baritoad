@@ -1149,6 +1149,9 @@ export default function PlayerView(props: {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isInOverlay()) return;
+      // ⌘ chords are the Mac's own (⌘Q, ⌘W, ⌘H, ⌘M — mac_menu.rs), not the
+      // Stage's letters.
+      if (e.metaKey) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       pokeControls();

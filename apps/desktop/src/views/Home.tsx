@@ -83,6 +83,8 @@ import {
   useAccelerators,
   useMessageBox,
   usePrompt,
+  accelLabel,
+  isDeleteKey,
   type DragPayload,
   type Column,
   type MenuDef,
@@ -962,25 +964,25 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
           <span>The song's next step: sing it, check its timing, or process it again</span>
           <span>F5</span>
           <span>Sing</span>
-          <span>Ctrl+T</span>
+          <span>{accelLabel("Ctrl+T")}</span>
           <span>Check the timing</span>
           <span>Q</span>
           <span>Add to Up next</span>
-          <span>Alt+↑ ↓</span>
+          <span>{accelLabel("Alt+↑ ↓")}</span>
           <span>Move in Up next</span>
-          <span>Del</span>
+          <span>{accelLabel("Del")}</span>
           <span>Remove from the library (or from Up next)</span>
-          <span>Alt+Enter</span>
+          <span>{accelLabel("Alt+Enter")}</span>
           <span>Song properties (title, artist, year, genre)</span>
-          <span>/ or Ctrl+F</span>
+          <span>{accelLabel("/ or Ctrl+F")}</span>
           <span>Find</span>
-          <span>Ctrl+O</span>
+          <span>{accelLabel("Ctrl+O")}</span>
           <span>Add a song</span>
-          <span>Ctrl+Shift+O</span>
+          <span>{accelLabel("Ctrl+Shift+O")}</span>
           <span>Import a folder of songs</span>
-          <span>Alt / F10</span>
+          <span>{accelLabel("Alt / F10")}</span>
           <span>Menus</span>
-          <span>Shift+F10</span>
+          <span>{accelLabel("Shift+F10")}</span>
           <span>Right-click menu</span>
         </div>
       ),
@@ -1260,12 +1262,12 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
             dragRow={(s) => (s.timing_map_path ? { kind: "song", value: s.id, label: s.title } : null)}
             style={{ flexGrow: 1 }}
             onKey={(e) => {
-              if ((e.key === "q" || e.key === "Q") && !e.ctrlKey && !e.altKey) {
+              if ((e.key === "q" || e.key === "Q") && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 void addToQueue();
                 e.preventDefault();
                 return true;
               }
-              if (e.key === "Delete") {
+              if (isDeleteKey(e)) {
                 void removeSong();
                 e.preventDefault();
                 return true;
@@ -1323,7 +1325,7 @@ export default function Home(props: { go: (r: Route) => void; jobs: JobsState })
                   { key: "len", label: "Length", width: "64px", render: (e) => fmtDuration(e.song.duration_s) ?? "" },
                 ]}
                 onKey={(e) => {
-                  if (e.key === "Delete") {
+                  if (isDeleteKey(e)) {
                     void removeQueued();
                     return true;
                   }

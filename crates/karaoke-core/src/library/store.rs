@@ -101,7 +101,7 @@ const MIGRATIONS: &[&str] = &[
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
-/// `%LOCALAPPDATA%\baritoad\library.db` (POSIX: `~/.local/share/baritoad/`).
+/// `%LOCALAPPDATA%\baritoad\library.db` (macOS: `~/Library/Application Support/baritoad/`; see `paths`).
 pub fn default_library_path() -> PathBuf {
     data_dir().join("library.db")
 }

@@ -5,6 +5,8 @@
 // Alt+C in a box with a Cancel button never opens the Collection menu
 // behind it.
 
+import { chordKey } from "./keys";
+
 const DIALOGS = '[role="dialog"], [role="alertdialog"]';
 // A closed dialog stays in the DOM until its exit frame; it no longer counts.
 const open = (d: Element) => !d.hasAttribute("data-closed") && (typeof d.checkVisibility !== "function" || d.checkVisibility());
@@ -51,7 +53,9 @@ export function installDialogAccessKeys(): void {
   window.addEventListener(
     "keydown",
     (e) => {
-      if (e.defaultPrevented || e.ctrlKey || e.metaKey || !/^[a-z0-9]$/i.test(e.key)) return;
+      // Option+letter on a Mac types another character: chordKey reads the key.
+      const key = chordKey(e);
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || !/^[a-z0-9]$/i.test(key)) return;
       const scope = activeDialog();
       if (!scope) return;
       if (!e.altKey) {
@@ -60,7 +64,7 @@ export function installDialogAccessKeys(): void {
         const el = document.activeElement;
         if (!el || el.tagName !== "BUTTON" || el.getAttribute("role") || !scope.contains(el)) return;
       }
-      if (pressAccessKey(scope, e.key)) {
+      if (pressAccessKey(scope, key)) {
         e.preventDefault();
         e.stopPropagation();
       }

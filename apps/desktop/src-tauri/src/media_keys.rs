@@ -4,10 +4,11 @@
 //! / pause, the next song in Up next, start over); the Stage tells the OS
 //! what's on (`media_now_playing`).
 //!
-//! Windows: the System Media Transport Controls, attached to the main
-//! window, through souvlaki (docs/DEPENDENCIES.md). It works whichever
-//! window has focus, and doesn't take the keys from other apps the way a global
-//! shortcut would. macOS and Linux get it with their releases (v1.x).
+//! Through souvlaki (docs/DEPENDENCIES.md). Windows: the System Media
+//! Transport Controls, attached to the main window. macOS: the Now Playing
+//! info center and remote commands, which belong to the process. Either way
+//! it works whichever window has focus, and doesn't take the keys from other
+//! apps the way a global shortcut would. Linux gets it with its release.
 
 use std::sync::Mutex;
 
@@ -32,19 +33,27 @@ pub enum MediaKey {
 #[derive(Default)]
 pub struct MediaKeys(Mutex<Option<souvlaki::MediaControls>>);
 
-/// Attach to the main window. Best-effort: no media keys is no crash.
+/// Attach to the main window (Windows) or the process (macOS; call from the
+/// main thread, as setup does). Best-effort: no media keys is no crash.
 pub fn init<R: Runtime>(app: &AppHandle<R>, keys: &MediaKeys) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         use souvlaki::{MediaControlEvent, MediaControls, MediaPlayback, PlatformConfig};
-        use tauri::{Emitter, Manager};
+        use tauri::Emitter;
 
-        let Some(main) = app.get_webview_window(crate::stage::MAIN_LABEL) else { return };
-        let Ok(hwnd) = main.hwnd() else { return };
+        #[cfg(windows)]
+        let hwnd = {
+            use tauri::Manager;
+            let Some(main) = app.get_webview_window(crate::stage::MAIN_LABEL) else { return };
+            let Ok(hwnd) = main.hwnd() else { return };
+            Some(hwnd.0 as *mut std::ffi::c_void)
+        };
+        #[cfg(target_os = "macos")]
+        let hwnd = None;
         let config = PlatformConfig {
             display_name: "baritoad",
             dbus_name: "baritoad",
-            hwnd: Some(hwnd.0 as *mut std::ffi::c_void),
+            hwnd,
         };
         let mut controls = match MediaControls::new(config) {
             Ok(c) => c,
@@ -71,7 +80,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, keys: &MediaKeys) {
             *slot = Some(controls);
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = (app, keys);
 }
 

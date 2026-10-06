@@ -20,6 +20,7 @@ import {
 } from "react";
 import { Glyph, ThumbArt } from "./icons";
 import { AccessLabel, renderLabel } from "./label";
+import { accelLabel } from "./keys";
 
 const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 
@@ -41,7 +42,7 @@ export function Tip(props: { tip?: ReactNode; children: React.ReactElement }) {
       <Tooltip.Trigger render={props.children} />
       <Tooltip.Portal>
         <Tooltip.Positioner side="bottom" align="start" sideOffset={6} alignOffset={10}>
-          <Tooltip.Popup className="w-popup w-tip">{props.tip}</Tooltip.Popup>
+          <Tooltip.Popup className="w-popup w-tip">{typeof props.tip === "string" ? accelLabel(props.tip) : props.tip}</Tooltip.Popup>
         </Tooltip.Positioner>
       </Tooltip.Portal>
     </Tooltip.Root>

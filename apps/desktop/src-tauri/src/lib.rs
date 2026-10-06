@@ -7,6 +7,8 @@ mod commands;
 mod gaming;
 mod keep_awake;
 mod library;
+#[cfg(target_os = "macos")]
+mod mac_menu;
 mod media_keys;
 mod models;
 mod party;
@@ -68,7 +70,7 @@ pub fn run() {
     // Gaming mode: watches for a game using the graphics card (gaming.rs).
     let game_watch = gaming::GameWatch::spawn();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(job_queue.clone())
         .manage(library_handle.clone())
@@ -83,7 +85,11 @@ pub fn run() {
         .manage(std::sync::Arc::new(models::ModelDownloads::default()))
         // Party mode's relay client (party.rs): idle until a party starts.
         .manage(std::sync::Arc::new(party::PartyState::default()))
-        .on_window_event(|window, event| stage::on_window_event(window, event))
+        .on_window_event(|window, event| stage::on_window_event(window, event));
+    // macOS: an app menu whose Quit goes through the close guards (mac_menu.rs).
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(mac_menu::build).on_menu_event(mac_menu::on_event);
+    builder
         .setup(move |app| {
             // One worker: pipeline stages are compute-bound (GPU/CPU saturating)
             // — jobs queue FIFO and run strictly one at a time,
