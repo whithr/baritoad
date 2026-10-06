@@ -19,6 +19,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # CI never debugs its builds: skipping debug info cuts compile and link
+  # time, which is most of the Windows job.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   windows:
@@ -27,7 +31,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # Save the compiled dependencies even when a test fails, so the next run
+      # doesn't start from nothing.
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: apps/desktop/package.json
@@ -43,7 +51,7 @@ jobs:
           pnpm test
           pnpm build
       - name: Rust tests
-        run: cargo test --locked -p karaoke-core -p karaoke-desktop
+        run: cargo test --locked --no-fail-fast -p karaoke-core -p karaoke-desktop
       - name: CLI builds
         run: cargo build --locked -p karaoke-cli
 
