@@ -19,9 +19,11 @@ anyway**. the first start downloads about 2 GB of
 it's not studio karaoke. sometimes you'll still hear a little of the
 original singer.
 
+![the stage: lyrics on the tv, sung words lit](docs/images/stage.png)
+
 <p>
-  <img src="docs/images/stage.png" width="49%" alt="the stage: lyrics on the tv, sung words lit">
   <img src="docs/images/library.png" width="49%" alt="the library and the up-next queue">
+  <img src="docs/images/library-night.png" width="49%" alt="the library in the night scheme">
 </p>
 
 ## gpu or cpu
