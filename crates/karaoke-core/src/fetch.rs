@@ -1,5 +1,5 @@
-//! Add from URL: fetch a song's audio from a link with yt-dlp (PLAN.md §5
-//! "Add from URL (yt-dlp)", §6). yt-dlp is an external program run as a
+//! Add from URL: fetch a song's audio from a link with yt-dlp
+//! (docs/DEPENDENCIES.md). yt-dlp is an external program run as a
 //! subprocess — never linked or imported — and Deno, when present, is handed
 //! to it as the JavaScript runtime YouTube needs. Everything runs on the
 //! user's machine against the link the user pasted; the file lands in their

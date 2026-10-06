@@ -1,7 +1,7 @@
 // Line-level lyric editing (review bench): replace a line's text as one
 // sentence while preserving the timings of words that didn't change,
 // reshape line breaks (split / join / reflow). All pure; the editor
-// reducer wraps these with undo. Times stay original-song (PLAN.md §5);
+// reducer wraps these with undo. Times stay original-song;
 // line/word_in_line renumbering is canonical (0..n in order) so core
 // validate()'s strict forward walk always holds.
 
