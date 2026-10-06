@@ -13,7 +13,8 @@ open source, and it all runs on your computer.
 **[windows 10 or 11, 64-bit](https://github.com/whithr/baritoad/releases/latest)** · mac & linux later
 
 the installer isn't signed yet, so windows may warn you: **more info → run
-anyway**. the first start downloads about 2 GB of models.
+anyway**. the first start downloads about 2 GB of
+[models](MODEL_LICENSES.md). they run locally, on your computer.
 
 it's not studio karaoke. sometimes you'll still hear a little of the
 original singer.
