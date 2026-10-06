@@ -1,0 +1,66 @@
+# macOS and Linux build checks. Neither platform ships yet (the installer is
+# Windows-only), so these run only when started by hand: Actions → "macOS &
+# Linux builds" → Run workflow. Move them back into ci.yml once a platform
+# ships.
+name: macOS & Linux builds
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: platforms-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux — build only
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries (Tauri's WebKitGTK stack, ALSA, OpenSSL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Webview build
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Build
+        run: cargo build --locked -p karaoke-desktop -p karaoke-cli
+
+  macos:
+    name: macOS — build only
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Webview build
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Build
+        run: cargo build --locked -p karaoke-desktop -p karaoke-cli

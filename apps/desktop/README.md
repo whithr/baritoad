@@ -87,9 +87,10 @@ Other commands:
   `src/win98/icons.tsx` at whole-pixel multiples
 - `cargo test -p karaoke-desktop` — Rust-side unit tests
 
-CI (`.github/workflows/ci.yml`) runs the tests and a build on Windows, a
-build on Linux, and `cargo deny check` (`deny.toml`, docs/DEPENDENCIES.md) on every
-push; macOS builds when run by hand or for a tag.
+CI (`.github/workflows/ci.yml`) runs the tests and a build on Windows, the
+party relay's checks, and `cargo deny check` (`deny.toml`, docs/DEPENDENCIES.md)
+on every push. The macOS and Linux builds (`platforms.yml`) run only when
+started by hand from the Actions tab.
 
 ## Execution-provider policy
 

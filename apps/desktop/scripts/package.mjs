@@ -21,7 +21,7 @@ const debug = extra.includes("--debug");
 const step = (s) => console.log(`\n== ${s}`);
 
 if (process.platform !== "win32") {
-  console.error("The installer is Windows-only for v1.0; macOS and Linux build in CI without bundling.");
+  console.error("The installer is Windows-only for v1.0; macOS and Linux build (by hand, .github/workflows/platforms.yml) without bundling.");
   process.exit(1);
 }
 
