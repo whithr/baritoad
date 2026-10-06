@@ -380,17 +380,6 @@
   visibility: hidden;
 }
 
-/* With the controls hidden the seek bar stays, slimmed, where the dock was:
-   the room can still see how much song is left. Same fill element (hook 3),
-   so the frame loop does nothing new. */
-.controls-hidden .pk-timebar {
-  visibility: visible;
-  height: 6px;
-  padding: 0;
-  box-shadow: none;
-  background: rgba(0, 0, 16, 0.6);
-}
-
 /* ---- between songs ---------------------------------------------------------
    Centered over the stage at couch size: the pixel font at 2×, crisp. The row
    leaves room beside the card for party mode's join code (docs/PARTY.md). */

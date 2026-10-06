@@ -249,8 +249,8 @@ Separator · icons.
 - **Stage (TV player)** — separate window; full-bleed stage; chrome is a
   floating tool-window dock (auto-hides; no key-hint strip on the TV — keys
   are F1 and tooltips) plus "Now singing"/"Up next" captions. When the dock
-  hides, the seek bar stays where it was, slimmed, so the room can see how
-  much song is left. Player Options holds the song's theme and the display;
+  hides, the seek bar hides with it: only the lyrics stay on screen (owner
+  decision 2026-10-05). Player Options holds the song's theme and the display;
   stretch quality and diagnostics are dev builds only.
 - **Between songs** — when a song ends the Stage shows one centered card at
   couch size (pixel font at 3× for the title, 2× for the rest): who's next,
