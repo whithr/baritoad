@@ -591,7 +591,7 @@ export const readThemeImage = (path: string) =>
 // ---------------------------------------------------------------------------
 
 /** Absolute paths, already allowed in the asset scope — feed each through
- *  convertFileSrc() before handing to an <audio> element. */
+ *  convertFileSrc() before handing it to the review player (useAudio). */
 export interface PlaybackSources {
   instrumental?: string;
   vocals?: string;
@@ -660,7 +660,7 @@ export const vocalLevels = (vocalsPath: string) =>
 
 // ---------------------------------------------------------------------------
 // performance player (src-tauri/src/player.rs — the cpal engine's UI surface;
-// the review player above stays webview <audio> and is untouched)
+// the review player above stays in the webview (Web Audio) and is untouched)
 // ---------------------------------------------------------------------------
 
 export type PlayerTransportState = "stopped" | "playing" | "paused" | "finished" | "unloaded";

@@ -1,43 +1,41 @@
 // REVIEW-SCREEN PLAYER ONLY (Phase 2 milestone 3).
 //
-// Plain playback of the instrumental / vocal / original files through the
-// webview's <audio> element, sourced via Tauri's asset protocol (files are
-// individually allowed by the playback_sources command — never a directory).
+// Plain playback of the instrumental / vocal / original files for the Bench,
+// through the Web Audio API: each file is fetched once through Tauri's asset
+// protocol (files are individually allowed by the playback_sources command —
+// never a directory), decoded into memory, and played by buffer sources on
+// one AudioContext clock.
 // There is deliberately NO key or tempo shift here, and none may be added:
 // the real performance player is the Phase 3 cpal engine in Rust, where the
 // player clock maps device position through stretch ratios.
-// Because nothing here stretches (playbackRate stays 1), <audio>.currentTime
-// IS original-song time, which is the timing map's only time base — so this
-// hook may compare it against map times directly.
+// Because nothing here stretches (playbackRate stays 1), the position this
+// hook reports IS original-song time, which is the timing map's only time
+// base — so this hook may compare it against map times directly.
 //
-// currentTime updates are rAF-driven while playing so word highlighting
-// tracks the frame rate, not the media element's coarse timeupdate events.
+// The position is published per animation frame while playing, so word
+// highlighting tracks the frame rate. It's the time being *heard*: the
+// context's output timestamp, so output latency doesn't put the highlight
+// ahead of the sound.
 //
-// An optional second element (the "layer") can play the vocal stem under the
-// instrumental at an adjustable volume. It has no transport of its own: it
-// mirrors the main element (play/pause/seek events + per-frame drift
-// correction), so every existing control keeps driving one element. Both
-// files come from the same separation run and share the original-song time
-// base, so mirrored currentTime keeps them musically aligned.
+// An optional second track (the "layer": the vocal stem under the
+// instrumental at an adjustable volume) has no transport of its own. It
+// starts and stops with the main track at the same context time, so the two
+// are sample-aligned by construction, and it keeps playing at gain 0.
 //
-// Keeping them aligned (measured 2026-09-30, WebView2): elements started or
-// seeked *together* land within ~2 ms; seeking the layer alone while the main
-// element plays lands it ~40 ms late, every time (restart latency). The layer
-// used to pause at volume 0 and re-seek alone when the guide came back up —
-// leaving the vocal 41-43 ms behind its own bleed in the instrumental, just
-// under the old 50 ms snap threshold, so it never got fixed: a smeared,
-// "bad call" sound until the next seek. So the layer now keeps playing
-// (silently) at volume 0, and a sustained drift re-seeks *both* elements.
+// Why not two <audio> elements (what this was until 2026-10-05): media
+// elements run on their own clocks. On WebView2, starting or seeking two
+// together landed them ~2 ms apart (measured 2026-09-30), and a drift check
+// re-seeked both when they slipped. On macOS's WebKit they land on its
+// 4096-frame buffer boundaries — 0 or 93–105 ms apart at random, measured on
+// the sound itself (the same file in both) — so the check re-seeked every
+// 2 s and each re-seek stalled the instrumental ~300 ms: 10.8 s of a 15 s
+// stretch actually played (3:37 song, M1 Pro). Speeding up or slowing the
+// layer to steer it back didn't work there either. Decoded buffers cost
+// memory instead: 4 bytes per sample per channel at the context's rate —
+// about 42 MB a minute for both stems at 44.1 kHz (153 MB for that song) —
+// and both stems fetched and decoded in ~0.13 s on the same Mac.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-/** Vocal-vs-instrumental offset that counts as drift. Past ~20 ms the vocal
- *  audibly doubles against its own bleed in the instrumental. */
-const DRIFT_TOL_S = 0.02;
-/** Drift must last this long before a resync (one-frame jitter isn't drift). */
-const DRIFT_SUSTAIN_MS = 300;
-/** A resync briefly re-buffers both elements; never do it more often. */
-const RESYNC_COOLDOWN_MS = 2000;
 
 export interface LoopWindow {
   start: number;
@@ -63,25 +61,58 @@ export interface AudioController {
   error: string | null;
   /** The URL currently loaded (to avoid redundant load()s). */
   src: string | null;
-  /** Optional overlay track (the vocal stem under the instrumental): a second
-   *  element that mirrors the main transport, drift-corrected each frame.
-   *  Both files share the original-song time base (same separation output),
-   *  so mirrored currentTime keeps them musically aligned. null unloads.
+  /** Optional overlay track (the vocal stem under the instrumental), started
+   *  and stopped with the main one on the same clock. Both files share the
+   *  original-song time base (same separation output). null unloads.
    *  Idempotent for the same URL. */
   setLayer: (src: string | null) => void;
-  /** Overlay volume 0..1 (at 0 the overlay keeps playing silently, so it's
-   *  still in step when it comes back up). */
+  /** Overlay volume 0..1 (at 0 the overlay keeps playing silently). */
   setLayerGain: (gain: number) => void;
   layerGain: number;
 }
 
+/** Gain changes ramp over about this long, so the guide slider doesn't click. */
+const GAIN_RAMP_S = 0.015;
+
+/** The context time being heard now: the output timestamp carried forward
+ *  to this moment, or else the render time less the output latency. Only a
+ *  running context's timestamp moves on — a suspended one's would go stale
+ *  and run ahead of the (stopped) sound. */
+function heardTime(ctx: AudioContext): number {
+  const ts = ctx.state === "running" && typeof ctx.getOutputTimestamp === "function" ? ctx.getOutputTimestamp() : null;
+  if (ts?.contextTime && ts.performanceTime) {
+    return Math.min(ctx.currentTime, ts.contextTime + (performance.now() - ts.performanceTime) / 1000);
+  }
+  return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
+}
+
+async function fetchDecoded(ctx: AudioContext, url: string): Promise<AudioBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return ctx.decodeAudioData(await res.arrayBuffer());
+}
+
 export function useAudio(): AudioController {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const layerRef = useRef<HTMLAudioElement | null>(null);
-  /** URL last handed to the layer, as given (the element's `.src` reflects
-   *  it back normalized, so it can't be the idempotence check). */
-  const layerSrcRef = useRef<string | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const mainGainRef = useRef<GainNode | null>(null);
+  const layerNodeRef = useRef<GainNode | null>(null);
+  /** The decoded files, and the URLs asked for (a newer ask wins a race). */
+  const mainBufRef = useRef<AudioBuffer | null>(null);
+  const mainUrlRef = useRef<string | null>(null);
+  const layerBufRef = useRef<AudioBuffer | null>(null);
+  const layerUrlRef = useRef<string | null>(null);
   const layerGainRef = useRef(0);
+  /** The sources playing now (a buffer source plays once). */
+  const mainSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const layerSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const playingRef = useRef(false);
+  /** While playing: the song time at context time `startCtxRef`. */
+  const startCtxRef = useRef(0);
+  const startPosRef = useRef(0);
+  /** While paused: the song time. */
+  const posRef = useRef(0);
+  /** play() before the file was decoded: start when it is. */
+  const playWhenReadyRef = useRef(false);
   const rafRef = useRef<number | null>(null);
   const loopRef = useRef<LoopWindow | null>(null);
   const [time, setTime] = useState(0);
@@ -93,200 +124,236 @@ export function useAudio(): AudioController {
   const [src, setSrc] = useState<string | null>(null);
   const [layerGain, setLayerGainState] = useState(0);
 
-  /** When the current drift started (performance.now), or null. */
-  const driftSinceRef = useRef<number | null>(null);
-  const lastResyncRef = useRef(0);
-
-  /** Bring the overlay in line with the main element. `snap` (play, pause,
-   *  seek, new source): match play state and position now — the main
-   *  element is starting or seeking too, so they land together. Otherwise
-   *  (every frame): resync both elements when drift has lasted (module docs). */
-  const syncLayer = useCallback((snap: boolean) => {
-    const el = audioRef.current;
-    const l = layerRef.current;
-    if (!el || !l || !l.src) return;
-    if (el.paused) {
-      if (!l.paused) l.pause();
-      driftSinceRef.current = null;
-      return;
-    }
-    if (snap) {
-      l.currentTime = el.currentTime;
-      if (l.paused) l.play().catch(() => undefined);
-      driftSinceRef.current = null;
-      return;
-    }
-    if (l.paused) l.play().catch(() => undefined);
-    if (el.seeking || l.seeking || l.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-      driftSinceRef.current = null;
-      return;
-    }
-    if (Math.abs(l.currentTime - el.currentTime) <= DRIFT_TOL_S) {
-      driftSinceRef.current = null;
-      return;
-    }
-    const now = performance.now();
-    if (driftSinceRef.current == null) driftSinceRef.current = now;
-    if (now - driftSinceRef.current >= DRIFT_SUSTAIN_MS && now - lastResyncRef.current >= RESYNC_COOLDOWN_MS) {
-      // Seek both to where the listener is — a lone layer seek lands late.
-      const t = el.currentTime;
-      el.currentTime = t;
-      l.currentTime = t;
-      lastResyncRef.current = now;
-      driftSinceRef.current = null;
-    }
+  /** The context and its two gains, made on first use. */
+  const context = useCallback((): AudioContext => {
+    if (ctxRef.current) return ctxRef.current;
+    const ctx = new AudioContext();
+    const main = ctx.createGain();
+    main.connect(ctx.destination);
+    const layer = ctx.createGain();
+    layer.gain.value = layerGainRef.current;
+    layer.connect(ctx.destination);
+    ctxRef.current = ctx;
+    mainGainRef.current = main;
+    layerNodeRef.current = layer;
+    return ctx;
   }, []);
 
-  // One element per hook instance, torn down with the component.
-  useEffect(() => {
-    const el = new Audio();
-    el.preload = "auto";
-    audioRef.current = el;
-    const onMeta = () => {
-      setDuration(el.duration || 0);
-      setReady(true);
-    };
-    const onPlay = () => {
-      setPlaying(true);
-      syncLayer(true);
-    };
-    const onPause = () => {
-      setPlaying(false);
-      syncLayer(true);
-    };
-    const onEnded = () => {
-      setPlaying(false);
-      syncLayer(true);
-    };
-    const onErr = () => setError("audio failed to load — the file may have moved");
-    el.addEventListener("loadedmetadata", onMeta);
-    el.addEventListener("play", onPlay);
-    el.addEventListener("pause", onPause);
-    el.addEventListener("ended", onEnded);
-    el.addEventListener("error", onErr);
-    return () => {
-      el.pause();
-      el.removeEventListener("loadedmetadata", onMeta);
-      el.removeEventListener("play", onPlay);
-      el.removeEventListener("pause", onPause);
-      el.removeEventListener("ended", onEnded);
-      el.removeEventListener("error", onErr);
-      el.src = "";
-      audioRef.current = null;
-      const l = layerRef.current;
-      if (l) {
-        l.pause();
-        l.src = "";
-        layerRef.current = null;
-        layerSrcRef.current = null;
-      }
+  /** The song time being heard. */
+  const position = useCallback((): number => {
+    const ctx = ctxRef.current;
+    const total = mainBufRef.current?.duration ?? 0;
+    if (!playingRef.current || !ctx) return posRef.current;
+    const t = startPosRef.current + Math.max(0, heardTime(ctx) - startCtxRef.current);
+    return Math.min(t, total);
+  }, []);
+
+  const stopSources = useCallback(() => {
+    stopSource(mainSourceRef.current);
+    stopSource(layerSourceRef.current);
+    mainSourceRef.current = null;
+    layerSourceRef.current = null;
+  }, []);
+
+  /** Start the layer at context time `when`, in step with the main track. */
+  const startLayer = useCallback((when: number) => {
+    const ctx = ctxRef.current;
+    const buf = layerBufRef.current;
+    const node = layerNodeRef.current;
+    if (!ctx || !buf || !node) return;
+    const at = startPosRef.current + (when - startCtxRef.current);
+    if (at >= buf.duration) return;
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.connect(node);
+    s.start(when, Math.max(0, at));
+    layerSourceRef.current = s;
+  }, []);
+
+  /** Played to the end: stop there. */
+  const finish = useCallback(() => {
+    stopSources();
+    playingRef.current = false;
+    posRef.current = mainBufRef.current?.duration ?? 0;
+    setTime(posRef.current);
+    setPlaying(false);
+  }, [stopSources]);
+
+  /** (Re)start both tracks from song time `at`, now. */
+  const startAt = useCallback(
+    (at: number) => {
+      const ctx = ctxRef.current;
+      const buf = mainBufRef.current;
+      const node = mainGainRef.current;
+      if (!ctx || !buf || !node) return;
+      stopSources();
+      const when = ctx.currentTime;
+      startCtxRef.current = when;
+      startPosRef.current = at;
+      const s = ctx.createBufferSource();
+      s.buffer = buf;
+      s.connect(node);
+      s.onended = () => {
+        if (mainSourceRef.current === s) finish();
+      };
+      s.start(when, at);
+      mainSourceRef.current = s;
+      startLayer(when);
+    },
+    [finish, startLayer, stopSources],
+  );
+
+  // Torn down with the component: the context and its buffers go with it.
+  useEffect(
+    () => () => {
+      stopSources();
+      playingRef.current = false;
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      void ctxRef.current?.close().catch(() => undefined);
+      ctxRef.current = null;
+      mainGainRef.current = null;
+      layerNodeRef.current = null;
+      mainBufRef.current = null;
+      layerBufRef.current = null;
+      mainUrlRef.current = null;
+      layerUrlRef.current = null;
+    },
+    [stopSources],
+  );
 
-  // rAF loop while playing: publish currentTime + enforce the loop window.
+  // rAF loop while playing: publish the position + enforce the loop window.
   useEffect(() => {
     if (!playing) return;
     const tick = () => {
-      const el = audioRef.current;
-      if (!el) return;
+      if (!playingRef.current) return;
+      const t = position();
       const lw = loopRef.current;
-      if (lw && el.currentTime >= lw.end) {
-        // The loop jump moves both elements in the same frame.
-        el.currentTime = lw.start;
-        syncLayer(true);
+      if (lw && t >= lw.end) {
+        // Both tracks restart together, from memory: no gap to buffer.
+        startAt(lw.start);
+        setTime(lw.start);
+      } else if (t >= (mainBufRef.current?.duration ?? Infinity)) {
+        finish();
+        return;
       } else {
-        syncLayer(false);
+        setTime(t);
       }
-      setTime(el.currentTime);
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [playing, syncLayer]);
-
-  const load = useCallback((newSrc: string) => {
-    const el = audioRef.current;
-    if (!el) return;
-    setReady(false);
-    setError(null);
-    setTime(0);
-    setSrc(newSrc);
-    el.src = newSrc;
-    el.load();
-  }, []);
+  }, [playing, position, startAt, finish]);
 
   const play = useCallback(() => {
-    // Autoplay may be rejected before the first user gesture — surface as
-    // "not playing" rather than an error; the UI offers a play button.
-    audioRef.current?.play().catch(() => setPlaying(false));
-  }, []);
+    if (playingRef.current) return;
+    const buf = mainBufRef.current;
+    if (!buf) {
+      playWhenReadyRef.current = true;
+      return;
+    }
+    const ctx = context();
+    // Autoplay rules may hold the context until a user gesture; play() comes
+    // from one, and a held context starts the scheduled sources when it runs.
+    void ctx.resume().catch(() => undefined);
+    // From the end, play starts over (as a media element would).
+    if (posRef.current >= buf.duration) posRef.current = 0;
+    playingRef.current = true;
+    startAt(posRef.current);
+    setPlaying(true);
+  }, [context, startAt]);
 
-  const pause = useCallback(() => audioRef.current?.pause(), []);
+  const pause = useCallback(() => {
+    playWhenReadyRef.current = false;
+    if (!playingRef.current) return;
+    posRef.current = position();
+    stopSources();
+    playingRef.current = false;
+    setTime(posRef.current);
+    setPlaying(false);
+  }, [position, stopSources]);
 
   const toggle = useCallback(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (el.paused) el.play().catch(() => setPlaying(false));
-    else el.pause();
-  }, []);
+    if (playingRef.current) pause();
+    else play();
+  }, [play, pause]);
 
   const seek = useCallback(
     (t: number) => {
-      const el = audioRef.current;
-      if (!el) return;
-      el.currentTime = Math.max(0, t);
-      setTime(el.currentTime);
-      syncLayer(true);
+      const total = mainBufRef.current?.duration;
+      const at = Math.max(0, total != null ? Math.min(t, total) : t);
+      if (playingRef.current) startAt(at);
+      else posRef.current = at;
+      setTime(at);
     },
-    [syncLayer],
+    [startAt],
+  );
+
+  const load = useCallback(
+    (newSrc: string) => {
+      stopSources();
+      playingRef.current = false;
+      playWhenReadyRef.current = false;
+      mainBufRef.current = null;
+      mainUrlRef.current = newSrc;
+      posRef.current = 0;
+      setPlaying(false);
+      setReady(false);
+      setError(null);
+      setTime(0);
+      setSrc(newSrc);
+      fetchDecoded(context(), newSrc).then(
+        (buf) => {
+          if (mainUrlRef.current !== newSrc) return;
+          mainBufRef.current = buf;
+          setDuration(buf.duration);
+          setReady(true);
+          if (playWhenReadyRef.current) {
+            playWhenReadyRef.current = false;
+            play();
+          }
+        },
+        () => {
+          if (mainUrlRef.current === newSrc) setError("audio failed to load — the file may have moved");
+        },
+      );
+    },
+    [context, play, stopSources],
   );
 
   const setLayer = useCallback(
     (layerSrc: string | null) => {
-      let l = layerRef.current;
-      if (layerSrc == null) {
-        layerSrcRef.current = null;
-        if (l) {
-          l.pause();
-          l.src = "";
-        }
-        return;
-      }
-      if (!l) {
-        l = new Audio();
-        l.preload = "auto";
-        layerRef.current = l;
-      }
-      // Only a *new* source needs positioning; a repeat call for the URL
-      // already loaded must not touch the element's timeline (a snap is a
-      // seek, and a seek per call would keep the stem re-buffering).
-      if (layerSrcRef.current !== layerSrc) {
-        layerSrcRef.current = layerSrc;
-        l.src = layerSrc;
-        l.volume = Math.min(1, Math.max(0, layerGainRef.current));
-        l.load();
-        syncLayer(true);
-      }
+      // Only a *new* source needs loading; a repeat call for the URL already
+      // loaded leaves the playing layer alone.
+      if (layerUrlRef.current === layerSrc) return;
+      layerUrlRef.current = layerSrc;
+      layerBufRef.current = null;
+      stopSource(layerSourceRef.current);
+      layerSourceRef.current = null;
+      if (layerSrc == null) return;
+      const ctx = context();
+      fetchDecoded(ctx, layerSrc).then(
+        (buf) => {
+          if (layerUrlRef.current !== layerSrc) return;
+          layerBufRef.current = buf;
+          // Already playing: join in at the main track's position.
+          if (playingRef.current) startLayer(ctx.currentTime);
+        },
+        () => undefined, // no guide vocal; the main track plays on
+      );
     },
-    [syncLayer],
+    [context, startLayer],
   );
 
-  const setLayerGain = useCallback(
-    (gain: number) => {
-      const g = Math.min(1, Math.max(0, gain));
-      layerGainRef.current = g;
-      setLayerGainState(g);
-      const l = layerRef.current;
-      // Volume only: the layer keeps playing at 0, so it's still in step
-      // when the guide comes back up (module docs).
-      if (l) l.volume = g;
-    },
-    [],
-  );
+  const setLayerGain = useCallback((gain: number) => {
+    const g = Math.min(1, Math.max(0, gain));
+    layerGainRef.current = g;
+    setLayerGainState(g);
+    const node = layerNodeRef.current;
+    const ctx = ctxRef.current;
+    if (node && ctx) node.gain.setTargetAtTime(g, ctx.currentTime, GAIN_RAMP_S);
+  }, []);
 
   const setLoop = useCallback((lw: LoopWindow | null) => {
     loopRef.current = lw;
@@ -311,4 +378,16 @@ export function useAudio(): AudioController {
     setLayerGain,
     layerGain,
   };
+}
+
+/** Stop a source for good (it can't be restarted) and let it go. */
+function stopSource(s: AudioBufferSourceNode | null) {
+  if (!s) return;
+  s.onended = null;
+  try {
+    s.stop();
+  } catch {
+    // never started
+  }
+  s.disconnect();
 }

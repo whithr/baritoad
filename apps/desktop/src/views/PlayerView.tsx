@@ -1,6 +1,6 @@
 // Full-screen performance player (Phase 3 milestone 3).
 // This is the cpal engine's UI — audio never touches the webview
-// (the review player in SongDetail keeps its <audio> element and is a
+// (the Bench's review player, useAudio, plays in the webview and is a
 // different thing entirely).
 //
 // ## Time base

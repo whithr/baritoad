@@ -8,8 +8,8 @@
 // status bar — no second copy of a menu item on the work surface.
 //
 // State is the tested editorState reducer (undo/redo/dirty, timing-map
-// invariants); playback is the review-screen <audio> hook (original-song
-// time); waveforms are the vocal stem's peak envelope.
+// invariants); playback is the review-screen Web Audio hook (useAudio,
+// original-song time); waveforms are the vocal stem's peak envelope.
 // Chrome is baritoad 98: every command sits in the menu bar; the toolbar,
 // right-click menu and keys are shortcuts to it.
 

@@ -5,14 +5,14 @@
 //! ## Playback (this milestone only)
 //!
 //! The review screen plays the instrumental / vocal / original **plain** —
-//! no key/tempo shift — through the webview's `<audio>` element and Tauri's
-//! asset protocol. The asset scope starts *empty* (tauri.conf.json) and
+//! no key/tempo shift — in the webview (Web Audio, src/useAudio.ts), fetched
+//! through Tauri's asset protocol. The asset scope starts *empty* (tauri.conf.json) and
 //! [`playback_sources`] allows individual files at runtime, only after
 //! resolving them through the library row or the job manifest — the webview
 //! can never mint read access to arbitrary paths. The Phase 3 performance
 //! player (cpal + Signalsmith stretch) replaces this for actual
 //! singing; the player-clock rules live there — nothing here stretches, so
-//! `<audio>.currentTime` *is* original-song time.
+//! the review player's position *is* original-song time.
 //!
 //! ## Stale exports
 //!
@@ -100,7 +100,7 @@ pub fn resolve_song_sources(
 }
 
 /// Review screen: resolve the playable files and allow exactly those files in
-/// the asset-protocol scope (webview `<audio>` playback — see module docs).
+/// the asset-protocol scope (webview Web Audio playback — see module docs).
 #[tauri::command]
 pub async fn playback_sources(
     app: AppHandle,
