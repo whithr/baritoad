@@ -6,7 +6,7 @@ drop in a song you have. baritoad turns the singer down, times the lyrics word
 by word, and puts them on your tv. friends pick songs from their phones. free,
 open source, and it all runs on your computer.
 
-![the bench: every word timed on the song's waveform](docs/images/bench-lanes.png)
+![the bench: every word timed on the song's waveform](docs/images/bench-careless-love.png)
 
 ## download
 
@@ -19,7 +19,7 @@ anyway**. the first start downloads about 2 GB of
 it's not studio karaoke. sometimes you'll still hear a little of the
 original singer.
 
-![the stage: lyrics on the tv, sung words lit](docs/images/stage.png)
+![the stage: lyrics on the tv, sung words lit](docs/images/stage-careless-love.png)
 
 <p>
   <img src="docs/images/library.png" width="49%" alt="the library and the up-next queue">
