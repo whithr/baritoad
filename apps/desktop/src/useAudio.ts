@@ -96,11 +96,16 @@ export function useAudio(): AudioController {
   const ctxRef = useRef<AudioContext | null>(null);
   const mainGainRef = useRef<GainNode | null>(null);
   const layerNodeRef = useRef<GainNode | null>(null);
-  /** The decoded files, and the URLs asked for (a newer ask wins a race). */
+  /** The decoded files, and the asks for them: a decode lands only while its
+   *  ask is still the current one. Asks compare by identity, not URL — React's
+   *  StrictMode (dev) tears the hook down and sets it up again on these same
+   *  refs, and the second setup asks for the same URLs, so by URL the decode
+   *  begun before the teardown landed too: a second vocal source, which kept
+   *  playing after pause. */
   const mainBufRef = useRef<AudioBuffer | null>(null);
-  const mainUrlRef = useRef<string | null>(null);
+  const mainAskRef = useRef<{ src: string } | null>(null);
   const layerBufRef = useRef<AudioBuffer | null>(null);
-  const layerUrlRef = useRef<string | null>(null);
+  const layerAskRef = useRef<{ src: string } | null>(null);
   const layerGainRef = useRef(0);
   /** The sources playing now (a buffer source plays once). */
   const mainSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -155,12 +160,16 @@ export function useAudio(): AudioController {
     layerSourceRef.current = null;
   }, []);
 
-  /** Start the layer at context time `when`, in step with the main track. */
+  /** Start the layer at context time `when`, in step with the main track — in
+   *  place of any layer source already going, so pause only ever has one to
+   *  stop. */
   const startLayer = useCallback((when: number) => {
     const ctx = ctxRef.current;
     const buf = layerBufRef.current;
     const node = layerNodeRef.current;
     if (!ctx || !buf || !node) return;
+    stopSource(layerSourceRef.current);
+    layerSourceRef.current = null;
     const at = startPosRef.current + (when - startCtxRef.current);
     if (at >= buf.duration) return;
     const s = ctx.createBufferSource();
@@ -215,8 +224,8 @@ export function useAudio(): AudioController {
       layerNodeRef.current = null;
       mainBufRef.current = null;
       layerBufRef.current = null;
-      mainUrlRef.current = null;
-      layerUrlRef.current = null;
+      mainAskRef.current = null;
+      layerAskRef.current = null;
     },
     [stopSources],
   );
@@ -296,7 +305,8 @@ export function useAudio(): AudioController {
       playingRef.current = false;
       playWhenReadyRef.current = false;
       mainBufRef.current = null;
-      mainUrlRef.current = newSrc;
+      const ask = { src: newSrc };
+      mainAskRef.current = ask;
       posRef.current = 0;
       setPlaying(false);
       setReady(false);
@@ -305,7 +315,7 @@ export function useAudio(): AudioController {
       setSrc(newSrc);
       fetchDecoded(context(), newSrc).then(
         (buf) => {
-          if (mainUrlRef.current !== newSrc) return;
+          if (mainAskRef.current !== ask) return;
           mainBufRef.current = buf;
           setDuration(buf.duration);
           setReady(true);
@@ -315,7 +325,7 @@ export function useAudio(): AudioController {
           }
         },
         () => {
-          if (mainUrlRef.current === newSrc) setError("audio failed to load — the file may have moved");
+          if (mainAskRef.current === ask) setError("audio failed to load — the file may have moved");
         },
       );
     },
@@ -326,16 +336,18 @@ export function useAudio(): AudioController {
     (layerSrc: string | null) => {
       // Only a *new* source needs loading; a repeat call for the URL already
       // loaded leaves the playing layer alone.
-      if (layerUrlRef.current === layerSrc) return;
-      layerUrlRef.current = layerSrc;
+      if ((layerAskRef.current?.src ?? null) === layerSrc) return;
+      layerAskRef.current = null;
       layerBufRef.current = null;
       stopSource(layerSourceRef.current);
       layerSourceRef.current = null;
       if (layerSrc == null) return;
+      const ask = { src: layerSrc };
+      layerAskRef.current = ask;
       const ctx = context();
       fetchDecoded(ctx, layerSrc).then(
         (buf) => {
-          if (layerUrlRef.current !== layerSrc) return;
+          if (layerAskRef.current !== ask) return;
           layerBufRef.current = buf;
           // Already playing: join in at the main track's position.
           if (playingRef.current) startLayer(ctx.currentTime);
