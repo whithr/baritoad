@@ -1,6 +1,6 @@
-# CI. Windows is the platform we ship: tests and a build on every push, plus
-# the party relay and cargo deny. macOS and Linux don't ship yet, so their
-# build checks live in platforms.yml and run only when started by hand.
+# CI. Windows and macOS are the platforms we ship: tests and a build on every
+# push, plus the party relay and cargo deny. Linux doesn't ship yet, so its
+# build check lives in platforms.yml and runs only when started by hand.
 name: CI
 
 on:
@@ -33,6 +33,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       # Save the compiled dependencies even when a test fails, so the next run
       # doesn't start from nothing.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Webview — install, test, type-check, build
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+      - name: Rust tests
+        run: cargo test --locked --no-fail-fast -p karaoke-core -p karaoke-desktop
+      - name: CLI builds
+        run: cargo build --locked -p karaoke-cli
+
+  macos:
+    name: macOS — tests + build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true

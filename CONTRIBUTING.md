@@ -6,9 +6,9 @@ kind of song, and pull requests are all welcome.
 ## Reporting a bug
 
 Open an issue with what you did, what you expected and what happened, plus
-your Windows version and graphics card. **Don't attach songs or lyrics** —
-they're almost always copyrighted. Describe the song instead (genre, length,
-anything unusual about it).
+your Windows or macOS version and your graphics card (or Mac model). **Don't
+attach songs or lyrics** — they're almost always copyrighted. Describe the
+song instead (genre, length, anything unusual about it).
 
 ## Pull requests
 

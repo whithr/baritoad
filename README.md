@@ -10,10 +10,13 @@ open source, and it all runs on your computer.
 
 ## download
 
-**[windows 10 or 11, 64-bit](https://github.com/whithr/baritoad/releases/latest)** · mac & linux later
+**[windows 10 or 11, 64-bit](https://github.com/whithr/baritoad/releases/latest)** ·
+**[mac with apple silicon (m1 or newer), macos 13.4 or later](https://github.com/whithr/baritoad/releases/download/v1.1.0/baritoad_1.1.0_aarch64.dmg)** ·
+linux later
 
-the installer isn't signed yet, so windows may warn you: **more info → run
-anyway**. the first start downloads about 2 GB of
+the installers aren't signed yet. windows may warn you: **more info → run
+anyway**. on a mac, open baritoad once, then **system settings → privacy &
+security → open anyway**. the first start downloads about 2 GB of
 [models](MODEL_LICENSES.md). they run locally, on your computer.
 
 it's not studio karaoke. sometimes you'll still hear a little of the
@@ -40,6 +43,9 @@ that's with pasted lyrics. a song without lyrics takes longer, because
 baritoad transcribes it first. the gpu path uses directml, so it isn't tied
 to one brand of card, but we've only tried nvidia. if your card doesn't pass
 baritoad's quick check, it uses the cpu instead.
+
+on a mac it uses the cpu for now. a 3:37 song with its lyrics found online
+took 2 min 39 s on an m1 pro.
 
 ## privacy
 

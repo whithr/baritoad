@@ -6,8 +6,9 @@ removal + word-synced lyrics + full-screen player, plus party mode (guests
 pick songs from their phones). Everything is free; there is no account and
 nothing paid.
 
-v1.0 shipped for Windows on 2026-10-05. macOS and Linux build, but don't ship
-yet (their CI checks run by hand: .github/workflows/platforms.yml). Maintainers may have a `CLAUDE.local.md` with private planning
+v1.0 shipped for Windows on 2026-10-05; v1.1 added macOS (Apple Silicon,
+13.4+) the same day. Linux builds but doesn't ship yet (its CI check runs by
+hand: .github/workflows/platforms.yml). Maintainers may have a `CLAUDE.local.md` with private planning
 context; this file is the public rulebook.
 
 ## Hard rules — never violate, not even in a prototype

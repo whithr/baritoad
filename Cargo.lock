@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke-cli"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "clap",
  "karaoke-core",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke-core"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "cpal",
  "flacenc",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke-desktop"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "karaoke-core",
  "qrcodegen",
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke-stretch-sys"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "cc",
 ]
