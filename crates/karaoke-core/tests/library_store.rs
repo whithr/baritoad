@@ -229,7 +229,7 @@ fn get_delete_and_played_counters() {
     let store = LibraryStore::open_in_memory().unwrap();
     let s = store.upsert_song(&upsert("h", "Song", None)).unwrap();
     assert_eq!(s.play_count, 0);
-    assert_eq!(s.language_tag, "en", "English-first default (PLAN.md §1)");
+    assert_eq!(s.language_tag, "en", "English-first default");
 
     store.record_played(s.id).unwrap();
     store.record_played(s.id).unwrap();
@@ -306,7 +306,7 @@ fn sort_orders_recently_added_played_title() {
 }
 
 // ---------------------------------------------------------------------------
-// collections (m2m — PLAN.md §3: a song lives in any number of collections)
+// collections (m2m: a song lives in any number of collections)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -368,7 +368,7 @@ fn collections_many_to_many_and_cascade() {
 }
 
 // ---------------------------------------------------------------------------
-// up-next queue (PLAN.md §3: survives restarts mid-party)
+// up-next queue (survives restarts mid-party)
 // ---------------------------------------------------------------------------
 
 #[test]

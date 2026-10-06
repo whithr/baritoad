@@ -78,7 +78,7 @@ export function retimeDocument(oldWords: WordTiming[], lines: string[][]): DocCo
 export interface RealignWindow {
   first: number;
   last: number;
-  /** Original-song seconds (PLAN.md §5). */
+  /** Original-song seconds. */
   start: number;
   end: number;
 }

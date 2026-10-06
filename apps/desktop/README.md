@@ -8,7 +8,7 @@ Focus), and a separate Stage window for the TV player
 (`views/PlayerView.tsx`, created by `src-tauri/src/stage.rs`) that can be
 dragged or sent full screen to another display. All processing is local; the app never uploads audio
 and ships no music or lyrics. The app is open source
-(GPL-3.0-or-later, PLAN.md §1, §8).
+(GPL-3.0-or-later).
 
 ## Layout
 
@@ -88,7 +88,7 @@ Other commands:
 - `cargo test -p karaoke-desktop` — Rust-side unit tests
 
 CI (`.github/workflows/ci.yml`) runs the tests and a build on Windows, a
-build on Linux, and `cargo deny check` (`deny.toml`, PLAN.md §6) on every
+build on Linux, and `cargo deny check` (`deny.toml`, docs/DEPENDENCIES.md) on every
 push; macOS builds when run by hand or for a tag.
 
 ## Execution-provider policy

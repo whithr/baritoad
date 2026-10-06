@@ -1,7 +1,6 @@
-# CI (PLAN.md §9, v1.0 item 4). Windows is the v1.0 platform: tests and a
-# build on every push. Linux builds on every push too; macOS builds when run
-# by hand or for a tag — its runner minutes cost ten times as much on a
-# private repo. Neither ships yet (PLAN.md §3, Windows first).
+# CI. Windows is the v1.0 platform: tests and a build on every push. Linux
+# builds on every push too; macOS builds when run by hand or for a tag.
+# Neither ships yet (Windows first).
 name: CI
 
 on:
@@ -119,7 +118,7 @@ jobs:
           pnpm exec wrangler deploy --dry-run --outdir dist
 
   deny:
-    name: cargo deny (PLAN.md §6)
+    name: cargo deny (docs/DEPENDENCIES.md)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4

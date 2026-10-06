@@ -51,8 +51,8 @@ export const SORT_LABELS: Record<LibrarySort, string> = {
   title: "Title",
 };
 
-/** Case-insensitive substring on title/artist, or exact language-tag match
- *  (PLAN.md §3 "Tags and search"). Empty/whitespace search keeps everything. */
+/** Case-insensitive substring on title/artist, or exact language-tag match.
+ *  Empty/whitespace search keeps everything. */
 export function filterSongs<T extends SongLike>(songs: T[], search: string): T[] {
   const term = search.trim().toLowerCase();
   if (term === "") return songs;

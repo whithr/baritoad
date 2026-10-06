@@ -141,8 +141,8 @@ full workflow. Any agent should follow the same rules:
 
 - **Work only on files already in the folder.** Don't fetch audio or lyrics
   yourself, and never type lyrics from memory — a model's memory of lyrics is
-  often wrong. Fetching is the app's job (Add from URL and LRCLIB lookup,
-  PLAN.md §3); songs without lyrics get transcribed, or the user pastes their
+  often wrong. Fetching is the app's job (Add from URL and LRCLIB lookup);
+  songs without lyrics get transcribed, or the user pastes their
   own.
 - **Names come from the files or the user**: tags, file names, a title line
   in the lyrics file. Never identify a song by recognizing its lyrics or

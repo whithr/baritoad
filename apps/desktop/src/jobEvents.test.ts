@@ -1,5 +1,5 @@
 // Progress event reducer tests — the seam between karaoke-core's four-stage
-// event stream and the two-stage honest display (PLAN.md §4).
+// event stream and the two-stage honest display.
 
 import { describe, expect, it } from "vitest";
 import type { JobEvent, JobSnapshot, PipelineEvent, PrepStep } from "./api";

@@ -12,8 +12,8 @@ text files into that layout, with `karaoke scan` as the judge.
 ## Hard rules
 
 - **Only files already in the folder.** Don't fetch audio or lyrics
-  yourself — fetching is the app's job (Add from URL, LRCLIB lookup;
-  PLAN.md §3). **Never write lyrics from memory**, even if you think you know
+  yourself — fetching is the app's job (Add from URL, LRCLIB lookup).
+  **Never write lyrics from memory**, even if you think you know
   the song: recall is often wrong, and lyrics are copyrighted. A song without
   lyrics gets looked up or transcribed by the app, or the user pastes their
   own and you save that text verbatim.

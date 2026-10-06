@@ -1,9 +1,9 @@
-//! Library store (PLAN.md §5 "library store: SQLite — songs, collections,
-//! queue" and §3 "Library & collections").
+//! Library store: SQLite — songs, collections, queue.
 //!
 //! Lives in karaoke-core (not the app crate) so the CLI can grow library
 //! commands later. SQLite via rusqlite with the `bundled` feature — SQLite is
-//! public domain and compiling it in avoids a system dependency (§6 matrix).
+//! public domain and compiling it in avoids a system dependency
+//! (docs/DEPENDENCIES.md).
 //!
 //! Design points:
 //! - **Path-injectable store** ([`LibraryStore::open`]) so tests run against a
@@ -14,11 +14,11 @@
 //!   of the audio file), so re-generating a song *updates* its row instead of
 //!   duplicating it ([`LibraryStore::upsert_song`]).
 //! - **Collections are just names** — a song can live in any number of them;
-//!   singer profiles are collections, so there is no account system (§3).
+//!   singer profiles are collections, so there is no account system.
 //! - **The up-next queue persists in the DB** so it survives app restarts
-//!   mid-party (§3). Playing is Phase 3; v1 milestone 2 only manages order.
+//!   mid-party. Playing is Phase 3; v1 milestone 2 only manages order.
 //! - Metadata comes from the audio file's tags ([`tags`]) or the user —
-//!   never from the network (PLAN.md §2 local-first).
+//!   never from the network (local-first).
 
 pub mod register;
 pub mod stats;

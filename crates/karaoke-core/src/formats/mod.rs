@@ -1,13 +1,13 @@
-//! Format interop (PLAN.md §3 "Formats & interop").
+//! Format interop.
 //!
 //! Exporters from the word-timing map to the karaoke interchange formats:
 //! Enhanced LRC ([`lrc`]), ASS karaoke subtitles ([`ass`]), UltraStar .txt
-//! ([`ultrastar`]). Importers (UltraStar .txt and LRC — PLAN.md §3) are an
+//! ([`ultrastar`]). Importers (UltraStar .txt and LRC) are an
 //! app-phase milestone and will land *beside* the exporters, one file per
 //! format, sharing this module's line/rounding conventions so each format
 //! file stays read/write symmetric.
 //!
-//! ## Time base (PLAN.md §5 — load-bearing)
+//! ## Time base (load-bearing)
 //!
 //! Timing maps store **original-song time**, and the exporters consume that
 //! time base verbatim. No tempo/stretch translation happens here — only the
@@ -44,7 +44,7 @@ use crate::timing::{WordTiming, WordTimingMap};
 /// Silence that splits a run of link-less words into separate fallback lines.
 pub const FALLBACK_LINE_GAP_S: f64 = 1.5;
 
-/// The export formats we write (PLAN.md §3; the rendered-video export goes
+/// The export formats we write (the rendered-video export goes
 /// through ffmpeg, not this module).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,7 +53,7 @@ pub enum Format {
     Lrc,
     /// ASS subtitles with `\k` karaoke tags (VLC / mpv / Aegisub — libass).
     Ass,
-    /// UltraStar .txt (timings; pitch 0 — no melody data in v1, PLAN.md §3).
+    /// UltraStar .txt (timings; pitch 0 — no melody data in v1).
     UltraStar,
 }
 

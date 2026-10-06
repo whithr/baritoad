@@ -667,8 +667,8 @@ export type PlayerTransportState = "stopped" | "playing" | "paused" | "finished"
 
 export type StretchConfigName = "default" | "low_latency";
 
-/** Host-side engine snapshot. `position` is ORIGINAL-SONG seconds (PLAN.md
- *  §5): the engine clock already translated through any stretch ratio — the
+/** Host-side engine snapshot. `position` is ORIGINAL-SONG seconds:
+ *  the engine clock already translated through any stretch ratio — the
  *  UI compares it against timing-map times directly, never converts. */
 export interface PlayerStatus {
   state: PlayerTransportState;

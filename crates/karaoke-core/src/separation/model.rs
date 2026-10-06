@@ -2,7 +2,7 @@
 //!
 //! Execution-provider selection is deliberately a closed enum with room to
 //! grow: CUDA (Win/Linux NVIDIA) and CoreML (macOS) slot in as new variants +
-//! arms in [`OrtModel::load`] without touching callers (PLAN.md §5 GPU story).
+//! arms in [`OrtModel::load`] without touching callers.
 
 use ndarray::{s, Array3, Array4, Ix4};
 use std::fmt;

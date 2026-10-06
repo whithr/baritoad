@@ -7,7 +7,7 @@
 //! 44.1 kHz WAV), the full interleaved device-rate buffer is preallocated up
 //! front — its exact length comes from the same duration-preserving
 //! output-length math as the offline resample path, so `device frame /
-//! device rate` remains original-song time exactly (PLAN.md §5) — and a
+//! device rate` remains original-song time exactly — and a
 //! background thread fills it progressively (chunked symphonia decode →
 //! incremental rubato resample → write). Playback starts once a small primed
 //! window is ready; the rest streams in ~40x faster than realtime.
@@ -173,7 +173,7 @@ impl StemBuffer {
 }
 
 /// Output length of the duration-preserving resample: identical rounding to
-/// `audio::resample_stereo`'s `expected` (PLAN.md §5 — device frames must map
+/// `audio::resample_stereo`'s `expected` (device frames must map
 /// to original-song time exactly, streamed or not).
 pub fn expected_device_frames(src_frames: u64, src_rate: u32, dev_rate: u32) -> usize {
     if src_rate == dev_rate {

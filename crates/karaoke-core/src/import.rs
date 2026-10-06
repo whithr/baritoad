@@ -1,6 +1,6 @@
 //! Bulk import: find the songs under the folders (or files) a user hands
-//! over, and pair each audio file with its lyrics — PLAN.md §3 "job queue:
-//! batch-process a folder of songs". Pure filesystem work: no pipeline, no
+//! over, and pair each audio file with its lyrics, so the job queue can
+//! batch-process a folder of songs. Pure filesystem work: no pipeline, no
 //! library. The app shows the [`Scan`] for review and queues what the user
 //! keeps.
 //!

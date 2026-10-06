@@ -4,7 +4,7 @@
 //! the main/UI thread. The only long-running work (the pipeline itself) is
 //! handed to the queue worker; every command here returns promptly.
 //!
-//! EP policy (PLAN.md §5 GPU story): requests use `EpChoice::Auto` —
+//! EP policy: requests use `EpChoice::Auto` —
 //! DirectML for separation and wav2vec2 (each parity-gated, falling closed
 //! to CPU) — unless Properties → Processing pins the processor
 //! (`cpu_only`), which keeps the whole import off the graphics card.
@@ -32,7 +32,7 @@ use crate::queue::{self, JobQueue, JobSnapshot, LinkPrep, PostImport, Prep};
 use crate::tools::{self, ToolsState};
 
 /// Wizard → pipeline request. Lyrics arrive as pasted *text* (the paste box is
-/// the golden path — PLAN.md §4); the command persists them beside the job's
+/// the golden path); the command persists them beside the job's
 /// outputs so karaoke-core's file-based contract and resume hashing apply.
 #[derive(Debug, Deserialize)]
 pub struct GenerateSongRequest {
@@ -757,7 +757,7 @@ pub async fn list_jobs(queue: State<'_, Arc<JobQueue>>) -> Result<JobsList, Stri
 }
 
 /// Parse + validate a timing map and hand it to the webview as JSON. The
-/// map stores original-song time only (PLAN.md §5) — `from_json` rejects any
+/// map stores original-song time only — `from_json` rejects any
 /// other time base.
 #[tauri::command]
 pub async fn read_timing_map(path: String) -> Result<serde_json::Value, String> {
@@ -766,7 +766,7 @@ pub async fn read_timing_map(path: String) -> Result<serde_json::Value, String> 
     serde_json::to_value(&map).map_err(|e| e.to_string())
 }
 
-/// Dry-run cleanup summary for the wizard's paste box (PLAN.md §4: one-line
+/// Dry-run cleanup summary for the wizard's paste box (one-line
 /// summary, inspectable, zero decisions by default). Nothing touches disk.
 #[derive(Debug, Serialize)]
 pub struct CleanPreview {
@@ -814,7 +814,7 @@ pub struct ExportSongRequest {
 }
 
 /// Render the timing map to interchange formats beside the map
-/// (original-song time verbatim — exporters never see stretch, PLAN.md §5).
+/// (original-song time verbatim — exporters never see stretch).
 #[tauri::command]
 pub async fn export_song(request: ExportSongRequest) -> Result<Vec<PathBuf>, String> {
     let map_path = PathBuf::from(&request.map_path);
@@ -955,7 +955,7 @@ pub async fn open_notices(app: AppHandle) -> Result<(), String> {
 /// Add from URL's Find Album Version: YouTube Music's search for `query`
 /// ("artist title"), in the person's browser. The app only opens the page —
 /// the person picks a song there and pastes its link back, so what downloads
-/// is still a link they gave (PLAN.md §7). Takes words, never a URL.
+/// is still a link they gave. Takes words, never a URL.
 #[tauri::command]
 pub async fn search_album_version(query: String) -> Result<(), String> {
     let q: String = query.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();

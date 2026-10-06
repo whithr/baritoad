@@ -1,6 +1,6 @@
-//! karaoke-desktop — Tauri 2 shell over karaoke-core (PLAN.md §5, §9 Phase 2).
+//! karaoke-desktop — Tauri 2 shell over karaoke-core.
 //!
-//! Open source, GPL-3.0-or-later (PLAN.md §8). All processing is local;
+//! Open source, GPL-3.0-or-later. All processing is local;
 //! no cloud, no telemetry, no hosting of user audio (CLAUDE.md hard rules).
 
 mod commands;
@@ -86,7 +86,7 @@ pub fn run() {
         .on_window_event(|window, event| stage::on_window_event(window, event))
         .setup(move |app| {
             // One worker: pipeline stages are compute-bound (GPU/CPU saturating)
-            // — jobs queue FIFO and run strictly one at a time (PLAN.md §5),
+            // — jobs queue FIFO and run strictly one at a time,
             // each in the below-normal-priority worker process (worker.rs).
             let handle = app.handle().clone();
             job_queue.restore(&handle);

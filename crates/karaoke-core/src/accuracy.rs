@@ -1,4 +1,4 @@
-//! Accuracy harness (PLAN.md §9 Phase 1): word-timing error of a pipeline
+//! Accuracy harness: word-timing error of a pipeline
 //! timing map against a hand-made UltraStar reference file.
 //!
 //! Hypothesis words (the map) are matched to reference words (imported

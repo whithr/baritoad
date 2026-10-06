@@ -1,4 +1,4 @@
-//! Pipeline orchestrator (PLAN.md §5): the full generate pipeline —
+//! Pipeline orchestrator: the full generate pipeline —
 //! separate → clean lyrics → align → export — run as discrete, resumable
 //! stages with a persisted job manifest ([`manifest`]).
 //!
@@ -14,7 +14,7 @@
 //! today. Events serialize as tagged JSON (`{"type": "stage_progress", ...}`).
 //!
 //! Hard rules honored (CLAUDE.md): all processing is local; timing maps store
-//! original-song time only (§5); no Python at runtime.
+//! original-song time only; no Python at runtime.
 
 pub mod hash;
 pub mod manifest;
@@ -92,11 +92,11 @@ pub enum PipelineEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub audio: PathBuf,
-    /// Pasted-lyrics file (golden path — PLAN.md §4). None ⇒ the align stage
+    /// Pasted-lyrics file (golden path). None ⇒ the align stage
     /// auto-transcribes and lyric cleanup is not applicable.
     pub lyrics: Option<PathBuf>,
     /// An UltraStar .txt whose hand-made timings replace alignment (bulk
-    /// import of community song folders — PLAN.md §3 import). When set,
+    /// import of community song folders). When set,
     /// `lyrics` is ignored: clean-lyrics is not applicable and the align stage
     /// converts the file instead of running the aligner.
     #[serde(default)]
@@ -193,7 +193,7 @@ pub fn default_out_dir(audio: &Path) -> PathBuf {
 /// Cheap identity for a model file (size + mtime). Weights are ~350 MB;
 /// content-hashing them on every run would dominate resume time. A swapped
 /// model file with identical size *and* mtime is out of threat model — the
-/// model manager (PLAN.md §3) writes fresh files.
+/// model manager writes fresh files.
 /// The file's name, size and mtime — not its folder, so moving the models
 /// (the data-folder rename, paths.rs) doesn't redo every song's separation.
 fn model_file_id(path: &Path) -> String {
@@ -881,7 +881,7 @@ fn run_separate_stage(
 
 /// The align stage for a request carrying UltraStar timings: the file's
 /// words and hand-made timings become the map as they are — no aligner, no
-/// cleanup (PLAN.md §3 import: "lyrics + timings used for playback"). The
+/// cleanup (lyrics + timings used for playback). The
 /// map runs to the audio's end so playback and the Bench see the whole song.
 fn run_import_timings_stage(
     timings: &Path,

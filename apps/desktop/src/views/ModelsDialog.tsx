@@ -1,4 +1,4 @@
-// The models (PLAN.md §3 "Model manager"), in two places:
+// The models, in two places:
 // - ModelsGate, the first run: baritoad can't do anything without its
 //   models, so the app waits behind it until all four are here — each
 //   named, with what it does, downloading one at a time.

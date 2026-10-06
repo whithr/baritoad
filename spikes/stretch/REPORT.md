@@ -14,7 +14,7 @@ Question (spikes/README.md #3): is Signalsmith Stretch good enough for key
   (Hand-written because bindgen needs libclang, which this machine lacks;
   production can use the `signalsmith-stretch` crate, MIT, once libclang or a
   cxx-based binding is sorted.)
-- Licensing (PLAN.md section 6): Signalsmith Stretch (MIT), cpal (Apache-2.0),
+- Licensing (docs/DEPENDENCIES.md): Signalsmith Stretch (MIT), cpal (Apache-2.0),
   Symphonia (MPL-2.0) are already in the matrix. Spike-only, non-shipping:
   hound (Apache-2.0), cc (MIT/Apache-2.0). No matrix update required; nothing
   new ships.
@@ -132,7 +132,7 @@ target\release\stretch-spike.exe live --mmcss   # 23 s live cpal test (plays aud
 target\release\stretch-spike.exe live           # same, without MMCSS (reproduces the preemption spikes)
 ```
 
-## 4. Risks discovered (not in PLAN.md)
+## 4. Risks discovered
 
 1. **cpal does not register its WASAPI callback thread with MMCSS.** Without
    it, mid-stream OS preemption stalled process() for up to **43.5 ms**

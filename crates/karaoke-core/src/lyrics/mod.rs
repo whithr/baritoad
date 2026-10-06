@@ -1,11 +1,11 @@
-//! Lyric cleanup pass (PLAN.md §3): pasted lyrics arrive dirty — Genius /
+//! Lyric cleanup pass: pasted lyrics arrive dirty — Genius /
 //! AZLyrics style section headers, "(x2)" repeat markers, parenthetical
 //! ad-libs, credit lines. This stage runs **before** alignment and decides
 //! *what words exist*; the alignment normalization ([`crate::alignment::anchor`])
 //! decides *how they are matched*. Charset folding is deliberately not
 //! duplicated here.
 //!
-//! Rules (PLAN.md §3, §4):
+//! Rules:
 //! - section headers (`[Chorus]`, `[Verse 2]`, `[Bridge: Artist]`, `(Chorus)`,
 //!   bare `Chorus:` lines) are **stripped**
 //! - repeat markers (`(x2)`, `x2`, `(2x)`, `[x3]`, `×2`) are **expanded** —
@@ -20,7 +20,7 @@
 //!
 //! Every change is recorded in [`CleanLyrics::edits`] with source-line
 //! references, and [`CleanLyrics::summary`] renders the one-line human form
-//! ("removed 4 section headers, expanded one x2 chorus" — PLAN.md §4). The
+//! ("removed 4 section headers, expanded one x2 chorus"). The
 //! default requires no decisions.
 
 use serde::{Deserialize, Serialize};
@@ -96,7 +96,7 @@ pub enum RepeatScope {
 }
 
 /// One recorded edit, with a source-line reference. Machine-readable change
-/// summary (PLAN.md §4).
+/// summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Edit {
@@ -240,7 +240,7 @@ impl CleanLyrics {
         Ok(())
     }
 
-    /// One-line human rendering of the edit log (PLAN.md §4:
+    /// One-line human rendering of the edit log (e.g.
     /// "removed 4 section headers, expanded one x2 chorus").
     pub fn summary(&self) -> String {
         let mut headers = 0usize;

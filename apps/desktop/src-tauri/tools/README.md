@@ -1,7 +1,8 @@
 # tools/
 
-External programs that Add from URL runs as separate processes (PLAN.md §5,
-§6). Nothing here is committed except this README. Fill it with:
+External programs that Add from URL runs as separate processes
+(docs/DEPENDENCIES.md). Nothing here is committed except this README. Fill
+it with:
 
     pnpm fetch-tools
 

@@ -1,12 +1,12 @@
-// Full-screen performance player (Phase 3 milestone 3; PLAN.md §3 "Player",
-// §4 step 5). This is the cpal engine's UI — audio never touches the webview
+// Full-screen performance player (Phase 3 milestone 3).
+// This is the cpal engine's UI — audio never touches the webview
 // (the review player in SongDetail keeps its <audio> element and is a
 // different thing entirely).
 //
 // ## Time base
 // Everything here runs in ORIGINAL-SONG seconds. The engine clock translates
-// device position through stretch ratios before it ever reaches us
-// (PLAN.md §5); the UI interpolates between ~10 Hz host reports with
+// device position through stretch ratios before it ever reaches us;
+// the UI interpolates between ~10 Hz host reports with
 // playerClock.ts and compares the estimate against timing-map times
 // directly. No stretch math exists in this file — by design, forever.
 //
@@ -1144,7 +1144,7 @@ export default function PlayerView(props: {
     [ask],
   );
 
-  // ---- keyboard (PLAN.md §3: keyboard controls; §4 step 5: guide one
+  // ---- keyboard (the guide is one
   // keypress away). Media keys: deferred — module docs.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1569,7 +1569,7 @@ function StageTitleBar(props: { title: string; active: boolean; onClose: () => v
 }
 
 // ---------------------------------------------------------------------------
-// Between songs (PLAN.md §3 up-next queue): who's next, the countdown, and
+// Between songs (up-next queue): who's next, the countdown, and
 // the four ways on. Static React only — the lyric frame loop is idle once a
 // song has finished, and the Four-Hook Rule is untouched.
 // ---------------------------------------------------------------------------

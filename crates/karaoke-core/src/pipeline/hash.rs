@@ -1,9 +1,8 @@
 //! Content hashing for job manifests (SHA-256 via the `sha2` crate —
-//! MIT OR Apache-2.0, PLAN.md §6).
+//! MIT OR Apache-2.0).
 //!
 //! Resume correctness rests on these hashes: a stage is only skipped when the
-//! *content* of its inputs is unchanged, never merely the path or mtime
-//! (PLAN.md §5 "job queue, resume").
+//! *content* of its inputs is unchanged, never merely the path or mtime.
 
 use std::io::Read;
 use std::path::Path;

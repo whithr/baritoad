@@ -1,7 +1,7 @@
 //! The model packs in the app (karaoke-core `models`): what's on disk, one
 //! download at a time on its own thread with progress on `karaoke://models`,
 //! cancel, and the check every import makes first. Downloads happen only
-//! when the person asks (PLAN.md §2).
+//! when the person asks.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

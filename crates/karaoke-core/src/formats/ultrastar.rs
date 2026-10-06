@@ -1,8 +1,8 @@
-//! UltraStar .txt export **and import** (PLAN.md §3: timings; melody notes
+//! UltraStar .txt export **and import** (timings; melody notes
 //! are passed through only if *imported* — we never invent them).
 //!
 //! Format conventions (file-format interop only — no UltraStar Deluxe code
-//! is used or ported; the format itself is not copyrightable, PLAN.md §6):
+//! is used or ported; the format itself is not copyrightable):
 //!
 //! - **BPM**: UltraStar's `#BPM` is a resolution constant, not the song's
 //!   real tempo — players tick at `4 × BPM / 60` beats per second and
@@ -15,7 +15,7 @@
 //!   to the first word's onset, so the first note starts at beat 0.
 //! - **Pitch 0 convention**: every exported note carries pitch `0` (C4 in
 //!   UltraStar's relative scale). v1 has no melody data — pitch detection is
-//!   v2 (PLAN.md §3) — and 0 is the least-surprising placeholder for players
+//!   v2 — and 0 is the least-surprising placeholder for players
 //!   that render a note lane. When UltraStar import lands beside this
 //!   exporter, imported melodies will round-trip through the timing map and
 //!   replace the 0s.
@@ -38,7 +38,7 @@
 //! Reads community and hand-made files back into structure: headers, notes
 //! (`:` normal, `*` golden, `F` freestyle, `R`/`G` rap), line breaks, `E`
 //! terminator. Pitch data is **preserved in the parsed struct but unused**
-//! in v1 (PLAN.md §3 — melody is v2); [`UltraStarSong::words`] merges
+//! in v1 (melody is v2); [`UltraStarSong::words`] merges
 //! syllable notes into words by the whitespace convention (a note whose text
 //! starts with a space — or follows one ending with a space — begins a new
 //! word), and [`UltraStarSong::to_timing_map`] produces a playable
@@ -74,7 +74,7 @@ pub fn export(map: &WordTimingMap, meta: &ExportMeta) -> String {
     if let Some(mp3) = &meta.audio_name {
         out.push_str(&format!("#MP3:{mp3}\n"));
     }
-    out.push_str("#LANGUAGE:English\n"); // v1 is English-first (PLAN.md §1)
+    out.push_str("#LANGUAGE:English\n"); // v1 is English-first
     out.push_str(&format!("#BPM:{BPM}\n"));
 
     let lines = export_lines(map);
@@ -132,8 +132,7 @@ impl NoteKind {
 }
 
 /// One parsed note. Beats are **absolute** (relative-mode offsets are already
-/// applied); pitch is UltraStar's relative scale, preserved untouched
-/// (PLAN.md §3).
+/// applied); pitch is UltraStar's relative scale, preserved untouched.
 #[derive(Debug, Clone)]
 pub struct Note {
     pub kind: NoteKind,
@@ -226,7 +225,7 @@ impl UltraStarSong {
         out
     }
 
-    /// Convert to a playable timing map (PLAN.md §3 import: lyrics + timings
+    /// Convert to a playable timing map (import: lyrics + timings
     /// used for playback). Freestyle words become unsung (approximate
     /// timing); pitch data stays behind in the parsed struct — the map has no
     /// melody in v1.
@@ -511,7 +510,7 @@ mod tests {
         let n = &song.lines[0].notes[0];
         assert_eq!((n.start_beat, n.len_beats, n.pitch), (0, 9, 5));
         assert_eq!(n.text, "dawn "); // verbatim, trailing space kept
-        assert_eq!(song.lines[0].notes[1].pitch, -2); // pitch preserved (PLAN §3)
+        assert_eq!(song.lines[0].notes[1].pitch, -2); // pitch preserved
         assert_eq!(song.lines[1].notes[0].kind, NoteKind::Golden);
 
         let words = song.words();

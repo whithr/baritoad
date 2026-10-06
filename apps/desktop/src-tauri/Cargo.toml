@@ -6,8 +6,8 @@ publish.workspace = true
 license.workspace = true
 description = "Desktop app shell (Tauri) for the karaoke pipeline — local-only processing"
 
-# Wraps karaoke-core directly (no CLI subprocess). PLAN.md §5: Tauri webview
-# UI over the Rust core; PLAN.md §9 Phase 2 milestone 1.
+# Wraps karaoke-core directly (no CLI subprocess): Tauri webview UI over
+# the Rust core.
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -20,7 +20,7 @@ karaoke-core = { path = "../../../crates/karaoke-core" }
 # user's disk.
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
-# Media keys + the OS "now playing" panel (PLAN.md §3, §6 row): SMTC on
+# Media keys + the OS "now playing" panel (docs/DEPENDENCIES.md row): SMTC on
 # Windows; zbus (pure Rust) rather than libdbus for the later Linux build.
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 serde = { workspace = true }

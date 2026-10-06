@@ -39,13 +39,13 @@ serde_json = "1"
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 rustfft = "6"
-# Library store (PLAN.md §5): SQLite via rusqlite; `bundled` compiles SQLite
+# Library store: SQLite via rusqlite; `bundled` compiles SQLite
 # into the binary (public domain) so there is no system dependency.
 rusqlite = { version = "0.37", features = ["bundled"] }
 # Tag reading (title/artist/cover) at import time — local files only, no
-# network metadata (PLAN.md §2 local-first).
+# network metadata (local-first).
 lofty = "0.22"
-# Playback audio engine (PLAN.md §5 "audio engine (cpal)"). Pinned to the
+# Playback audio engine (cpal). Pinned to the
 # 0.15 line the stretch spike validated on WASAPI (spikes/stretch/REPORT.md).
 cpal = "0.15"
 

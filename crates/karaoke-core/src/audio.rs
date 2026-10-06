@@ -6,7 +6,7 @@
 //! This replaces the spike's ffmpeg/libsndfile prep scripts — production input
 //! is the user's file directly. Video files need no ffmpeg either: Symphonia
 //! demuxes their audio track. ffmpeg remains subprocess-only and is reserved
-//! for video export (v1.x, PLAN.md §3); it is not used here.
+//! for video export (v1.x); it is not used here.
 
 use std::path::Path;
 
@@ -240,7 +240,7 @@ fn append_decoded_planar(
 /// stage writes (WAV). Everything else (VBR MP3 without `n_frames`, foreign
 /// sample rates) takes the full-decode fallback, so no output-length
 /// guessing ever happens: the player preallocates exactly
-/// `expected_device_frames(frames, 44_100, device_rate)` and PLAN.md §5's
+/// `expected_device_frames(frames, 44_100, device_rate)` and the
 /// `device frame / device rate == original-song time` invariant holds.
 pub struct StreamingSource {
     format: Box<dyn symphonia::core::formats::FormatReader>,
@@ -441,7 +441,7 @@ fn resample_channel(input: &[f32], from: u32, to: u32, expected: usize) -> Resul
 
 /// Windowed-sinc resample of planar stereo from `from` Hz to `to` Hz.
 /// Trims / zero-pads to the duration-preserving expected length so the output
-/// timeline still matches the original song (PLAN.md §5: timing maps store
+/// timeline still matches the original song (timing maps store
 /// original-song time). Used by decode (→ [`TARGET_SAMPLE_RATE`]) and by the
 /// player to bring stems to the audio device rate.
 pub(crate) fn resample_stereo(

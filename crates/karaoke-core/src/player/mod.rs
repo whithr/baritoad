@@ -1,7 +1,6 @@
 //! Playback audio engine (Phase 3 milestone 1): cpal output stream, dual-stem
 //! mixing with a click-free vocal-guide blend, sample-accurate transport, and
-//! a device-frame-derived [`PlayerClock`] (PLAN.md §5 "audio engine (cpal)" /
-//! "lyric sync").
+//! a device-frame-derived [`PlayerClock`].
 //!
 //! Scope: library-level only — Tauri wiring is a later milestone. Milestone 2
 //! adds key/tempo stretch ([`stretch::StretchEngine`], Signalsmith via
@@ -296,7 +295,7 @@ impl Player {
 
     /// Streaming load: preallocate the full device-rate buffers (exact
     /// lengths from the headers — same duration-preserving math as the
-    /// offline path, PLAN.md §5), start background fill threads, build the
+    /// offline path), start background fill threads, build the
     /// stream immediately, then block only until a small primed window is
     /// decoded on every stem.
     fn load_streaming(&mut self, srcs: Vec<audio::StreamingSource>) -> Result<()> {
@@ -620,8 +619,8 @@ impl Player {
         self.clock.shared.sync_timeline();
     }
 
-    /// Pitch shift in semitones, clamped to ±[`MAX_PITCH_SEMITONES`]
-    /// (PLAN.md §3). Applies mid-playback; at 0 st and 1.00x tempo the
+    /// Pitch shift in semitones, clamped to ±[`MAX_PITCH_SEMITONES`].
+    /// Applies mid-playback; at 0 st and 1.00x tempo the
     /// stretcher leaves the signal path entirely (stretch.rs).
     pub fn set_pitch_semitones(&self, semitones: f32) {
         let v = semitones.clamp(-MAX_PITCH_SEMITONES, MAX_PITCH_SEMITONES);
@@ -636,9 +635,9 @@ impl Player {
     }
 
     /// Tempo ratio (1.0 = original speed), clamped to
-    /// [[`TEMPO_RATE_MIN`], [`TEMPO_RATE_MAX`]] (PLAN.md §3). Independent of
+    /// [[`TEMPO_RATE_MIN`], [`TEMPO_RATE_MAX`]]. Independent of
     /// pitch; applies mid-playback. Timing maps are untouched — only the
-    /// player clock translates through the ratio history (PLAN.md §5).
+    /// player clock translates through the ratio history.
     pub fn set_tempo_rate(&self, rate: f64) {
         let v = rate.clamp(TEMPO_RATE_MIN, TEMPO_RATE_MAX);
         if v.to_bits() != self.shared.tempo_bits.load(Ordering::Relaxed) {
@@ -684,7 +683,7 @@ impl Player {
 
     /// Original-song seconds already decoded and playable on *every* stem
     /// (device frames below the fill watermark ÷ device rate — original-song
-    /// time exactly, PLAN.md §5). Equals [`Self::duration_seconds`] once a
+    /// time exactly). Equals [`Self::duration_seconds`] once a
     /// load is complete (immediately for non-streaming loads); 0.0 when
     /// nothing is loaded.
     pub fn loaded_seconds(&self) -> f64 {

@@ -1,5 +1,5 @@
 // Player Themes — the stage-theme editor, as a display-properties-style
-// dialog (PLAN.md §3 player-themes amendment; DESIGN.md Player Themes).
+// dialog (DESIGN.md Player Themes).
 //
 // A monitor preview runs the stage's own CSS (win98/stage.css) with a looping
 // demo wipe and synthetic visualizer levels; the theme list sits beside it;

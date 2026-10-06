@@ -136,7 +136,7 @@ export default function AddSongWizard(props: {
     }
   };
 
-  // What the cleanup pass did to the pasted text (PLAN.md §4: a one-glance
+  // What the cleanup pass did to the pasted text (a one-glance
   // summary, the details on request), and what it can't fix.
   const ask = useMessageBox();
   const showEdits = () =>

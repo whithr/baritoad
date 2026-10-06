@@ -5,7 +5,7 @@ v1.0 checks). The relay is live at `party.baritoad.com` (our Cloudflare
 account), and the owner tried it with a real phone the same day ("looks
 great"). Left: the launch copy, and pick-to-TV timing measured on a phone on
 cellular. Party mode is free — it runs through our relay, but
-nobody signs in (PLAN.md §3 v1.x, §8; owner decision 2026-10-01). The relay
+nobody signs in (owner decision 2026-10-01). The relay
 and guest page are open source in this repo, `services/relay/` (owner
 decision 2026-10-02). The wire protocol is in
 [PARTY-PROTOCOL.md](PARTY-PROTOCOL.md).
@@ -32,7 +32,7 @@ Never: audio, lyrics, timing maps, cover art, file paths, or file hashes.
 them into its own metadata-only types, and a test checks that nothing else
 gets out.
 
-Guests send a display name and a toad, nothing else (PLAN.md §8). The relay
+Guests send a display name and a toad, nothing else. The relay
 keeps the room in that party's own storage only while it's open, and deletes
 it when the host ends the party or has been disconnected for 10 minutes.
 
@@ -111,8 +111,8 @@ object sleeps between messages.
 
 ## New dependencies
 
-Each gets a PLAN.md §6 row in the change that adds it: `tungstenite` (and the
-crates it brings) and `qrcodegen`.
+Each gets a row in [DEPENDENCIES.md](DEPENDENCIES.md) in the change that
+adds it: `tungstenite` (and the crates it brings) and `qrcodegen`.
 
 ## Milestones (after v1.0)
 

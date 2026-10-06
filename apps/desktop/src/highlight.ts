@@ -1,6 +1,6 @@
 // Pure timing-map display logic for the review screen: currentTime →
 // active-word lookup and line grouping. All times are original-song
-// seconds — the map's only time base (PLAN.md §5), and exactly what the
+// seconds — the map's only time base, and exactly what the
 // review player's clock reads (useAudio module docs).
 
 export interface TimedWord {

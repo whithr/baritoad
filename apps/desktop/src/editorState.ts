@@ -1,10 +1,10 @@
-// Fix-editor state: pure reducer over the timing map's words (PLAN.md §3
-// "drag to fix word timings; re-run alignment on a selection").
+// Fix-editor state: pure reducer over the timing map's words (drag to
+// fix word timings; re-run alignment on a selection).
 //
 // Invariants enforced live, mirroring karaoke-core's validate(): times finite,
 // inside [0, duration], start <= end, and word ONSETS monotonic — a word can
-// never cross its neighbors' onsets. Everything here is original-song time
-// (PLAN.md §5); the map is saved back through core, which re-validates.
+// never cross its neighbors' onsets. Everything here is original-song time;
+// the map is saved back through core, which re-validates.
 //
 // Undo/redo is an in-memory, per-session stack of word-array snapshots
 // (arrays are never mutated in place, so snapshots are cheap references).

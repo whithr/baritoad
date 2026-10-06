@@ -2,7 +2,7 @@
 //!
 //! One worker thread feeds jobs, one at a time, to the import worker process
 //! ([`crate::worker`]: below-normal priority, models kept loaded between
-//! queued jobs; the pipeline is compute-bound — PLAN.md §5 job queue). If the
+//! queued jobs; the pipeline is compute-bound). If the
 //! worker process cannot start, the job runs in this process instead.
 //! Queueing and the UI never block: `generate_song` returns immediately with
 //! a snapshot and every state change is pushed to the webview as a
@@ -14,12 +14,12 @@
 //! coarse (see [`CancelledMarker`]).
 //!
 //! The *list* of unfinished jobs is durable too (a bulk import is an
-//! overnight job — PLAN.md §3): every queued or running job is mirrored to
+//! overnight job): every queued or running job is mirrored to
 //! [`queue_store_path`], and [`JobQueue::restore`] re-queues them at launch,
 //! where each resumes from its manifest. A job carries [`PostImport`] steps
 //! (collection, mark checked) that run once it registers in the library.
 //!
-//! Before the pipeline, a job can have [`Prep`] steps (PLAN.md §3 Add from
+//! Before the pipeline, a job can have [`Prep`] steps (Add from
 //! URL / LRCLIB lookup): download its audio from a link with yt-dlp, then
 //! look its lyrics up on LRCLIB when it has none. Each step's result is
 //! written back to the saved job, so a restart neither downloads nor looks
@@ -457,8 +457,8 @@ impl JobQueue {
     }
 
     /// Worker loop body — spawn on a dedicated thread with the app handle.
-    /// On completion the job registers in the library (PLAN.md §4 step 6:
-    /// the song lands in the library marked ready) *before* the completed
+    /// On completion the job registers in the library, marked ready,
+    /// *before* the completed
     /// lifecycle event fires, so a UI refetch on that event sees the row.
     pub fn run_worker(
         self: Arc<Self>,

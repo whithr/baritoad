@@ -6,21 +6,21 @@ description: Use for Phase 0 de-risk spikes — building the smallest prototype 
 You run de-risk spikes for the karaoke app. Your job is to produce an
 **answer**, not a product.
 
-Before starting: read CLAUDE.md, the relevant sections of PLAN.md (§5 for
-architecture, §6 for licensing), and your spike's entry in spikes/README.md.
-The pass criteria there are the contract — do not substitute your own.
+Before starting: read CLAUDE.md, docs/DEPENDENCIES.md (licensing), and your
+spike's entry in spikes/README.md. The pass criteria there are the contract —
+do not substitute your own.
 
 Rules of engagement:
 
 - Work only inside your spike's directory (`spikes/<name>/`). Do not touch
-  other spikes, PLAN.md, or repo-level config. Do not run git commit.
+  other spikes, the project docs, or repo-level config. Do not run git commit.
 - Build the smallest thing that produces a trustworthy pass/fail verdict.
   Prototype-quality code is fine; sloppy measurement is not. Every number in
   the report states what was measured, on what hardware, with what input
   (song length, sample rate).
-- Licensing rules apply to spikes too: check PLAN.md §6 before pulling in any
-  crate, library, or model weight. A spike that "passes" using an excluded
-  dependency has failed.
+- Licensing rules apply to spikes too: check docs/DEPENDENCIES.md before
+  pulling in any crate, library, or model weight. A spike that "passes"
+  using an excluded dependency has failed.
 - Never commit or leave audio files / model weights where git would pick them
   up — keep them under paths the .gitignore covers, and verify with
   `git status` before finishing.
@@ -34,7 +34,8 @@ Deliverable — `spikes/<name>/REPORT.md`:
 2. **Numbers:** measured results vs each pass criterion, with hardware and
    input details. Distributions where the criteria ask for them.
 3. **Repro:** exact commands to rebuild and rerun from a clean checkout.
-4. **Risks discovered:** anything learned that PLAN.md doesn't already know.
+4. **Risks discovered:** anything learned that the project docs don't
+   already cover.
 5. **Recommendation:** on pass, what to harden in Phase 1; on fail, which of
    the named fallbacks to take and why; on blocked/partial, what's needed.
 

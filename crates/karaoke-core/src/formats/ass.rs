@@ -1,4 +1,4 @@
-//! ASS subtitle export (PLAN.md §3): one Dialogue event per lyric line with
+//! ASS subtitle export: one Dialogue event per lyric line with
 //! standard `\k` centisecond karaoke tags — the classic karaoke effect that
 //! VLC, mpv and Aegisub (all libass-based) play out of the box.
 //!
@@ -15,7 +15,7 @@
 //!   keep their true start). The lead-in and any silence *between* words are
 //!   emitted as text-less `{\k}` filler blocks, so a word is highlighted for
 //!   exactly its sung duration — the sweep never smears across a rest.
-//! - Unsung spans (PLAN.md §3 honesty rule): lines whose words are all
+//! - Unsung spans (honesty rule): lines whose words are all
 //!   inside unsung spans produce **no Dialogue event** — their timing is
 //!   approximate and a karaoke sweep would be a lie. Words are dropped only
 //!   with the whole line; mixed lines keep their flagged words.
@@ -52,7 +52,7 @@ pub fn export(map: &WordTimingMap, meta: &ExportMeta) -> String {
     let title = meta.title.as_deref().unwrap_or("Karaoke export");
     let mut out = String::new();
     out.push_str("[Script Info]\n");
-    out.push_str("; Karaoke export — timings are original-song time (PLAN.md \u{a7}5);\n");
+    out.push_str("; Karaoke export — timings are original-song time;\n");
     out.push_str("; play against the original audio file, not a tempo-shifted render.\n");
     out.push_str(&format!("Title: {title}\n"));
     if let Some(artist) = &meta.artist {

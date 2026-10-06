@@ -1,5 +1,5 @@
 //! Gaming mode: notice when the app in front is busy on the graphics card,
-//! so song import can keep separation off it (PLAN.md §5 GPU story).
+//! so song import can keep separation off it.
 //!
 //! Measured 2026-09-30 (157.6 s song, RTX 2080 Super, RuneLite open at ~19 %
 //! of the 3D engine): DirectML separation dropped a 120 fps probe to 57 fps

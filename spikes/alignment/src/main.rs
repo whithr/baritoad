@@ -32,7 +32,7 @@ struct Report {
     stage_whisper_s: f64,
     stage_w2v_inference_s: f64,
     stage_trellis_s: f64,
-    total_alignment_stage_s: f64, // whisper + w2v + trellis (the PLAN §5 "alignment stage")
+    total_alignment_stage_s: f64, // whisper + w2v + trellis (the whole alignment stage)
     realtime_factor: f64,
     transcript: String,
     n_words: usize,

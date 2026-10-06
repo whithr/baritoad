@@ -1,6 +1,6 @@
 //! PlayerClock — current song position in **original-song seconds**, derived
 //! from frames actually rendered by the audio device callback, never wall
-//! time (PLAN.md §5 "lyric sync").
+//! time.
 //!
 //! Structure: `position = origin + timeline(frames_since_origin)`, where
 //! `origin` is the song time of the last applied seek and [`StretchTimeline`]
@@ -13,7 +13,7 @@
 //! becomes audible. This translation — and nothing else — recovers song
 //! time; callers (`position_seconds`) never changed from milestone 1. Timing
 //! maps themselves always store original-song time; this is the only place
-//! device position is translated (PLAN.md §5).
+//! device position is translated.
 //!
 //! Concurrency: the audio callback is the single writer of the frame counter
 //! and the seek origin (a seqlock guards origin+counter pairs so a UI poll

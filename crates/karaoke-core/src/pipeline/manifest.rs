@@ -1,5 +1,4 @@
-//! Persisted job manifest — the record that makes the pipeline resumable
-//! (PLAN.md §5 "pipeline orchestrator (job queue, resume)").
+//! Persisted job manifest — the record that makes the pipeline resumable.
 //!
 //! One `job.json` lives **beside the outputs** (the manifest is authoritative);
 //! a small pointer file per job lands in the jobs dir so `karaoke jobs list`
@@ -45,7 +44,7 @@ pub const MANIFEST_VERSION: u32 = 1;
 pub const MANIFEST_FILE_NAME: &str = "job.json";
 
 /// The pipeline stages, in run order (separate → clean lyrics → align →
-/// export — PLAN.md §9 Phase 1).
+/// export).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
@@ -107,7 +106,7 @@ pub enum StageStatus {
     Complete,
     Failed,
     /// The stage does not apply to this job (e.g. lyric cleanup with no
-    /// pasted lyrics — the align stage auto-transcribes instead, PLAN.md §3).
+    /// pasted lyrics — the align stage auto-transcribes instead).
     NotApplicable,
 }
 

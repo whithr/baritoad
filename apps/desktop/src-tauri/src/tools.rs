@@ -1,6 +1,5 @@
 //! The external programs Add from URL runs — yt-dlp, Deno, and an ffmpeg
-//! when there is one — and keeping yt-dlp current (PLAN.md §5 "Add from
-//! URL", §6).
+//! when there is one — and keeping yt-dlp current (docs/DEPENDENCIES.md).
 //!
 //! Search order for each program: the app's data folder
 //! (`%LOCALAPPDATA%\baritoad\tools\`), the `tools\` bundled beside the app,

@@ -3,7 +3,7 @@
 // variables plus a static background layer. Themes style the PLAYER STAGE
 // ONLY; the app's own chrome stays Digital Dash (DESIGN.md).
 //
-// Guardrails live in code, not knobs (PRODUCT.md accessibility commitments):
+// Guardrails live in code, not knobs (DESIGN.md Player Themes):
 // sung vs not-yet-sung never rides hue alone (the wipe's fill edge and the
 // sung glow carry it), and text sizes are untouched (couch-readable). The
 // editor surfaces a live AA contrast readout via the helpers below.

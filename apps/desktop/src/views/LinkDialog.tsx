@@ -1,7 +1,7 @@
 // Add from URL: paste links — a song, a video, a whole playlist — check what
 // they point at, review the list, then queue them. Each song downloads to this
 // computer with yt-dlp, finds its lyrics on LRCLIB when asked, and imports
-// like any other song (PLAN.md §3 Add from URL, §5). Nothing downloads until
+// like any other song. Nothing downloads until
 // the person clicks Add.
 //
 // The review list looks each song's lyrics up as soon as it shows (when
@@ -12,7 +12,7 @@
 // A music video can swap for its album version (no intro, the edit LRCLIB's
 // lyrics match): Find Album Version opens YouTube Music's search in the
 // browser, and the link the person pastes back replaces the row. The app
-// never picks a different link itself (PLAN.md §7).
+// never picks a different link itself.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {

@@ -1,5 +1,5 @@
 //! Where baritoad keeps its per-user data, and the one-time move from the
-//! folder it used before the rename (PLAN.md §9, v1.0 item 4).
+//! folder it used before the rename.
 //!
 //! `%LOCALAPPDATA%\baritoad` on Windows (elsewhere, for now,
 //! `~/.local/share/baritoad`). Everything lives under it: `library.db`,

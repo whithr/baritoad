@@ -1,7 +1,7 @@
-//! Audio-file tag reading via lofty (MIT OR Apache-2.0, §6): title / artist /
+//! Audio-file tag reading via lofty (MIT OR Apache-2.0): title / artist /
 //! album / embedded cover art / duration, at import time.
 //!
-//! Local-first hard rule (PLAN.md §2, CLAUDE.md): metadata and artwork come
+//! Local-first hard rule (CLAUDE.md): metadata and artwork come
 //! from the user's file only — there is no network fetch of any kind here.
 //! When a file has no usable tags, callers fall back to filename parsing
 //! (the wizard already does).

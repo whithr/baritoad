@@ -1,6 +1,6 @@
 // Pure view logic for the full-screen player: which line is current, the
 // per-word highlight wipe, the wait cues and lead-ins, and the karaoke pages. All times are
-// original-song seconds (PLAN.md §5 — the map's only time base, and exactly
+// original-song seconds (the map's only time base, and exactly
 // what the interpolated engine clock reports).
 //
 // Render-path note (spikes/lyric-render/REPORT.md): the DOM renderer won on
@@ -27,7 +27,7 @@ export interface LineGroup {
  * One row per lyric line: mid-line wrap reads as a line break and wrong-foots
  * the singer, so a line wider than its viewport shrinks its layout size by a
  * static per-line factor instead of wrapping. Below the floor legibility wins
- * (couch-readable type is a PRODUCT.md hard requirement) — that rare
+ * (couch-readable type is a hard requirement, DESIGN.md) — that rare
  * over-long line keeps the floor size and wraps after all.
  */
 export const LINE_FIT_MIN = 0.55;

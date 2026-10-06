@@ -1,6 +1,6 @@
 // baritoad 98 controls. Behaviour (focus, keyboard, ARIA) comes from Base UI
 // primitives where one exists; every visible pixel comes from base.css.
-// §6 row: @base-ui/react (MIT).
+// Dependency row (docs/DEPENDENCIES.md): @base-ui/react (MIT).
 
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox";
 import { NumberField } from "@base-ui/react/number-field";

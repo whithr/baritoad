@@ -1,4 +1,4 @@
-//! Review-screen commands (PLAN.md §3 "Review screen", §4 step 4 "Preview &
+//! Review-screen commands ("Preview &
 //! fix"): audio playback grants, the fix editor's save / re-align / export
 //! bookkeeping.
 //!
@@ -10,8 +10,8 @@
 //! [`playback_sources`] allows individual files at runtime, only after
 //! resolving them through the library row or the job manifest — the webview
 //! can never mint read access to arbitrary paths. The Phase 3 performance
-//! player (cpal + Signalsmith stretch, PLAN.md §5) replaces this for actual
-//! singing; the §5 player-clock rules live there — nothing here stretches, so
+//! player (cpal + Signalsmith stretch) replaces this for actual
+//! singing; the player-clock rules live there — nothing here stretches, so
 //! `<audio>.currentTime` *is* original-song time.
 //!
 //! ## Stale exports
@@ -138,7 +138,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// re-align a selection (PLAN.md §3: "re-run alignment on a selection")
+// re-align a selection
 // ---------------------------------------------------------------------------
 
 /// Lazily-loaded windowed aligner, shared across re-align calls (the wav2vec2
@@ -158,7 +158,7 @@ pub struct RealignRequest {
     /// The vocal stem (the caller got it from `playback_sources` /
     /// the library row).
     pub vocals_path: String,
-    /// Window bounds in original-song seconds (PLAN.md §5 time base).
+    /// Window bounds in original-song seconds.
     pub window_start: f64,
     pub window_end: f64,
     /// Display text of the selected words, in map order.
@@ -363,7 +363,7 @@ pub async fn vocal_levels(vocals_path: String) -> Result<VocalLevels, String> {
 pub async fn save_timing_map(path: String, map: serde_json::Value) -> Result<String, String> {
     let raw = serde_json::to_string(&map).map_err(|e| e.to_string())?;
     // from_json re-checks the time_base — a map claiming any other time base
-    // than original-song is refused here, same as everywhere (PLAN.md §5).
+    // than original-song is refused here, same as everywhere.
     let map = WordTimingMap::from_json(&raw).map_err(|e| e.to_string())?;
     map.save_atomic(Path::new(&path)).map_err(|e| e.to_string())?;
     let json = map.to_json_pretty().map_err(|e| e.to_string())?;

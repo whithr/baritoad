@@ -1,5 +1,5 @@
 """Export facebook/wav2vec2-base-960h (Apache-2.0) to ONNX for the alignment spike.
-Build-time tooling only — no Python at app runtime (PLAN.md §5).
+Build-time tooling only — no Python at app runtime.
 """
 import json, os, sys
 import torch

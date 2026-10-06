@@ -1,5 +1,5 @@
 //! karaoke-core — pipeline stages, inference, and format I/O for the karaoke
-//! app (GPL-3.0-or-later; see PLAN.md).
+//! app (GPL-3.0-or-later).
 //!
 //! Phase 1 (done):
 //! - separation stage (htdemucs via ONNX Runtime), ported from
@@ -10,22 +10,21 @@
 //! - alignment stage (whisper-small rough pass + wav2vec2 CTC trellis over
 //!   the vocal stem, pasted-lyrics anchoring), ported from spikes/alignment
 //!   with its hardening list applied; output is a [`timing::WordTimingMap`]
-//!   in original-song time (PLAN.md §5); auto-transcribe fallback when no
-//!   lyrics are pasted (PLAN.md §3)
+//!   in original-song time; auto-transcribe fallback when no
+//!   lyrics are pasted
 //! - lyric cleanup stage ([`lyrics`]): strips section headers and credit
 //!   lines, expands repeat markers, flags ad-libs — runs before alignment
-//!   (PLAN.md §3) and produces the machine-readable change summary (§4)
+//!   and produces the machine-readable change summary
 //! - export stage ([`formats`]): Enhanced LRC, ASS karaoke subtitles, and
-//!   UltraStar .txt from the timing map (PLAN.md §3 "Formats & interop");
-//!   original-song time verbatim, no stretch translation (§5); UltraStar
+//!   UltraStar .txt from the timing map;
+//!   original-song time verbatim, no stretch translation; UltraStar
 //!   *import* lands beside the exporter (pitch preserved, unused in v1)
 //! - pipeline orchestrator ([`pipeline`]): the four stages above as
 //!   resumable jobs with a persisted manifest and progress events
-//!   (PLAN.md §5 "job queue, resume")
 //! - accuracy harness ([`accuracy`]): word-onset error vs hand-made
-//!   UltraStar references (PLAN.md §9 Phase 1)
+//!   UltraStar references
 //! - library store ([`library`]): SQLite-backed songs / collections /
-//!   up-next queue (PLAN.md §3, §5), tag-based metadata + cover art via
+//!   up-next queue, tag-based metadata + cover art via
 //!   lofty (local files only, never the network), and the completion hook
 //!   that registers finished jobs idempotently by audio hash
 //!
@@ -33,7 +32,7 @@
 //! - playback audio engine ([`player`]): cpal output stream, dual-stem
 //!   mixing with click-free vocal-guide blend, sample-accurate transport,
 //!   the device-frame-derived player clock with the stretch-translation
-//!   seam (PLAN.md §5 "lyric sync"), and key/tempo shift through Signalsmith
+//!   seam, and key/tempo shift through Signalsmith
 //!   Stretch (`karaoke-stretch-sys`); queue auto-advance is still to come
 //!
 //! Hard rules honored here (CLAUDE.md): no Python at runtime, ffmpeg and

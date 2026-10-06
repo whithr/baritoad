@@ -9,7 +9,7 @@
 //
 // State is the tested editorState reducer (undo/redo/dirty, timing-map
 // invariants); playback is the review-screen <audio> hook (original-song
-// time — PLAN.md §5); waveforms are the vocal stem's peak envelope.
+// time); waveforms are the vocal stem's peak envelope.
 // Chrome is baritoad 98: every command sits in the menu bar; the toolbar,
 // right-click menu and keys are shortcuts to it.
 

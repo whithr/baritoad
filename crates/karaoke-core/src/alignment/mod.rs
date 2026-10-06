@@ -1,6 +1,6 @@
 //! Alignment stage: whisper-small rough pass + wav2vec2-base CTC forced
 //! alignment over the **vocal stem**, with pasted-lyrics edit-distance
-//! anchoring (PLAN.md §5).
+//! anchoring.
 //!
 //! Ported from spikes/alignment with the production inputs the spike lacked
 //! (vocal stems, pasted lyrics) and its hardening list applied:
@@ -22,7 +22,7 @@
 //! letters into amplified hiss, and a word stranded in an intro is worse
 //! than a weak one where the singing is.
 //!
-//! Output timing is **original-song time** (PLAN.md §5 hard rule): the vocal
+//! Output timing is **original-song time** (a hard rule): the vocal
 //! stem is time-aligned 1:1 with the user's file, and nothing here knows about
 //! tempo stretch.
 
@@ -116,7 +116,7 @@ pub struct AlignStats {
     pub whisper_s: f64,
     pub w2v_s: f64,
     pub trellis_s: f64,
-    /// whisper + w2v + trellis (the PLAN §5 "alignment stage").
+    /// whisper + w2v + trellis (the whole alignment stage).
     pub total_s: f64,
     pub realtime_factor: f64,
     pub w2v_ep: String,
@@ -297,7 +297,7 @@ impl Aligner {
         self.align_core(vocals16k, Some(lyric_words), progress)
     }
 
-    /// Auto-transcribe fallback (PLAN.md §3): no pasted lyrics — the whisper
+    /// Auto-transcribe fallback: no pasted lyrics — the whisper
     /// transcript becomes the lyric source, and the map is marked
     /// [`LyricSource::Transcribed`]. Its lines break at whisper chunk
     /// boundaries and, inside a chunk, at the singer's pauses
@@ -665,12 +665,12 @@ impl Aligner {
 }
 
 // ---------------------------------------------------------------------------
-// windowed re-alignment (fix editor's "Re-align selection" — PLAN.md §3)
+// windowed re-alignment (fix editor's "Re-align selection")
 // ---------------------------------------------------------------------------
 
 /// Lightweight aligner for re-running the CTC pass over a short window of the
 /// vocal stem with a user-selected run of lyric words (the review screen's
-/// "Re-align selection", PLAN.md §3).
+/// "Re-align selection").
 ///
 /// Deliberately whisper-free: the selection *is* ground truth about what is
 /// sung in the window, so the rough-anchor pass has nothing to add — only the
@@ -705,7 +705,7 @@ impl WindowAligner {
 
     /// Align `lyric_words` to `window16k` — a slice of the 16 kHz mono vocal
     /// stem that starts at `window_start_s` in **original-song time**
-    /// (PLAN.md §5: the map's only time base). Output timings are 1:1 with
+    /// (the map's only time base). Output timings are 1:1 with
     /// `lyric_words`, in original-song time, monotonic by construction (the
     /// CTC trellis path is ordered). The caller splices them into the
     /// existing map, respecting neighbor words.

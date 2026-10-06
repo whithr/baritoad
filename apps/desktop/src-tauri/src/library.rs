@@ -1,5 +1,5 @@
 //! Library commands — the webview's surface over karaoke-core's SQLite
-//! library store (PLAN.md §3 "Library & collections", §5 "library store").
+//! library store.
 //!
 //! One [`LibraryHandle`] is managed at startup: the store behind a `Mutex`
 //! (rusqlite connections are single-threaded) shared between commands and the
@@ -157,8 +157,8 @@ impl LibraryHandle {
 }
 
 // ---------------------------------------------------------------------------
-// probe (wizard step 1 — PLAN.md §4: "App reads tags → shows
-// title/artist/cover, asks nothing else")
+// probe (wizard step 1: the app reads tags, shows title/artist/cover,
+// asks nothing else)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -360,7 +360,7 @@ pub async fn song_collections(
 }
 
 // ---------------------------------------------------------------------------
-// up-next queue (PLAN.md §3). Every change emits QUEUE_EVENT. The Stage marks
+// up-next queue. Every change emits QUEUE_EVENT. The Stage marks
 // the entry it sings (queue_play) and finishes it (queue_finish); the entry
 // leaves the list then, not when it starts.
 // ---------------------------------------------------------------------------
@@ -579,7 +579,7 @@ pub async fn read_cover(
 }
 
 // ---------------------------------------------------------------------------
-// base64 data URL (hand-rolled: ~20 lines beats a new §6 dependency row)
+// base64 data URL (hand-rolled: ~20 lines beats a new dependency row)
 // ---------------------------------------------------------------------------
 
 pub(crate) fn data_url(bytes: &[u8], mime: Option<&str>) -> String {

@@ -5,7 +5,7 @@
 // individually allowed by the playback_sources command — never a directory).
 // There is deliberately NO key or tempo shift here, and none may be added:
 // the real performance player is the Phase 3 cpal engine in Rust, where the
-// player clock maps device position through stretch ratios (PLAN.md §5).
+// player clock maps device position through stretch ratios.
 // Because nothing here stretches (playbackRate stays 1), <audio>.currentTime
 // IS original-song time, which is the timing map's only time base — so this
 // hook may compare it against map times directly.

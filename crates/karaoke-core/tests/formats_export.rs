@@ -1,5 +1,5 @@
-//! Golden-file and property tests for the export stage (PLAN.md §3
-//! "Formats & interop") over a hand-built timing-map fixture.
+//! Golden-file and property tests for the export stage over a hand-built
+//! timing-map fixture.
 //!
 //! All lyric text is invented — never copied from a real song (CLAUDE.md
 //! hard rule). The fixture deliberately covers: lyric-linked lines, ad-lib

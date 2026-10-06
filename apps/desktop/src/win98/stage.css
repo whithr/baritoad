@@ -89,7 +89,7 @@
 }
 
 /* Every line lays out — and renders — at one constant display size (couch-
-   readable, PRODUCT.md); state is luminance and colour only. One row per
+   readable, DESIGN.md); state is luminance and colour only. One row per
    line: --fit (set at mount/resize, never per frame) shrinks a wide line;
    past the 0.55 floor it wraps (data-overlong). */
 .pk-line {
@@ -238,7 +238,7 @@
   opacity: 1;
 }
 
-/* Couch-sized (read from ~3 m on a TV, PLAN.md §9 v1.0 item 5): the pixel
+/* Couch-sized (read from ~3 m on a TV): the pixel
    font at an exact 2×, the readout and lamps at half the lyric line. */
 .pk-gap-word {
   font-family: "Pixel Operator", Tahoma, sans-serif;

@@ -1,4 +1,4 @@
-//! Fixture-level tests for the lyric cleanup pass (PLAN.md §3) over
+//! Fixture-level tests for the lyric cleanup pass over
 //! hand-written dirty files in the Genius / AZLyrics paste style.
 //!
 //! All lyric text is invented for these tests — never copied or scraped from

@@ -1,16 +1,16 @@
 //! `karaoke` — command-line front end for the karaoke pipeline
-//! (GPL-3.0-or-later; PLAN.md is authoritative for scope).
+//! (GPL-3.0-or-later).
 //!
 //! Phase 1:
 //! - `karaoke generate` — the full pipeline (separate → clean lyrics → align
-//!   → export) as a resumable job with a persisted manifest (PLAN.md §5)
+//!   → export) as a resumable job with a persisted manifest
 //! - `karaoke jobs list` — every job the registry knows, with status
 //! - `karaoke accuracy` — word-timing error vs hand-made UltraStar
-//!   references (PLAN.md §9 Phase 1), plus the synthetic `--self-check`
+//!   references, plus the synthetic `--self-check`
 //! - `karaoke separate` — split a user-owned song into vocals + instrumental
 //! - `karaoke align` — word-align pasted lyrics to the vocal stem (runs
 //!   separation first when no stem is provided; auto-transcribes when no
-//!   lyrics are given — PLAN.md §3). Pasted lyrics go through the cleanup
+//!   lyrics are given). Pasted lyrics go through the cleanup
 //!   pass first; the change summary lands on stderr (and in `--json`).
 //! - `karaoke export` — render a timing map as LRC / ASS / UltraStar
 //! - `karaoke lyrics clean` — dry-run preview of the lyric cleanup pass
@@ -67,7 +67,7 @@ enum Cmd {
     /// auto-transcribes when no lyrics are given)
     Align(AlignArgs),
     /// Export a timing map to a karaoke interchange format (Enhanced LRC,
-    /// ASS karaoke subtitles, or UltraStar .txt — PLAN.md §3)
+    /// ASS karaoke subtitles, or UltraStar .txt)
     Export(ExportArgs),
     /// Lyric utilities
     #[command(subcommand)]
@@ -373,10 +373,10 @@ struct AlignArgs {
     audio: PathBuf,
 
     /// Text file with the pasted lyrics (ground truth; whisper is only used
-    /// for rough anchors — PLAN.md §5). The cleanup pass runs automatically.
+    /// for rough anchors). The cleanup pass runs automatically.
     /// When omitted, the vocal stem is auto-transcribed and the whisper
     /// transcript becomes the lyric source (marked as such in the output) —
-    /// pasted lyrics are dramatically more accurate (PLAN.md §4).
+    /// pasted lyrics are dramatically more accurate.
     #[arg(long)]
     lyrics: Option<PathBuf>,
 
@@ -788,7 +788,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
         .clone()
         .unwrap_or_else(separation::default_model_dir);
 
-    // ---- lyric cleanup pass (PLAN.md §3: runs before alignment) ----
+    // ---- lyric cleanup pass (runs before alignment) ----
     let cleaned: Option<CleanLyrics> = match &args.lyrics {
         Some(path) => {
             let raw = std::fs::read_to_string(path)
@@ -812,7 +812,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // ---- get the vocal stem (production input for alignment — PLAN.md §5) ----
+    // ---- get the vocal stem (production input for alignment) ----
     let mut separation_run: Option<SeparationRun> = None;
     let vocals_path: PathBuf = match &args.vocals {
         Some(p) => {
@@ -933,7 +933,7 @@ fn run_align(args: &AlignArgs) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(&out_path, out.map.to_json_pretty()?)?;
     eprintln!("wrote {}", out_path.display());
 
-    // ---- optional exports, written beside the map (PLAN.md §3) ----
+    // ---- optional exports, written beside the map ----
     let mut export_paths: Vec<PathBuf> = Vec::new();
     if !args.export.is_empty() {
         let base = export_base(&out_path);
@@ -1058,8 +1058,8 @@ fn write_export(
 }
 
 /// `karaoke export` — render a timing map as LRC / ASS / UltraStar.
-/// Exporters consume the map's original-song time verbatim (PLAN.md §5:
-/// tempo-aware translation is the player clock's job, never the file's).
+/// Exporters consume the map's original-song time verbatim
+/// (tempo-aware translation is the player clock's job, never the file's).
 fn run_export(args: &ExportArgs) -> Result<(), Box<dyn std::error::Error>> {
     let raw = std::fs::read_to_string(&args.map)
         .map_err(|e| format!("cannot read timing map {}: {e}", args.map.display()))?;

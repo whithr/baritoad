@@ -18,12 +18,12 @@
 //! interpolates between reports against `performance.now()`:
 //! `est = base + dt·rate`, where `rate` is the tempo ratio while playing and
 //! 0 while paused — valid because [`PlayerClock::position_seconds`] is
-//! **original-song seconds** (PLAN.md §5) and advances at exactly the tempo
+//! **original-song seconds** and advances at exactly the tempo
 //! ratio per wall second during steady playback. Each report corrects the
 //! interpolation; the measured correction magnitude is the transport's
 //! jitter (reported in the milestone summary; playerClock.ts keeps stats).
 //! The UI never translates through stretch ratios itself — the clock already
-//! did (PLAN.md §5: timing maps store original-song time only).
+//! did (timing maps store original-song time only).
 //!
 //! ## Song end
 //! `PlayerEvent::Completed` is forwarded as `{kind: "completed"}`. With
@@ -60,7 +60,7 @@ const STATUS_PERIOD: Duration = Duration::from_millis(100);
 pub struct PlayerStatus {
     /// "stopped" | "playing" | "paused" | "finished" | "unloaded".
     pub state: &'static str,
-    /// Original-song seconds (PlayerClock — the §5 time base).
+    /// Original-song seconds (PlayerClock — the timing map's time base).
     pub position: f64,
     pub duration: f64,
     /// Original-song seconds already decoded and playable (streaming load
@@ -487,7 +487,7 @@ pub async fn player_stop(player: State<'_, Arc<PlayerHandle>>) -> Result<(), Str
 }
 
 /// Seek to `position` (original-song seconds — the only time base the UI
-/// speaks; the engine's clock does all stretch translation, PLAN.md §5).
+/// speaks; the engine's clock does all stretch translation).
 #[tauri::command]
 pub async fn player_seek(player: State<'_, Arc<PlayerHandle>>, position: f64) -> Result<(), String> {
     player.send(PlayerCmd::Seek(position))

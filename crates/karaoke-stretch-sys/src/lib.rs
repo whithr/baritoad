@@ -1,7 +1,7 @@
 //! Hand-written FFI over the vendored Signalsmith Stretch C wrapper.
 //!
 //! Provenance (all vendored under `vendor/`, licenses verified from the
-//! vendored files themselves — PLAN.md §6):
+//! vendored files themselves — docs/DEPENDENCIES.md):
 //! - `signalsmith-stretch/` — Signalsmith Stretch header, MIT
 //!   (Geraint Luff / Signalsmith Audio Ltd.)
 //! - `signalsmith-linear/` — STFT/FFT support headers, MIT (Signalsmith

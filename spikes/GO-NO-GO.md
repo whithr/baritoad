@@ -1,7 +1,7 @@
 # Phase 0 go/no-go — de-risk spike synthesis
 
-Date: 2026-08-05. Judged against PLAN.md §9 (roadmap gate: "nothing else until
-they pass or their fallbacks are chosen") and §10 (top risks), per the criteria
+Date: 2026-08-05. Judged against the roadmap gate ("nothing else until
+they pass or their fallbacks are chosen") and the top risks, per the criteria
 in spikes/README.md. Full evidence: each spike's REPORT.md.
 
 ## Verdict table
@@ -37,26 +37,26 @@ words in 6.4 min; 12% of words stretched > 2 s as the trellis absorbed unsung
 audio). Two mitigations keep this from blocking: (1) the spike ran **without**
 the two production inputs — vocal stems (now proven available from the
 separation spike) and pasted-lyrics edit-distance anchoring — both of which
-attack exactly this failure; (2) PLAN §10 risk 3 already budgets for hard
-material via the first-class fix editor. The aligner mechanism itself is
+attack exactly this failure; (2) hard material is already budgeted for
+via the first-class fix editor. The aligner mechanism itself is
 proven exact; the open question is transcript quality, which the production
 pipeline shape directly addresses.
 
 **Stretch is the highest-stakes cheap item.** If the listening pass fails
-there is no cheap fallback (Rubber Band is excluded, PLAN §6; the named path
+there is no cheap fallback (Rubber Band is excluded, docs/DEPENDENCIES.md; the named path
 is "license commercially or descope key/tempo — escalate"). Spend the 30
 minutes before anything else.
 
-## Fallback status (PLAN §10)
+## Fallback status
 
 **None invoked.** Every spike's measured evidence points at the primary path:
 
 | Named fallback | Status | Cost if its trigger later fires |
 |---|---|---|
-| demucs.cpp FFI / sidecar (§10 risk 1) | Not needed — ONNX+ort passed everything measurable | n/a; trigger would be a CoreML-specific failure, in which case CPU EP on Apple Silicon is the in-place fallback first |
-| whisper.cpp timestamps + DTW (§10 risk 2) | Parked — nothing measured motivates it | Lower timing quality, fix editor carries more weight; only take it if hand-timed grading fails *with* stems + lyric anchoring |
+| demucs.cpp FFI / sidecar | Not needed — ONNX+ort passed everything measurable | n/a; trigger would be a CoreML-specific failure, in which case CPU EP on Apple Silicon is the in-place fallback first |
+| whisper.cpp timestamps + DTW | Parked — nothing measured motivates it | Lower timing quality, fix editor carries more weight; only take it if hand-timed grading fails *with* stems + lyric anchoring |
 | Rubber Band / descope key-tempo | Not indicated — latency/gapless passed | Real money or a v1 feature cut; decision escalates per spikes/README.md, not made here |
-| Native wgpu player window (§5) | Explicitly do **not** start — trigger (WebKitGTK failure) has not been measured | ~weeks of renderer work; keep DOM+canvas dual path until Linux numbers decide |
+| Native wgpu player window | Explicitly do **not** start — trigger (WebKitGTK failure) has not been measured | ~weeks of renderer work; keep DOM+canvas dual path until Linux numbers decide |
 
 ## Phase 0 closeout — required before calling the gate cleared
 
@@ -67,7 +67,7 @@ In priority order (1–2 are human, 3–4 are hardware):
    preset_default vs the 40 ms/10 ms config. Only spike whose failure has no
    cheap fallback.
 2. **Hand-time 5–10 diverse English songs and grade alignment** (the actual
-   §9 spike-2 criterion): run the existing `alignment-spike` binary, grade the
+   spike-2 criterion): run the existing `alignment-spike` binary, grade the
    onset-error distribution + playback feel. Re-run over **vocal stems** with
    **pasted-lyrics anchoring** — the production configuration — not just full
    mixes. Apply the measured constant −55 ms bias correction first; it roughly
@@ -136,7 +136,7 @@ above.
 - Session reuse / IO-binding for ort (a naive KV copy-per-step loop doubled
   whisper time); streamed overlap-add + Symphonia decode in separation.
 - Keep both DOM and canvas lyric renderers behind a switch until WebKitGTK
-  numbers pick the winner (DOM beat canvas on Windows, inverting the PLAN §5
+  numbers pick the winner (DOM beat canvas on Windows, inverting the
   "WebGL/canvas" assumption).
 
 **Toolchain / provenance / licensing:**
@@ -145,7 +145,7 @@ above.
 - MODEL_LICENSES.md: htdemucs weights now come from HF `adefossez/HTDemucs`
   (MIT) — record repo + checkpoint hash; export whisper ONNX from original
   OpenAI weights (spike consumed the onnx-community re-export).
-- PLAN §6 matrix updates in the adopting change: add ort, ndarray, hound;
+- Licensing matrix (docs/DEPENDENCIES.md) updates in the adopting change: add ort, ndarray, hound;
   correct wav2vec2-base-960h to **Apache-2.0** (matrix says MIT; both
   commercial-safe). No GPL/AGPL anywhere in any spike; symphonia is MPL-2.0
   unmodified.

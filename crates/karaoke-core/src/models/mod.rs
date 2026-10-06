@@ -1,4 +1,4 @@
-//! The model manager (PLAN.md §3 "Model manager", §5 "Model mirror"): which
+//! The model manager: which
 //! weights the pipeline needs, whether they're on disk, and downloading them
 //! from our mirror with resume and a checksum check.
 //!
@@ -16,7 +16,7 @@
 //! A download writes `<file>.part`, resumes it with an HTTP Range request,
 //! checks the sha256 of the whole file, then renames it into place — a file
 //! is either complete and verified or absent. Network calls happen only when
-//! the person starts a download (PLAN.md §2).
+//! the person starts a download.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -30,8 +30,8 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
 
-/// Built-in mirror address: our Cloudflare R2 bucket on its custom domain
-/// (PLAN.md §5), live 2026-10-02. Files sit at `<mirror>/v1/<manifest path>`
+/// Built-in mirror address: our Cloudflare R2 bucket on its custom domain,
+/// live 2026-10-02. Files sit at `<mirror>/v1/<manifest path>`
 /// with each model's license beside it. `KARAOKE_MODEL_MIRROR` overrides it
 /// (dev and tests).
 pub const DEFAULT_MIRROR: &str = "https://models.baritoad.com";

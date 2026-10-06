@@ -1,5 +1,5 @@
 [Script Info]
-; Karaoke export — timings are original-song time (PLAN.md §5);
+; Karaoke export — timings are original-song time;
 ; play against the original audio file, not a tempo-shifted render.
 Title: Paper Lanterns
 ; Artist: The Invented

@@ -1,6 +1,6 @@
 // App shell: Library → Bench in the main window, the TV player in its own
 // Stage window (stage.ts), and a tiny hash router — no router dependency
-// (three routes don't justify a package and its §6 row).
+// (three routes don't justify a package and its dependency row).
 //
 // Chrome is baritoad 98 (win98/, DESIGN.md). Each view draws its own
 // window frame, menus and status bar; Properties, Player Themes and About

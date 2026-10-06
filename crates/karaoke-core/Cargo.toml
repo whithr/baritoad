@@ -22,11 +22,11 @@ lofty.workspace = true
 cpal.workspace = true
 ureq.workspace = true
 # Key/tempo shift: vendored Signalsmith Stretch (MIT) via hand-written FFI
-# (PLAN.md §5/§6; never Rubber Band).
+# (docs/DEPENDENCIES.md; never Rubber Band).
 karaoke-stretch-sys = { path = "../karaoke-stretch-sys" }
 
 [target.'cfg(windows)'.dependencies]
-# The GPU path (DirectML.dll ships beside the exe; PLAN.md §6).
+# The GPU path (DirectML.dll ships beside the exe; docs/DEPENDENCIES.md).
 ort = { workspace = true, features = ["directml"] }
 
 [dev-dependencies]

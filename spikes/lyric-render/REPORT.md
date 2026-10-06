@@ -90,16 +90,16 @@ iGPU laptop, X11 and Wayland both.
 3. Run matrix: {dom, canvas} x {default, `WEBKIT_DISABLE_COMPOSITING_MODE=1`} x {X11, Wayland}, windowed and fullscreen, machine idle.
 4. Pass bar on WebKitGTK: p99 frame delta <= 16.7 ms over the 30 s window in the fullscreen scene, no frames > 34 ms (the "visible stutter" threshold), on at least one of the two render paths.
 
-## Risks discovered (not already in PLAN.md)
+## Risks discovered
 
 1. **High-refresh displays raise the bar.** WebView2 vsyncs rAF at the panel
    rate (120 Hz here). A player loop tuned to "16 ms is fine" will judder on
    120/144 Hz panels. Per-frame work must fit ~8 ms on such panels, not 16 ms
    (the clock itself stays refresh-agnostic since it derives from audio-device
-   position per PLAN.md §5).
+   position).
 2. **DOM beat canvas on Windows.** The compositor path (transforms +
    background-clip) was *cheaper* than full canvas-2D redraw at 3440 px wide
-   (0 vs 9 over-budget frames). PLAN.md §5 sketches the player as
+   (0 vs 9 over-budget frames). The design sketches the player as
    "WebGL/canvas renderer" — on WebKitGTK the ranking may invert (its DOM
    compositing is the historically weak part), so keep both paths until the
    Linux measurement decides. The spike app deliberately ships both.
@@ -119,7 +119,7 @@ iGPU laptop, X11 and Wayland both.
 
 ## Licensing
 
-Only Tauri 2 (MIT/Apache-2.0, already in the PLAN.md §6 matrix) plus
+Only Tauri 2 (MIT/Apache-2.0, already in the docs/DEPENDENCIES.md matrix) plus
 serde/serde_json (MIT/Apache-2.0) are used; spike-only harness, nothing new
 ships in the product binary. No model weights, no audio files.
 

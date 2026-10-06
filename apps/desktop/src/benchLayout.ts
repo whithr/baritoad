@@ -1,5 +1,5 @@
 // Pure layout + navigation math for the bench (Text / Lanes).
-// All times are original-song seconds (PLAN.md §5); the views map them to
+// All times are original-song seconds; the views map them to
 // pixels through the per-lane window from editorState.lineWindow.
 
 import type { WordTiming } from "./api";

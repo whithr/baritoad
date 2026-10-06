@@ -2,7 +2,7 @@
 // shift-scope range resolution. The puck rests on the word being sung and
 // arcs to the next word's position so its landing marks the onset — the
 // visual answer to "when is the next word due". All times are original-song
-// time (PLAN.md §5); the view maps indices to pixels.
+// time; the view maps indices to pixels.
 
 export interface PuckWord {
   start: number;

@@ -4,7 +4,7 @@
 
 ## What was built
 
-A single Rust binary (`alignment-spike`, ~1,100 lines, no Python at runtime) implementing the PLAN.md §5 two-stage design:
+A single Rust binary (`alignment-spike`, ~1,100 lines, no Python at runtime) implementing the two-stage design:
 
 1. mp3/wav decode (symphonia) → mono → 16 kHz (rubato sinc resample)
 2. **Stage 1**: whisper-small via ONNX Runtime (`ort` crate) — Rust log-mel
@@ -56,7 +56,7 @@ trellis comparison cannot, since that comparison shares emissions.
 
 ### Speed vs target (alignment stage = whisper + w2v emissions + trellis)
 
-Target (PLAN §5): ≤ 30 s GPU-class / ≤ 90 s CPU per 3.5-min song.
+Target: ≤ 30 s GPU-class / ≤ 90 s CPU per 3.5-min song.
 
 CPU fp32 (all 8 threads):
 
@@ -117,25 +117,24 @@ target\release\alignment-spike out\tts-reference.wav --weights weights --outdir 
 %TEMP%\kvenv\Scripts\python py\summarize.py              # per-song table
 ```
 
-## Licensing (PLAN §6 — all clear)
+## Licensing (docs/DEPENDENCIES.md — all clear)
 
-- whisper-small: OpenAI weights, MIT per PLAN §6 (HF card tags Apache-2.0;
+- whisper-small: OpenAI weights, MIT per the licensing matrix (HF card tags Apache-2.0;
   both commercial-safe). ONNX export consumed from onnx-community (a
   transformers.js/optimum export of `openai/whisper-small`); **Phase 1 should
   export from the original OpenAI weights ourselves for clean provenance** and
   record it in MODEL_LICENSES.md.
-- wav2vec2: `facebook/wav2vec2-base-960h`, **Apache-2.0** (HF). PLAN §6 lists
+- wav2vec2: `facebook/wav2vec2-base-960h`, **Apache-2.0** (HF). The licensing matrix lists
   "wav2vec2-base (fairseq) MIT" — the fine-tuned 960h CTC checkpoint actually
-  carries Apache-2.0; commercial-safe either way, but the §6 matrix row should
+  carries Apache-2.0; commercial-safe either way, but the matrix row should
   be updated in Phase 1 (not touched by this spike per spike rules).
 - Rust deps: ort MIT/Apache-2.0, symphonia MPL-2.0 (unmodified), rubato MIT,
   rustfft MIT/Apache-2.0, serde/serde_json/anyhow MIT/Apache-2.0. No
   GPL/AGPL anywhere. torch/torchaudio/transformers are build-time tooling
   only and ship nothing.
-- Meta MMS multilingual was not touched (CC-BY-NC, excluded; English-only per
-  PLAN §1).
+- Meta MMS multilingual was not touched (CC-BY-NC, excluded; English-only).
 
-## Risks discovered (not already in PLAN.md)
+## Risks discovered
 
 1. **Transcript quality is the accuracy bottleneck, not the aligner.** On full
    mixes whisper-small under-transcribes/hallucinates in instrumental-heavy
@@ -176,6 +175,6 @@ Proceed toward Phase 1 with this design — the no-Python bet holds. In order:
 3. Harden for Phase 1: constant-offset correction (risk 4), silence-aware
    chunking (risk 6), IO-binding/session reuse, CUDA EP bring-up for the GPU
    target, export whisper ONNX from original weights + MODEL_LICENSES.md
-   entries, update the §6 matrix row for wav2vec2-base-960h (Apache-2.0).
+   entries, update the licensing matrix row for wav2vec2-base-960h (Apache-2.0).
 4. Keep the named fallback (whisper.cpp timestamps + DTW) parked — nothing
    measured here motivates taking it.

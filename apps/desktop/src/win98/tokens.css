@@ -1,5 +1,5 @@
 /* baritoad 98 tokens (DESIGN.md). The bevel recipes and several palette
-   values are adapted from 98.css by Jordan Scales (MIT; PLAN.md §6).
+   values are adapted from 98.css by Jordan Scales (MIT; docs/DEPENDENCIES.md).
    Classic on :root; Night overrides the
    same names. Bevels are stacked inset box-shadows built from the face ramp,
    so a scheme only has to swap five colours for every control to follow. */

@@ -1,7 +1,7 @@
 //! Key/tempo stretch engine (Phase 3 milestone 2): wraps the pure
 //! [`MixerCore`] and, when pitch/tempo settings are non-identity, routes its
-//! output through Signalsmith Stretch (PLAN.md §5 — deliberately NOT Rubber
-//! Band, which is GPL/paid, PLAN.md §6).
+//! output through Signalsmith Stretch (deliberately NOT Rubber Band, which
+//! is GPL/paid; docs/DEPENDENCIES.md).
 //!
 //! # Identity bypass
 //! At 0 st / 1.00x the stretcher is **fully out of the path**: the render is
@@ -67,9 +67,9 @@ use karaoke_stretch_sys::Stretch;
 
 use super::mixer::{BlockOutcome, MixerCore, SmoothedGain};
 
-/// Supported pitch range at the API (engine accepts wider; PLAN.md §3).
+/// Supported pitch range at the API (engine accepts wider).
 pub const MAX_PITCH_SEMITONES: f32 = 6.0;
-/// Supported tempo-rate range at the API (PLAN.md §3 / spike coverage).
+/// Supported tempo-rate range at the API (spike coverage).
 pub const TEMPO_RATE_MIN: f64 = 0.80;
 pub const TEMPO_RATE_MAX: f64 = 1.20;
 
@@ -100,7 +100,7 @@ const PRIME_CHUNK_FRAMES: usize = 2048;
 /// Spike tonality limit: preserve harmonics above 8 kHz when pitch-shifting.
 const TONALITY_LIMIT_HZ: f32 = 8000.0;
 
-/// Stretcher quality/latency configuration (runtime-selectable; PLAN.md §5).
+/// Stretcher quality/latency configuration (runtime-selectable).
 /// The default may flip to `LowLatency40x10` pending the listening verdict on
 /// the spike's `lowlat40ms_*` renders (spikes/stretch/REPORT.md §2B) — that
 /// change is one line in `Default`.

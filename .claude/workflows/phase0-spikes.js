@@ -1,7 +1,7 @@
 export const meta = {
   name: 'phase0-spikes',
   description: 'Run the four Phase 0 de-risk spikes in parallel, then synthesize a go/no-go report',
-  whenToUse: 'Starting or re-running Phase 0 de-risking (PLAN.md §9). Optional args: array of spike keys to run a subset, e.g. ["alignment"] to re-run one.',
+  whenToUse: 'Starting or re-running Phase 0 de-risking. Optional args: array of spike keys to run a subset, e.g. ["alignment"] to re-run one.',
   phases: [
     { title: 'Spike', detail: 'four parallel feasibility spikes (spike-runner agents)' },
     { title: 'Synthesize', detail: 'go/no-go report across all spike reports' },
@@ -36,7 +36,7 @@ const SPIKE_RESULT = {
     verdict: { type: 'string', enum: ['pass', 'fail', 'blocked', 'partial'] },
     headline: { type: 'string', description: 'One sentence: the answer and the headline measured numbers' },
     numbers: { type: 'string', description: 'Key measurements vs targets, with hardware and input details' },
-    risks: { type: 'string', description: 'Risks or surprises discovered that PLAN.md does not already know' },
+    risks: { type: 'string', description: 'Risks or surprises discovered that the project docs do not already cover' },
     recommendation: { type: 'string', description: 'On pass: what to harden in Phase 1. On fail: which named fallback and why. On blocked/partial: what is needed.' },
     reportPath: { type: 'string', description: 'Path to the REPORT.md written' },
   },
@@ -81,7 +81,8 @@ const summary = await agent(
   `${requested.filter(s => !results.some(r => r.key === s.key)).map(s => s.key).join(', ') || 'none'}\n\n` +
   `Read each REPORT.md listed above in full — the structured summaries are not the whole ` +
   `story. Then write spikes/GO-NO-GO.md: a verdict table (spike, verdict, headline numbers), ` +
-  `the overall call (go / go-with-fallbacks / no-go) judged against PLAN.md §9-§10, which ` +
+  `the overall call (go / go-with-fallbacks / no-go) judged against the pass criteria and ` +
+  `named fallbacks in spikes/README.md, which ` +
   `fallbacks are being invoked and their cost to the plan, and the concrete list of what ` +
   `Phase 1 must harden. Be blunt: a "partial" that only lacks Linux hardware is different ` +
   `from a "partial" that hides a quality miss. Return the overall call and a short rationale.`,

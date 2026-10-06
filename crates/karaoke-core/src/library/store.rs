@@ -64,7 +64,7 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     );
     ",
-    // v1 -> v2: review state (PLAN.md §4 step 4 "Preview & fix"). NULL =
+    // v1 -> v2: review state ("Preview & fix"). NULL =
     // never reviewed; set to unix seconds when the user confirms "Looks
     // good" (or saves fixes). Cleared on re-generate — new timings need a
     // fresh look (see upsert_song).
@@ -141,7 +141,7 @@ pub struct Song {
     pub last_played: Option<i64>,
     pub play_count: i64,
     /// Unix seconds when the user confirmed the preview ("Looks good") or
-    /// saved timing fixes; `None` = awaiting review (PLAN.md §4 step 4).
+    /// saved timing fixes; `None` = awaiting review.
     pub reviewed_at: Option<i64>,
     /// Release year (tags, UltraStar header, or the user).
     pub year: Option<i32>,
@@ -312,7 +312,7 @@ impl LibraryStore {
     /// `play_count`, `last_played` are preserved; `cover_path` and
     /// `language_tag` are only overwritten when the upsert supplies one.
     /// `reviewed_at` is **cleared** on update — a re-generated song has new
-    /// timings, so the golden-path preview (PLAN.md §4 step 4) runs again.
+    /// timings, so the golden-path preview runs again.
     pub fn upsert_song(&self, s: &SongUpsert) -> Result<Song> {
         if s.audio_hash.is_empty() {
             return Err(Error::InvalidInput("song upsert without audio_hash".into()));
@@ -481,7 +481,7 @@ impl LibraryStore {
     }
 
     /// Set (or clear) the review timestamp — "Looks good" on the preview
-    /// screen, or a timing-fix save (PLAN.md §4 step 4).
+    /// screen, or a timing-fix save.
     pub fn set_reviewed(&self, id: i64, reviewed: bool) -> Result<()> {
         let n = self.conn.execute(
             "UPDATE songs SET reviewed_at = ?2 WHERE id = ?1",
@@ -502,7 +502,7 @@ impl LibraryStore {
     }
 
     /// Search (title/artist LIKE, or exact language tag) + sort + optional
-    /// collection filter (PLAN.md §3 "Tags and search").
+    /// collection filter.
     pub fn list_songs(&self, q: &SongQuery) -> Result<Vec<Song>> {
         let mut sql = String::new();
         let mut clauses: Vec<String> = Vec::new();

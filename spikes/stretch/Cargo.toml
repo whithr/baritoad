@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 # Phase 0 spike: Signalsmith Stretch quality + apply-latency (spikes/README.md #3).
-# Licensing (PLAN.md section 6): Signalsmith Stretch + signalsmith-linear vendored
+# Licensing (docs/DEPENDENCIES.md): Signalsmith Stretch + signalsmith-linear vendored
 # headers are MIT (see vendor/), symphonia is MPL-2.0, cpal is Apache-2.0,
 # hound (spike-only, wav out) is Apache-2.0.
 

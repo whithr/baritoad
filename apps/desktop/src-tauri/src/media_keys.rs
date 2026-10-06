@@ -1,12 +1,12 @@
-//! Hardware media keys and the OS "now playing" panel (PLAN.md §3, keyboard
-//! and media-key controls). A key press goes to the Stage as a
+//! Hardware media keys and the OS "now playing" panel. A key press goes
+//! to the Stage as a
 //! `baritoad://media` event and the Stage decides what it means there (play
 //! / pause, the next song in Up next, start over); the Stage tells the OS
 //! what's on (`media_now_playing`).
 //!
 //! Windows: the System Media Transport Controls, attached to the main
-//! window, through souvlaki (PLAN.md §6 row). It works whichever window has
-//! focus, and doesn't take the keys from other apps the way a global
+//! window, through souvlaki (docs/DEPENDENCIES.md). It works whichever
+//! window has focus, and doesn't take the keys from other apps the way a global
 //! shortcut would. macOS and Linux get it with their releases (v1.x).
 
 use std::sync::Mutex;

@@ -3,8 +3,8 @@
 //
 // The Rust host emits a status report on `karaoke://player` at ~10 Hz while
 // playing (plus immediately after every state-changing command). Each report
-// carries the engine clock's position in ORIGINAL-SONG seconds (PLAN.md §5 —
-// the timing map's only time base, already translated through any stretch
+// carries the engine clock's position in ORIGINAL-SONG seconds (the
+// timing map's only time base, already translated through any stretch
 // ratio by the engine's clock; the UI never translates). Between reports the
 // UI estimates position against performance.now():
 //

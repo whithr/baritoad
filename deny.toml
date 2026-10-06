@@ -1,8 +1,9 @@
 # `cargo deny check` — licenses, bans, advisories, sources — against the
-# PLAN.md §6 rule: everything that ships is GPL-3.0-compatible and
-# redistributable. CI runs it on every push (.github/workflows/ci.yml).
-# A license added here needs a §6 decision first; GPL code compiled into the
-# binary also needs §6's DirectML check.
+# dependency policy in docs/DEPENDENCIES.md: everything that ships is
+# GPL-3.0-compatible and redistributable. CI runs it on every push
+# (.github/workflows/ci.yml). A license added here needs a decision in
+# docs/DEPENDENCIES.md first; GPL code compiled into the binary also needs
+# its DirectML check.
 
 [graph]
 # Every platform we build, so macOS- and Linux-only crates are checked too.

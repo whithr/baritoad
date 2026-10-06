@@ -1,4 +1,4 @@
-// "Add to a collection?" — the golden path's last step (PLAN.md §4 step 6):
+// "Add to a collection?" — the golden path's last step:
 // once a song is ready, file it under "Haley's hits" so next party it's one
 // click away. A plain pick-one list with New… beside it; the song's menu
 // (Song › Add to collection) stays the way to file it under several.

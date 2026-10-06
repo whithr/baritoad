@@ -30,7 +30,7 @@ export const AMBER_MIN_RUN_S = 0.15;
  * Resample the peak envelope into `barCount` bars covering
  * `[winStart, winEnd]`, marking sustained uncovered singing amber.
  * `words` are the map's word intervals (original-song seconds — the only
- * time base, PLAN.md §5); bars outside the envelope render as silence.
+ * time base); bars outside the envelope render as silence.
  */
 export function levelBars(
   peaks: ArrayLike<number>,

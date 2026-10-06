@@ -9,7 +9,7 @@ htdemucs exports to ONNX and runs from Rust via ONNX Runtime.
 ## What was built
 
 - `export/stft_onnx.py` — ONNX-exportable replacements for htdemucs's STFT/iSTFT
-  (the PLAN §5 "known-fiddly part"): forward STFT as a Conv1d with a fixed DFT
+  (the "known-fiddly part"): forward STFT as a Conv1d with a fixed DFT
   basis; inverse STFT as MatMul + shifted-pad overlap-add. Verified against
   demucs's own `_spec`/`_ispec` at <= 2.6e-6 max relative error.
 - `export/export_htdemucs.py` — loads pretrained htdemucs (single-model bag,
@@ -28,7 +28,7 @@ htdemucs exports to ONNX and runs from Rust via ONNX Runtime.
 
 - Windows 10 Pro 19045, Intel i7-9700K (8C/8T), 32 GB RAM,
   NVIDIA RTX 2080 SUPER 8 GB (driver 596.36). No CUDA toolkit installed;
-  GPU path is the DirectML EP (PLAN §5's named Windows fallback).
+  GPU path is the DirectML EP (the named Windows fallback).
 - Rust 1.97.1, ort crate 2.0.0-rc.13 (ONNX Runtime 1.28.0, pyke prebuilt
   binaries). Export toolchain: Python 3.12.10, torch 2.13.0+cpu, demucs 4.1.0,
   onnx 1.22.0, onnxruntime-python 1.28.0.
@@ -137,7 +137,7 @@ cd ..\export
 C:\t\venv\Scripts\python compare.py C:\t\work\ref C:\t\work\rust-dml
 ```
 
-## Risks discovered (not already in PLAN.md)
+## Risks discovered
 
 1. **DirectML graph fusion silently corrupts this model.** With default session
    options the output is garbage (stem RMS ~15 000 vs ~0.14) — no error, no
@@ -153,11 +153,11 @@ C:\t\venv\Scripts\python compare.py C:\t\work\ref C:\t\work\rust-dml
    transposed convs will hit the same wall.
 3. **torch.stft/istft genuinely don't export** (istft has no ONNX op; opset-17
    STFT is unsupported on DML anyway). The conv/matmul reformulation with
-   parity tests is the workable pattern; the PLAN §5 "known-fiddly" flag is
+   parity tests is the workable pattern; the "known-fiddly" flag is
    confirmed but fully tractable. In-graph DFT bases add ~134 MB of constants
    (309.9 MB total vs ~166 MB raw weights); could be halved later by doing
    STFT/iSTFT in Rust (rustfft) at the cost of reimplementing the parity-exact
-   padding — not needed for the ~350 MB PLAN §5 budget.
+   padding — not needed for the ~350 MB budget.
 4. **TorchScript ONNX exporter is deprecated** (torch 2.13 warns; dynamo
    export is the default going forward). The export worked first try with
    `dynamo=False`; pin the export toolchain versions (requirements lockfile)
@@ -171,12 +171,12 @@ C:\t\venv\Scripts\python compare.py C:\t\work\ref C:\t\work\rust-dml
 7. **Windows dev-environment trap:** torch cannot install into deep paths
    (260-char limit) — the venv must live at a short path. Cost an hour of this
    spike; worth a line in the contributor docs.
-8. **Licensing (PLAN §6):** new runtime deps are all commercial-safe — ort
+8. **Licensing (docs/DEPENDENCIES.md):** new runtime deps are all commercial-safe — ort
    (MIT OR Apache-2.0), ndarray (MIT/Apache-2.0), hound (Apache-2.0), ONNX
    Runtime 1.28 binaries (MIT). Build-time only: torch (BSD-3), demucs (MIT),
-   onnx (Apache-2.0), soundfile (BSD-3), einops (MIT). The §6 matrix needs
+   onnx (Apache-2.0), soundfile (BSD-3), einops (MIT). The licensing matrix needs
    ort/ndarray/hound rows added in the Phase 1 change that adopts them (spike
-   rules forbid editing PLAN.md from here).
+   rules forbid editing it from here).
 
 ## Recommendation
 

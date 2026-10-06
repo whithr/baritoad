@@ -1,4 +1,4 @@
-//! Pasted-lyrics anchoring (PLAN.md §5): the user's lyrics are ground truth;
+//! Pasted-lyrics anchoring: the user's lyrics are ground truth;
 //! whisper's transcript is never trusted as text. Whisper words are matched to
 //! lyric words by edit distance, and matched lyric words inherit whisper's
 //! rough time window (its chunk) as an *anchor* — independent evidence that
@@ -8,7 +8,7 @@
 //! Normalization here is deliberately minimal: case folding plus dropping
 //! characters outside the wav2vec2 charset (A–Z and apostrophe), used only for
 //! matching/targets. Display text is preserved verbatim. The full lyric
-//! cleanup stage (section headers, ×2 expansion, ad-libs — PLAN.md §3) is a
+//! cleanup stage (section headers, ×2 expansion, ad-libs) is a
 //! separate upcoming milestone.
 
 /// Maximum char-level edit-distance ratio for two words to count as a match.

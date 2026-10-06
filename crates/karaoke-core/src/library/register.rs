@@ -1,5 +1,5 @@
 //! Register a completed generate job in the library — the golden path's
-//! "Keep" step (PLAN.md §4 step 6): on pipeline completion the song lands in
+//! "Keep" step: on pipeline completion the song lands in
 //! the library marked ready.
 //!
 //! Idempotent by `audio_hash` (the manifest's sha256 of the audio file):
@@ -79,7 +79,7 @@ pub fn register_completed_job(
         duration_s: Some(map.duration).filter(|d| *d > 0.0),
         cover_path,
         lyric_source,
-        language_tag: None, // English-first v1 (PLAN.md §1): default 'en'
+        language_tag: None, // English-first v1: default 'en'
         year: file_tags.year,
         genre: file_tags.genre,
         pace_wpm: super::stats::singing_pace(&map),

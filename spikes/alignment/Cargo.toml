@@ -2,7 +2,7 @@
 name = "alignment-spike"
 version = "0.1.0"
 edition = "2021"
-# Spike prototype — not shipped. All deps commercial-safe (PLAN.md §6):
+# Spike prototype — not shipped. All deps commercial-safe (docs/DEPENDENCIES.md):
 # ort MIT/Apache-2.0, symphonia MPL-2.0, rubato MIT, rustfft MIT/Apache-2.0,
 # serde/serde_json MIT/Apache-2.0, anyhow MIT/Apache-2.0.
 

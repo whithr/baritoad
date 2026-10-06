@@ -1,6 +1,6 @@
 # Phase 0 de-risk spikes
 
-Four feasibility questions (PLAN.md §9). Nothing else gets built until these
+Four feasibility questions. Nothing else gets built until these
 pass or their fallbacks are chosen. Each spike lives in its own directory, is
 run by a `spike-runner` agent (or a human), and must end with a `REPORT.md`
 containing: verdict (pass / fail / blocked / partial), measured numbers vs the
@@ -14,7 +14,7 @@ text only).
 ## 1. `separation/` — htdemucs via ONNX in Rust
 
 **Question:** can htdemucs be exported to ONNX and run from Rust via ONNX
-Runtime with acceptable quality and speed? (PLAN.md §5 — the STFT ops are the
+Runtime with acceptable quality and speed? (The STFT ops are the
 known-fiddly part.)
 
 **Pass criteria**
@@ -31,7 +31,7 @@ known-fiddly part.)
 **Question:** can karaoke-grade word timings be produced with whisper-small
 (rough pass, edit-distance anchored to pasted lyrics) + wav2vec2-base CTC
 forced alignment (refinement over the vocal stem), with the CTC trellis
-reimplemented in Rust — no Python? (PLAN.md §5; this has no off-the-shelf
+reimplemented in Rust — no Python? (This has no off-the-shelf
 answer and is as load-bearing as the separation spike.)
 
 **Pass criteria**
@@ -39,10 +39,10 @@ answer and is as load-bearing as the separation spike.)
   enough that highlighting *feels* right in playback (target ≤ ~100 ms median;
   report the distribution, not just the median).
 - Alignment stage: ≤ 30 s GPU-class / ≤ 90 s CPU per song.
-- English-only (PLAN.md §1); do not spend time on multilingual.
+- English-only; do not spend time on multilingual.
 
 **Fallbacks if failed:** whisper.cpp token-level timestamps + DTW, with the fix
-editor carrying more weight (PLAN.md §10 risk 2).
+editor carrying more weight.
 
 ## 3. `stretch/` — Signalsmith Stretch quality on real music
 
@@ -56,7 +56,7 @@ tempo (~0.8–1.2×) changes on full mixes and separated instrumentals?
   cpal-based prototype.
 
 **Fallbacks if failed:** none cheap — Rubber Band is excluded (GPL/paid,
-PLAN.md §6). A fail here means licensing Rubber Band commercially or descoping
+docs/DEPENDENCIES.md). A fail here means licensing Rubber Band commercially or descoping
 key/tempo change; escalate, don't decide in the spike.
 
 ## 4. `lyric-render/` — 60 fps lyric rendering in a Tauri webview
@@ -72,4 +72,4 @@ Tauri webview — **specifically on WebKitGTK/Linux**, the weakest webview?
   results plus a concrete Linux test plan = verdict "partial", not "pass".
 
 **Fallbacks if failed:** native wgpu player window for the player view only,
-webview retained for everything else (PLAN.md §5).
+webview retained for everything else.

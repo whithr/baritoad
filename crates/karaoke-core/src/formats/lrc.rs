@@ -1,4 +1,4 @@
-//! Enhanced LRC export (PLAN.md §3): line timestamps `[mm:ss.xx]` plus
+//! Enhanced LRC export: line timestamps `[mm:ss.xx]` plus
 //! per-word `<mm:ss.xx>` tags (the "A2" / enhanced-LRC extension understood
 //! by Walaoke-style players and most modern LRC consumers).
 //!

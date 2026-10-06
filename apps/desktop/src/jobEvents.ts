@@ -1,8 +1,8 @@
 // Progress-event reducer — pure logic, vitest-covered.
 //
 // The pipeline has four internal stages (separate → clean_lyrics → align →
-// export), but the progress screen shows the two the user was promised
-// (PLAN.md §4): "Separating vocals → Aligning lyrics". clean_lyrics/align/
+// export), but the progress screen shows the two the user was promised:
+// "Separating vocals → Aligning lyrics". clean_lyrics/align/
 // export fold into the second display stage — clean_lyrics is milliseconds
 // and export is instant, so this stays honest. A link job (Add from URL)
 // downloads first, and a job that looks its lyrics up on LRCLIB does that

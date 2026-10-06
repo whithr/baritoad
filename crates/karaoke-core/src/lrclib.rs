@@ -1,6 +1,6 @@
-//! Online lyrics lookup through LRCLIB's public API (PLAN.md §5 "Lyrics
-//! lookup", §7). lrclib.net is free and keyless; requests identify the client
-//! in `User-Agent`, as LRCLIB asks. Only title / artist / album / duration
+//! Online lyrics lookup through LRCLIB's public API.
+//! lrclib.net is free and keyless; requests identify the client in
+//! `User-Agent`, as LRCLIB asks. Only title / artist / album / duration
 //! leave the machine — never audio.
 //!
 //! Lookup order: `GET /api/get` (exact match on title + artist, duration

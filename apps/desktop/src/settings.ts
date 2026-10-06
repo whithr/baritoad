@@ -30,7 +30,7 @@ export interface Settings {
   /** Library › View › Group by (the song list's group headers). */
   libraryGroupBy: GroupBy;
   /** Look songs' lyrics up online (LRCLIB) when they have none — off until
-   *  the person ticks it once in an import dialog (PLAN.md §2: features
+   *  the person ticks it once in an import dialog (features
    *  reach out only when asked); remembered after. */
   lookupLyrics: boolean;
   /** Add from URL downloads each song about as fast as it plays, instead of

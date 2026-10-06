@@ -1,6 +1,6 @@
 //! Word-timing map — the alignment stage's output and the player's input.
 //!
-//! Hard rule (PLAN.md §5): timing maps always store **original-song time**.
+//! Hard rule: timing maps always store **original-song time**.
 //! Nothing in this type knows about tempo stretch; the player clock translates
 //! device position through the active stretch ratio at the boundary. Exporters
 //! (LRC/ASS/UltraStar) consume this type in a later milestone.
@@ -12,7 +12,7 @@ use crate::error::{Error, Result};
 /// Serialized format version.
 pub const TIMING_MAP_VERSION: u32 = 1;
 
-/// The only time base a timing map may carry (PLAN.md §5).
+/// The only time base a timing map may carry.
 pub const TIME_BASE_ORIGINAL_SONG: &str = "original-song";
 
 /// One word of the user's lyrics with its timing in original-song seconds.
@@ -46,7 +46,7 @@ pub struct WordTiming {
     pub ad_lib: bool,
 }
 
-/// Where the lyric words came from (PLAN.md §3): pasted lyrics are the golden
+/// Where the lyric words came from: pasted lyrics are the golden
 /// path; when none are provided the whisper transcript is the lyric source
 /// and the map is marked as such. `Imported` maps came whole — words and
 /// hand-made timings — from an UltraStar .txt (no aligner involved).
@@ -76,7 +76,7 @@ pub struct UnsungSpan {
 pub struct WordTimingMap {
     pub version: u32,
     /// Always [`TIME_BASE_ORIGINAL_SONG`]; serialized so a map file is
-    /// self-describing about the §5 rule.
+    /// self-describing about the original-song-time rule.
     pub time_base: String,
     /// Song duration in seconds (original-song time).
     pub duration: f64,
@@ -109,15 +109,15 @@ impl WordTimingMap {
             .map_err(|e| Error::InvalidInput(format!("timing map parse: {e}")))?;
         if map.time_base != TIME_BASE_ORIGINAL_SONG {
             return Err(Error::InvalidInput(format!(
-                "timing map has time_base '{}' — only '{TIME_BASE_ORIGINAL_SONG}' is valid (PLAN.md §5)",
+                "timing map has time_base '{}' — only '{TIME_BASE_ORIGINAL_SONG}' is valid",
                 map.time_base
             )));
         }
         Ok(map)
     }
 
-    /// Persist the map to `path` for the fix editor's Save (PLAN.md §3
-    /// review screen): refuses an invalid map ([`Self::validate`] must be
+    /// Persist the map to `path` for the fix editor's Save (review
+    /// screen): refuses an invalid map ([`Self::validate`] must be
     /// clean), keeps a `.bak` of the previous map beside it (`song.align.json`
     /// → `song.align.json.bak`), then writes atomically (temp file + rename)
     /// so a kill mid-save leaves either the old map or the new one — never a
