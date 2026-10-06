@@ -107,7 +107,7 @@ keyboard-complete, discoverable through its menus, and honest about state.
 
 The costume stops at the lyrics. Every place a singer reads words — the TV
 stage, the Bench word chips, the Text view — uses big, smooth Barlow, never
-the pixel face (PRODUCT.md: legible at ~3 m).
+the pixel face (lyrics must be legible from the couch, ~3 m).
 
 Direction locked by the owner 2026-09-29 from the "Karascape 98" concept
 canvas (the app was named Karascape until 2026-10-01); it replaces the Digital Dash (2026-08-05) and the hardware-panel chrome
@@ -323,7 +323,7 @@ Separator · icons.
 - **Do** use the dotted focus rectangle on every focusable control.
 - **Do** pair every signal colour with an icon or text.
 - **Do** use a message box when the user must answer; use the status bar for everything else.
-- **Do** vendor any new font with its license text and add its PLAN.md §6 row in the same change.
+- **Do** vendor any new font with its license text and add its row to docs/DEPENDENCIES.md in the same change.
 
 ### Don't:
 - **Don't** set lyrics in the pixel font or in DSEG.
@@ -331,4 +331,4 @@ Separator · icons.
 - **Don't** add corner radii, gradients (other than title bars), glows, or transitions to chrome.
 - **Don't** use Microsoft's icons, logo, fonts, or the word "Windows" in UI copy — the look is an homage, drawn in-house.
 - **Do** write the name **baritoad** in lowercase, everywhere — titles, menus, and the start of a sentence. Prefer wording where it doesn't open a sentence ("*Song* couldn't be finished.", not "baritoad couldn't finish *Song*.").
-- **Do** call the app open source (GPL-3.0), and be plain that the cloud library is the one paid feature — party mode is free, though it goes through our relay (PLAN.md §1, §8).
+- **Do** call the app open source (GPL-3.0), and be plain that it's free with no account — party mode too, though it goes through our relay.

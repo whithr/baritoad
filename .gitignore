@@ -59,8 +59,12 @@ apps/desktop/src-tauri/gen/
 __pycache__/
 *.pyc
 
-# Business notes — pricing and monetization stay local (CLAUDE.md)
-BUSINESS.md
+# Maintainers' private notes and instructions — never in the public repo
+internal/
+CLAUDE.local.md
+/PLAN.md
+/PRODUCT.md
+/BUSINESS.md
 
 # OS / editor noise
 .DS_Store

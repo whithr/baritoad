@@ -1,46 +1,44 @@
 # baritoad
 
-Open-source (GPL-3.0) desktop karaoke app — the name is **baritoad**, always
-lowercase (PRODUCT.md): any song (a file or a pasted link)
-→ AI vocal removal + word-synced lyrics + full-screen player. **PLAN.md is
-authoritative** for scope, legal, and licensing decisions — cite it by section
-when a decision traces to it.
+Open-source (GPL-3.0-or-later) desktop karaoke app — the name is
+**baritoad**, always lowercase: any song (a file or a pasted link) → AI vocal
+removal + word-synced lyrics + full-screen player, plus party mode (guests
+pick songs from their phones). Everything is free; there is no account and
+nothing paid.
 
-Current phase: **Phase 3 — player, collections, polish**, finishing v1.0
-(PLAN.md §9 lists what's left). v1.0 isn't a public launch: party mode
-(Phase 4, designed in docs/PARTY.md) comes next, then the launch.
+v1.0 shipped for Windows on 2026-10-05. macOS and Linux build in CI but don't
+ship yet. Maintainers may have a `CLAUDE.local.md` with private planning
+context; this file is the public rulebook.
 
 ## Hard rules — never violate, not even in a prototype
 
-- No bundled songs, no sharing user audio between users, no cloud processing
-  (PLAN.md §7). User audio leaves the machine only through the paid cloud
-  library: opt-in, private to the owner's account, one copy per account,
-  never shared or processed server-side (PLAN.md §3, §7). The network is
-  touched only on user request: Add from URL (yt-dlp), LRCLIB lyrics lookup,
-  party mode, and the cloud library. Online lyrics come from the LRCLIB API
-  — never HTML-scrape lyrics sites (PLAN.md §3, §5).
+- No bundled songs, no sharing user audio between users, no cloud processing,
+  no uploading user audio anywhere. The network is touched only for the
+  first-run model download and on user request: Add from URL (yt-dlp), LRCLIB
+  lyrics lookup, and party mode. Online lyrics come from the LRCLIB API —
+  never HTML-scrape lyrics sites.
 - The party relay carries the queue and song metadata only — never audio or
-  lyrics. Party mode is free: nobody signs in to it, host or guest — the
-  only account is the paid cloud library.
+  lyrics. Party mode is free and nobody signs in to it, host or guest.
 - The app and the party relay are **open source (GPL-3.0-or-later)** — say
-  so plainly. The relay lives here, in `services/relay/` (owner decision
-  2026-10-02). The cloud library's server is ours, closed, and lives outside
-  this repo: never put its code here. Never commit secrets for any server —
-  API tokens, keys, account credentials stay in Cloudflare and CI settings
-  (PLAN.md §1, §8).
+  so plainly. The relay lives here, in `services/relay/`. Never commit
+  secrets for any server — API tokens, keys, account credentials stay in
+  Cloudflare and CI settings.
 - Never commit audio files or model weights to the repo. Test audio is
-  copyrighted; weights go on the mirror (Cloudflare R2, PLAN.md §5) with
-  provenance in MODEL_LICENSES.md.
-  The .gitignore enforces this — do not weaken it.
-- Dependency policy: everything that ships must be GPL-3.0-compatible and
-  redistributable; no research-only or non-commercial weights. A third-party
-  GPL library compiled *into* the binary needs the DirectML check in PLAN.md
-  §6 first. Check the PLAN.md §6 matrix before adding any dependency or
-  model; every addition must update that matrix in the same change.
-- ffmpeg (LGPL) is used only as a bundled executable invoked via subprocess —
+  copyrighted; weights go on the mirror (models.baritoad.com, Cloudflare R2)
+  with provenance in MODEL_LICENSES.md. Never commit real song lyrics either —
+  test fixtures use invented or public-domain lines.
+  The .gitignore enforces the audio and weights part — do not weaken it.
+- Dependency policy (docs/DEPENDENCIES.md): everything that ships must be
+  GPL-3.0-compatible and redistributable; no research-only or non-commercial
+  weights beyond the one recorded exception there (the Demucs separation
+  weights). A third-party GPL library compiled *into* the binary needs the
+  DirectML check in docs/DEPENDENCIES.md first. Check that matrix before
+  adding any dependency or model; every addition must update it in the same
+  change.
+- ffmpeg is used only as a separate executable invoked via subprocess —
   never linked, statically or dynamically.
 - yt-dlp and Deno ship as bundled executables, run via subprocess; yt-dlp
-  runs from the app's data folder so it can update itself (PLAN.md §5, §6).
+  runs from the app's data folder so it can update itself.
 
 ## Technical constraints
 
@@ -50,39 +48,39 @@ Current phase: **Phase 3 — player, collections, polish**, finishing v1.0
 - Known-excluded: Meta MMS multilingual weights (CC-BY-NC). Rubber Band and
   aubio are no longer license-blocked, but Signalsmith Stretch is the
   integrated, measured choice — don't swap without measured numbers.
-- English-first v1: no multilingual alignment paths (PLAN.md §1, §6).
-- v1 scope is frozen (PLAN.md §3). No mic input, no pitch detection, no scoring
-  — those are v2. Party mode (free) and the cloud library (paid) are the v1.x
-  features (PLAN.md §9 Phase 4), not v1.0. Flag scope creep when you see it, including in requests.
-- Timing maps always store original-song time; only the player clock translates
-  through stretch ratios (PLAN.md §5).
+- English-first: no multilingual alignment paths (the commercial-safe
+  multilingual aligner weights don't exist yet).
+- No mic input, no pitch detection, no scoring — those belong to a later
+  singing-game release, not this one. Flag scope creep when you see it,
+  including in requests.
+- Timing maps always store original-song time; only the player clock
+  translates through stretch ratios.
 
 ## Conventions
 
 - Performance claims require measured numbers: song length, hardware, wall
   time. "Seems fast" doesn't count (spike reports and PRs alike).
-- Alignment-accuracy claims are measured against hand-timed references (Phase 0)
-  or the accuracy harness (Phase 1+).
+- Alignment-accuracy claims are measured against hand-timed references or
+  the accuracy harness.
 - Spike code may be rough; spike *measurements* may not.
-- Pricing, subscriptions, and other monetization strategy live only in
-  `BUSINESS.md` (gitignored, local). Never write them into tracked files —
-  PLAN.md §8 says only that the app and party mode are free and the cloud
-  library is paid.
+- Commits carry a DCO sign-off (CONTRIBUTING.md).
 
 ## Repo layout
 
-- `PLAN.md` — the plan (authoritative)
-- `spikes/` — Phase 0 prototypes, one directory per spike; each produces a
-  `REPORT.md` graded against the criteria in `spikes/README.md`
+- `apps/desktop/` — the Tauri app (React webview in `src/`, Rust in
+  `src-tauri/`)
+- `crates/karaoke-core/` — the pipeline, player, library and party protocol;
+  `crates/karaoke-cli/` — the `karaoke` CLI; `crates/karaoke-stretch-sys/` —
+  vendored Signalsmith Stretch
+- `services/relay/` — the party relay and guest page (Cloudflare Workers)
+- `spikes/` — the Phase 0 feasibility prototypes, one directory per spike;
+  each has a `REPORT.md` graded against the criteria in `spikes/README.md`
+- `DESIGN.md` — the visual system (baritoad 98) and copy rules
 - `MODEL_LICENSES.md` — provenance of every model weight we mirror
-- `BUSINESS.md` — local-only pricing and monetization notes (gitignored)
-- `.claude/agents/` — spike-runner, pipeline-dev, licensing-auditor
-- `.claude/workflows/phase0-spikes.js` — runs the four Phase 0 spikes in
-  parallel and synthesizes a go/no-go report
+- `docs/DEPENDENCIES.md` — the dependency and model licensing matrix
 - `docs/IMPORTING.md` — the folder layout bulk import reads;
   `.claude/skills/prep-song-import/` — the agent workflow for getting a
   user's audio + lyrics files into it (`karaoke scan` is the check)
 - `docs/PARTY.md`, `docs/PARTY-PROTOCOL.md` — party mode's design and the
   app ⇄ relay wire protocol
-- `services/relay/` — the party relay and guest page (Cloudflare Workers;
-  open, GPL-3.0-or-later)
+- `.claude/agents/` — spike-runner, pipeline-dev, licensing-auditor
