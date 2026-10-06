@@ -23,7 +23,10 @@ sha256 per file, in three packs: core, transcription, high_quality). Keep the tw
 The mirror is `https://models.baritoad.com/v1/` — our Cloudflare R2 bucket `baritoad-models` on its
 custom domain, live 2026-10-02. Files are immutable under `v1/` (served with
 `Cache-Control: public, max-age=31536000, immutable`); a changed file gets a new path prefix and a
-manifest update, never an overwrite. Checked after upload: `rclone check` (13 files, 0 differences),
+manifest update, never an overwrite. (One exception, for the license texts
+beside the models, not the models: on 2026-10-05 the two Demucs
+`.LICENSE.txt` files, which wrongly called the weights MIT, were corrected in
+place and now carry `Cache-Control: public, max-age=86400`.) Checked after upload: `rclone check` (13 files, 0 differences),
 every file public with the right size, a Range request answered 206, and a real first-run download
 by the app into an empty folder — all 9 manifest files matched their sha256.
 
