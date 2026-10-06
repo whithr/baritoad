@@ -1,4 +1,4 @@
-// Download the external programs Add from URL runs (PLAN.md §5, §6) into
+// Download the external programs Add from URL runs (docs/DEPENDENCIES.md) into
 // src-tauri/tools/: yt-dlp (its official release executable) and Deno (the
 // JavaScript runtime yt-dlp needs for YouTube). Each download is checked
 // against the checksums its release publishes, and nothing is committed —
@@ -16,6 +16,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Bumping yt-dlp? Also vendor that tag's THIRD_PARTY_LICENSES.txt into
+// apps/desktop/licenses/ (licenses/README.md) — `pnpm notices` needs it.
 const YTDLP_VERSION = "2026.08.19";
 const DENO_VERSION = "v2.9.7";
 

@@ -72,7 +72,10 @@ with wrangler or in CI settings.
 ## Dependencies
 
 Nothing at runtime: the Worker bundles only this folder's code and the app's
-`toads.ts`. Development only (MIT or Apache-2.0): wrangler, workerd (via
-wrangler), esbuild, TypeScript, vitest, @cloudflare/workers-types. The guest
+`toads.ts`. Development only: wrangler, workerd (via wrangler), esbuild,
+TypeScript, vitest, @cloudflare/workers-types — MIT or Apache-2.0
+themselves, with transitive ISC, BSD-3-Clause and CC0 packages and sharp
+(Apache-2.0 with LGPL-3.0 libvips, via wrangler); none of it reaches the
+deployed Worker. The guest
 page uses the app's Pixel Operator font (CC0, copied at build). No AGPL code
-(PLAN.md §6).
+([docs/DEPENDENCIES.md](../../docs/DEPENDENCIES.md)).

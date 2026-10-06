@@ -154,6 +154,13 @@ for (const p of npm) add(`${p.name} ${p.version} (npm)`, p.path ? licenseFiles(p
 // ------------------------------------------------------------ the rest
 
 const file = (...p) => read(join(repo, ...p));
+// Third-party license texts for what ships beside or inside the app, vendored
+// in apps/desktop/licenses/ (its README.md says where each one came from).
+const vendored = (name) => {
+  const path = join(app, "licenses", name);
+  if (!existsSync(path)) throw new Error(`missing apps/desktop/licenses/${name} (see licenses/README.md)`);
+  return read(path);
+};
 const versions = JSON.parse(readFileSync(join(app, "src-tauri", "tools", "VERSIONS.json"), "utf8"));
 const readme = readFileSync(join(repo, "README.md"), "utf8");
 const permission = readme.slice(readme.indexOf("*Additional permission")).split(/\n\s*\n/)[0].replace(/\*/g, "").trim();
@@ -162,11 +169,14 @@ const manual = [
   ["baritoad itself", `GPL-3.0-or-later — the full text is LICENSE.txt beside this file.\n\n${permission}`],
   [
     "ONNX Runtime (Microsoft), linked into the app through the ort crate's prebuilt libraries",
-    `${MIT("Microsoft Corporation")}\n\nONNX Runtime's own third-party notices: https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt`,
+    `${MIT("Microsoft Corporation")}\n\nONNX Runtime 1.28.0's own third-party notices:\n\n${vendored("onnxruntime-1.28.0-ThirdPartyNotices.txt")}`,
   ],
   [
     "DirectML.dll (Microsoft DirectML redistributable), beside the app",
-    "Microsoft's DirectML redistributable, shipped unmodified under its license terms: https://www.nuget.org/packages/Microsoft.AI.DirectML/ (see the package's LICENSE.txt). It isn't covered by the GPL; the additional permission above lets baritoad use it.",
+    "Microsoft's DirectML 1.15.4 redistributable, shipped unmodified under its license terms below. It isn't covered by the GPL; the additional permission above lets baritoad use it.\n\n" +
+      vendored("DirectML-1.15.4-LICENSE.txt") +
+      "\n\nDirectML's third-party notices:\n\n" +
+      vendored("DirectML-1.15.4-ThirdPartyNotices.txt"),
   ],
   ["Signalsmith Stretch (key and tempo), compiled in", file("crates", "karaoke-stretch-sys", "vendor", "signalsmith-stretch", "LICENSE.txt")],
   ["Signalsmith Linear, compiled in", file("crates", "karaoke-stretch-sys", "vendor", "signalsmith-linear", "LICENSE.txt")],
@@ -174,15 +184,17 @@ const manual = [
     `yt-dlp ${versions["yt-dlp"].version} (tools\\yt-dlp.exe), run as a separate program`,
     "yt-dlp is released into the public domain (The Unlicense). The release executable is a combined work that also contains GPLv3+ components, so it is distributed under GPLv3+; its matching source is tools\\source\\" +
       versions["yt-dlp"].source.split("/").pop() +
-      ". https://github.com/yt-dlp/yt-dlp",
+      ". https://github.com/yt-dlp/yt-dlp\n\nThe executable bundles Python and the packages below under their own licenses (yt-dlp's THIRD_PARTY_LICENSES.txt for this version); their sources are available from the projects named there.\n\n" +
+      vendored(`yt-dlp-${versions["yt-dlp"].version}-THIRD_PARTY_LICENSES.txt`),
   ],
   [`Deno ${versions.deno.version} (tools\\deno.exe), run as a separate program`, read(join(app, "src-tauri", "tools", versions.deno.license))],
+  ["98.css (bevel and palette recipes, adapted by hand)", vendored("98css-LICENSE.txt")],
   ["Barlow (lyrics typeface)", file("apps", "desktop", "src", "assets", "fonts", "BARLOW-LICENSE-OFL.txt")],
   ["DSEG (seven-segment clock face)", file("apps", "desktop", "src", "assets", "fonts", "DSEG-LICENSE-OFL.txt")],
   ["Pixel Operator (interface pixel font)", file("apps", "desktop", "src", "assets", "fonts", "PIXEL-OPERATOR-LICENSE-CC0.txt")],
   [
     "Models (downloaded separately on first run, not in this installer)",
-    "htdemucs / htdemucs_ft (Meta, MIT), wav2vec2-base-960h (Meta, Apache-2.0) and whisper-small (OpenAI, MIT), each exported to ONNX by baritoad. Their license files sit beside them on the model mirror; provenance: MODEL_LICENSES.md in the source.",
+    "wav2vec2-base-960h (Meta, Apache-2.0) and whisper-small (OpenAI, MIT), each exported to ONNX by baritoad. htdemucs and htdemucs_ft vocals (Meta, separation): the Demucs code is MIT, but its author says the weights aren't covered by that license and are provided for research purposes (github.com/facebookresearch/demucs/issues/327); baritoad ships them anyway, and says so. License files sit beside each model on the mirror; provenance: MODEL_LICENSES.md and docs/DEPENDENCIES.md in the source.",
   ],
 ];
 
