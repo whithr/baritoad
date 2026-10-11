@@ -397,7 +397,8 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
 // tab share one queue, and announced on the event bus like library.rs does.
 type MockEntry = { id: number; position: number; added_from_collection?: number | null; song: (typeof SONGS)[number]; singer?: string | null; toad?: { face: string; colour: string; hat: string } | null; guest?: string | null };
 type MockQueue = { entries: MockEntry[]; playing: number | null };
-const QUEUE_KEY = "baritoad-mock-queue";
+// Bump the key when the songs change, so a queue saved with the old ones is set aside.
+const QUEUE_KEY = "baritoad-mock-queue-2";
 // Model packs: all here unless ?models=none (a fresh install); a fake
 // download fills them one model at a time. ?modelfail stops one halfway.
 type MockPack = "core" | "transcription" | "high_quality";
