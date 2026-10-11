@@ -110,29 +110,40 @@ function silentWav(seconds: number): string {
 }
 let wavUrl: string | null = null;
 
+// Picture-safe for a help center: public-domain songs, macOS paths, and fixed
+// dates, so any screen can be shown and taken again the same way.
+const MUSIC = "/Users/haley/Music";
+const JOBS = "/Users/haley/Library/Application Support/baritoad/jobs";
+const ON = (day: number) => Date.UTC(2026, 8, day) / 1000;
+const librarySong = (id: number, title: string, artist: string | null, slug: string, more: { map?: boolean; duration_s: number; language_tag?: string; play_count?: number; reviewed?: number }) => ({
+  id, title, artist, audio_path: `${MUSIC}/${slug}.mp3`, audio_hash: String.fromCharCode(96 + id), job_dir: `j${id}`,
+  timing_map_path: more.map === false ? null : `${JOBS}/${slug}/map.json`,
+  duration_s: more.duration_s, language_tag: more.language_tag ?? "en", date_added: ON(id), play_count: more.play_count ?? 0,
+  reviewed_at: more.reviewed ? ON(more.reviewed) : null,
+});
 const SONGS = [
-  { id: 1, title: "Turning Tide", artist: "The Mock Harbor", audio_path: "C:/music/turning-tide.mp3", audio_hash: "a", job_dir: "j1", timing_map_path: "C:/jobs/turning-tide/map.json", vocals_path: "C:/jobs/turning-tide/vocals.wav", instrumental_path: "C:/jobs/turning-tide/inst.wav", duration_s: DURATION, language_tag: "en", date_added: 1, play_count: 0, reviewed_at: 1 },
-  { id: 2, title: "Wildflowers", artist: "Tom Petty", audio_path: "C:/music/wildflowers.mp3", audio_hash: "b", job_dir: "j2", timing_map_path: "C:/jobs/wildflowers/map.json", duration_s: 190, language_tag: "en", date_added: 2, play_count: 3, reviewed_at: null },
-  { id: 3, title: "Dogs", artist: "Pink Floyd", audio_path: "C:/music/dogs.mp3", audio_hash: "c", job_dir: "j3", timing_map_path: null, duration_s: 1020, language_tag: "en", date_added: 3, play_count: 0, reviewed_at: null },
-  { id: 4, title: "Falling Out of Love", artist: null, audio_path: "C:/music/fool.mp3", audio_hash: "d", job_dir: "j4", timing_map_path: "C:/jobs/fool/map.json", duration_s: 233, language_tag: "en", date_added: 4, play_count: 1, reviewed_at: 5 },
-  { id: 5, title: "Back On My BS", artist: "Pip", audio_path: "C:/music/bs.mp3", audio_hash: "e", job_dir: "j5", timing_map_path: "C:/jobs/bs/map.json", duration_s: 201, language_tag: "en", date_added: 5, play_count: 0, reviewed_at: 9 },
-  { id: 6, title: "Harvest Moon", artist: "Neil Young", audio_path: "C:/music/moon.mp3", audio_hash: "f", job_dir: "j6", timing_map_path: null, duration_s: 303, language_tag: "en", date_added: 6, play_count: 0, reviewed_at: null },
-  { id: 7, title: "99 Luftballons", artist: "Nena", audio_path: "C:/music/nena.mp3", audio_hash: "g", job_dir: "j7", timing_map_path: "C:/jobs/nena/map.json", duration_s: 232, language_tag: "de", date_added: 7, play_count: 2, reviewed_at: 9 },
-  { id: 8, title: "Africa", artist: "Toto", audio_path: "C:/music/africa.mp3", audio_hash: "h", job_dir: "j8", timing_map_path: "C:/jobs/africa/map.json", duration_s: 295, language_tag: "en", date_added: 8, play_count: 6, reviewed_at: 9 },
-  { id: 9, title: "Lose Yourself", artist: "Eminem", audio_path: "C:/music/lose.mp3", audio_hash: "i", job_dir: "j9", timing_map_path: "C:/jobs/lose/map.json", duration_s: 326, language_tag: "en", date_added: 9, play_count: 0, reviewed_at: 9 },
-  { id: 10, title: "Waterloo", artist: "ABBA", audio_path: "C:/music/waterloo.mp3", audio_hash: "k", job_dir: "j10", timing_map_path: "C:/jobs/waterloo/map.json", duration_s: 168, language_tag: "en", date_added: 10, play_count: 1, reviewed_at: 9 },
+  { ...librarySong(1, "Turning Tide", "The Mock Harbor", "turning-tide", { duration_s: DURATION, reviewed: 2 }), vocals_path: `${JOBS}/turning-tide/vocals.wav`, instrumental_path: `${JOBS}/turning-tide/inst.wav` },
+  librarySong(2, "Shine On, Harvest Moon", "Nora Bayes", "harvest-moon", { duration_s: 190, play_count: 3 }),
+  librarySong(3, "John Henry", "Traditional", "john-henry", { map: false, duration_s: 1020 }),
+  librarySong(4, "Falling Out of Love", null, "falling-out-of-love", { duration_s: 233, play_count: 1, reviewed: 6 }),
+  librarySong(5, "In the Good Old Summertime", "Haydn Quartet", "good-old-summertime", { duration_s: 201, reviewed: 12 }),
+  librarySong(6, "Danny Boy", "Traditional", "danny-boy", { map: false, duration_s: 303 }),
+  librarySong(7, "Die Gedanken sind frei", "Traditional", "die-gedanken", { duration_s: 232, language_tag: "de", play_count: 2, reviewed: 12 }),
+  librarySong(8, "Take Me Out to the Ball Game", "Edward Meeker", "ball-game", { duration_s: 295, play_count: 6, reviewed: 12 }),
+  librarySong(9, "Modern Major-General", "Gilbert & Sullivan", "major-general", { duration_s: 326, reviewed: 12 }),
+  librarySong(10, "Down by the Riverside", "Traditional", "riverside", { duration_s: 168, play_count: 1, reviewed: 12 }),
 ];
 // Categories (Browse / Group by / search): year, genre, pace — and two songs
 // added "this week" so Recently added isn't empty.
 const CATEGORY: Record<number, { year?: number; genre?: string; pace_wpm?: number; recent?: boolean }> = {
   1: { year: 2017, genre: "Indie Rock", pace_wpm: 132, recent: true },
-  2: { year: 1994, genre: "Rock", pace_wpm: 98 },
+  2: { year: 1908, genre: "Vaudeville", pace_wpm: 98 },
   4: { year: 2019, genre: "Pop", pace_wpm: 118 },
-  5: { year: 2020, genre: "Pop", pace_wpm: 176, recent: true },
-  7: { year: 1983, genre: "Pop", pace_wpm: 141 },
-  8: { year: 1982, genre: "Rock", pace_wpm: 104 },
-  9: { year: 2002, genre: "Hip Hop", pace_wpm: 262 },
-  10: { year: 1974, genre: "Pop", pace_wpm: 150 },
+  5: { year: 1903, genre: "Vaudeville", pace_wpm: 176, recent: true },
+  7: { year: 1842, genre: "Folk", pace_wpm: 141 },
+  8: { year: 1908, genre: "Vaudeville", pace_wpm: 104 },
+  9: { year: 1879, genre: "Show Tune", pace_wpm: 262 },
+  10: { year: 1918, genre: "Gospel", pace_wpm: 150 },
 };
 for (const s of SONGS as Record<string, unknown>[]) {
   const c = CATEGORY[s.id as number];
@@ -147,8 +158,8 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "list_jobs":
       return r({
         active: [
-          { id: 40, audio: "C:/music/fool.mp3", title: "Falling Out of Love", out_dir: "j4", status: "failed", error: "align: the vocals track is silent", cancel_requested: false, queued_unix: 0 },
-          { id: 41, audio: "C:/music/dogs.mp3", title: "Dogs", out_dir: "j3", status: "running", cancel_requested: false, queued_unix: 0 },
+          { id: 40, audio: SONGS[3].audio_path, title: "Falling Out of Love", out_dir: "j4", status: "failed", error: "align: the vocals track is silent", cancel_requested: false, queued_unix: ON(9) },
+          { id: 41, audio: SONGS[2].audio_path, title: "John Henry", out_dir: "j3", status: "running", cancel_requested: false, queued_unix: ON(9) },
         ],
         registry: [],
       });
@@ -174,7 +185,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return r(song);
     }
     case "library_collections":
-      return r([{ id: 1, name: "Cassie's hits", created: 0, song_count: 4 }, { id: 2, name: "Christmas party", created: 0, song_count: 6 }]);
+      return r([{ id: 1, name: "Cassie's hits", created: ON(1), song_count: 4 }, { id: 2, name: "Christmas party", created: ON(1), song_count: 6 }]);
     case "library_song":
       return r(SONGS.find((s) => s.id === args?.songId) ?? null);
     case "read_timing_map":
@@ -248,14 +259,14 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     }
     case "export_song": {
       const req = args?.request as { out_path?: string; formats: string[] };
-      return r(req.out_path ? [req.out_path] : req.formats.map((f) => `C:\\jobs\\song.${f}`));
+      return r(req.out_path ? [req.out_path] : req.formats.map((f) => `${MUSIC}/baritoad/song.${f}`));
     }
     case "reveal_path":
       return r(undefined);
     case "open_notices":
       throw new Error("The full notices come with the installed app (mock).");
     case "cover_import_image":
-      return r("C:\\covers\\0123456789abcdef.png");
+      return r("/Users/haley/Library/Application Support/baritoad/covers/0123456789abcdef.png");
     case "song_set_cover": {
       const song = SONGS.find((s) => s.id === args?.songId) as Record<string, unknown> | undefined;
       if (!song) throw new Error("that song isn't in the library anymore");
@@ -334,7 +345,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "queue_links": {
       const items = (args?.items as { url: string; title: string; artist?: string }[]) ?? [];
       if (new URLSearchParams(location.search).has("botcheck")) return r({ jobs: fakeTurnedAway(items), failures: [] });
-      return r({ jobs: items.map((i) => fakeJob({ audio_path: `C:/downloads/${i.title}`, title: i.title, artist: i.artist }, 0.4)), failures: [] });
+      return r({ jobs: items.map((i) => fakeJob({ audio_path: `/Users/haley/Downloads/${i.title}`, title: i.title, artist: i.artist }, 0.4)), failures: [] });
     }
     case "search_album_version":
       // The real one opens YouTube Music in the browser.
@@ -359,7 +370,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "set_game_policy":
       return r(undefined);
     case "retry_job":
-      return r(fakeJob({ audio_path: "C:/music/retry.mp3", title: "Retried song" }));
+      return r(fakeJob({ audio_path: `${MUSIC}/retry.mp3`, title: "Retried song" }));
     case "stage_open":
       stageOpen(args?.route as { song_id?: number | null; map_path?: string | null; measure?: boolean });
       return r(undefined);
@@ -515,7 +526,7 @@ function startMockParty() {
   setTimeout(() => {
     setMockParty({ phase: "open", join_url: "https://party.baritoad.com/j/abcdefghjk/mnpqrs", qr: mockQr(), guests: [], relay: "party.baritoad.com" });
     setTimeout(() => setMockParty({ ...mockParty, guests: [...mockParty.guests, { id: "g1", name: "Cassie", toad: { face: "grin", colour: "pink", hat: "bow" } }] }), 800);
-    setTimeout(() => setMockParty({ ...mockParty, guests: [...mockParty.guests, { id: "g2", name: "Dev", toad: { face: "cool", colour: "blue", hat: "cap" } }] }), 1400);
+    setTimeout(() => setMockParty({ ...mockParty, guests: [...mockParty.guests, { id: "g2", name: "Haley", toad: { face: "cool", colour: "blue", hat: "cap" } }] }), 1400);
   }, 400);
 }
 if (typeof location !== "undefined" && new URLSearchParams(location.search).has("party")) setTimeout(startMockParty, 0);
@@ -536,7 +547,7 @@ function mockQueue(): MockQueue {
     entries: [
       { id: 1, position: 0, song: SONGS[1] },
       { id: 2, position: 1, song: SONGS[3], ...(party ? { singer: "Cassie", toad: { face: "grin", colour: "pink", hat: "bow" }, guest: "g1" } : {}) },
-      { id: 3, position: 2, song: SONGS[4], ...(party ? { singer: "Dev", toad: { face: "cool", colour: "blue", hat: "cap" }, guest: "g2" } : {}) },
+      { id: 3, position: 2, song: SONGS[4], ...(party ? { singer: "Haley", toad: { face: "cool", colour: "blue", hat: "cap" }, guest: "g2" } : {}) },
     ],
     playing: null,
   };
@@ -609,8 +620,8 @@ const cancelled = new Set<number>();
 // collection, a song the library already has, and one that fails (its title
 // mentions "fail").
 function importScan(paths: string[]) {
-  const root = paths.length === 1 && !/\.[a-z0-9]{2,4}$/i.test(paths[0]) ? paths[0] : "D:\\Karaoke\\Party";
-  const at = (rel: string) => `${root}\\${rel}`;
+  const root = paths.length === 1 && !/\.[a-z0-9]{2,4}$/i.test(paths[0]) ? paths[0] : `${MUSIC}/Karaoke/Party`;
+  const at = (rel: string) => `${root}/${rel}`;
   const song = (rel: string, title: string, artist: string | null, lyrics: Record<string, unknown>, collection: string | null) => ({
     audio_path: at(rel),
     title,
@@ -622,17 +633,17 @@ function importScan(paths: string[]) {
   });
   return {
     items: [
-      song("ABBA - Waterloo.flac", "Waterloo", "ABBA", { kind: "text", path: at("ABBA - Waterloo.txt") }, null),
-      song("Nirvana - Lithium.mp3", "Lithium", "Nirvana", { kind: "none" }, null),
-      song("Queen - Bohemian Rhapsody\\Queen - Bohemian Rhapsody.mp3", "Bohemian Rhapsody", "Queen", { kind: "ultrastar", path: at("Queen - Bohemian Rhapsody\\Queen - Bohemian Rhapsody.txt") }, null),
-      { ...song("Robyn - Dancing On My Own.mp3", "Dancing On My Own", "Robyn", { kind: "lrc", path: at("Robyn - Dancing On My Own.lrc") }, null), lyrics_warnings: ["3 lines look like chord charts (Am  G  C) — delete them; chords would be timed as sung words"] },
+      song("Stephen Foster - Oh! Susanna.flac", "Oh! Susanna", "Stephen Foster", { kind: "text", path: at("Stephen Foster - Oh! Susanna.txt") }, null),
+      song("Scott Joplin - The Entertainer.mp3", "The Entertainer", "Scott Joplin", { kind: "none" }, null),
+      song("Harry Dacre - Daisy Bell/Harry Dacre - Daisy Bell.mp3", "Daisy Bell", "Harry Dacre", { kind: "ultrastar", path: at("Harry Dacre - Daisy Bell/Harry Dacre - Daisy Bell.txt") }, null),
+      { ...song("Traditional - Home on the Range.mp3", "Home on the Range", "Traditional", { kind: "lrc", path: at("Traditional - Home on the Range.lrc") }, null), lyrics_warnings: ["3 lines look like chord charts (Am  G  C) — delete them; chords would be timed as sung words"] },
       song("The Failures - Fail Safe.mp3", "Fail Safe", "The Failures", { kind: "none" }, null),
       song("Two Voices - Together.mp3", "Together", "Two Voices", { kind: "unreadable", path: at("Two Voices - Together.txt"), reason: "ultrastar line 5: duet file (P1/P2 voices) — duet import is not supported in v1" }, null),
-      song("Christmas\\Mariah Carey - All I Want For Christmas Is You.mp3", "All I Want For Christmas Is You", "Mariah Carey", { kind: "text", path: at("Christmas\\Mariah Carey - All I Want For Christmas Is You.txt") }, "Christmas"),
-      song("Christmas\\Wham! - Last Christmas.mp3", "Last Christmas", "Wham!", { kind: "none" }, "Christmas"),
+      song("Christmas/James Lord Pierpont - Jingle Bells.mp3", "Jingle Bells", "James Lord Pierpont", { kind: "text", path: at("Christmas/James Lord Pierpont - Jingle Bells.txt") }, "Christmas"),
+      song("Christmas/Franz Gruber - Silent Night.mp3", "Silent Night", "Franz Gruber", { kind: "none" }, "Christmas"),
       { ...song("Turning Tide.mp3", "Turning Tide", "The Mock Harbor", { kind: "text", path: at("Turning Tide.txt") }, null), in_library: true },
     ],
-    unmatched_lyrics: [at("notes.txt"), at("Christmas\\setlist.txt")],
+    unmatched_lyrics: [at("notes.txt"), at("Christmas/setlist.txt")],
     unreadable_audio: [{ path: at("Old Recording.wma"), reason: "unsupported codec: core (codec):unsupported codec" }],
   };
 }
@@ -648,13 +659,13 @@ function fakeTurnedAway(items: { title: string; artist?: string }[]) {
     "YouTube is asking whether this computer is a bot. It does that when lots of traffic comes from one internet address — and many internet providers share one address between homes, as VPNs do. It usually passes on its own; try again in a few hours.";
   const snaps = items.map((i) => ({
     id: nextJob++,
-    audio: `C:/downloads/${i.title}`,
+    audio: `/Users/haley/Downloads/${i.title}`,
     title: i.title,
     artist: i.artist,
-    out_dir: "C:/jobs/new",
+    out_dir: `${JOBS}/new`,
     status: "queued",
     cancel_requested: false,
-    queued_unix: 0,
+    queued_unix: Math.floor(Date.now() / 1000),
     source_url: "https://www.youtube.com/watch?v=mock",
     lookup_lyrics: false,
   }));
@@ -674,10 +685,10 @@ function fakeJob(req: { audio_path: string; title?: string; artist?: string; out
     audio: req.audio_path,
     title: req.title ?? "New Song",
     artist: req.artist,
-    out_dir: req.out_dir ?? "C:/jobs/new",
+    out_dir: req.out_dir ?? `${JOBS}/new`,
     status: "queued",
     cancel_requested: false,
-    queued_unix: 0,
+    queued_unix: Math.floor(Date.now() / 1000),
     lookup_lyrics: false,
   };
   const life = (over: Record<string, unknown>) => emit("karaoke://job", { kind: "lifecycle", job: { ...snap, ...over } });
@@ -698,7 +709,7 @@ function fakeJob(req: { audio_path: string; title?: string; artist?: string; out
     steps.push([100, () => life({ status: "failed", error: "align: no words found in the vocals" })]);
   } else {
     for (let i = 1; i <= 4; i++) steps.push([1000, () => pipe({ type: "stage_progress", stage: "align", fraction: i / 4 })]);
-    steps.push([300, () => life({ status: "completed", map_path: "C:/jobs/turning-tide/map.json", library_song_id: 1 })]);
+    steps.push([300, () => life({ status: "completed", map_path: `${JOBS}/turning-tide/map.json`, library_song_id: 1 })]);
   }
   let t = 0;
   for (const [k, [dt, fn]] of steps.entries()) {
@@ -754,9 +765,9 @@ export type Monitor = { name: string | null; position: { x: number; y: number };
 export async function open(opts?: { filters?: { extensions: string[] }[]; directory?: boolean }) {
   // Folder pickers get a stand-in folder (Import Folder…); audio pickers a
   // stand-in file so the Add Song wizard can be driven.
-  if (opts?.directory) return "D:\\Karaoke\\Party";
-  if (opts?.filters?.some((f) => f.extensions.includes("png"))) return "C:\\Pictures\\cover.png";
-  return opts?.filters?.some((f) => f.extensions.includes("mp3")) ? "C:\\Music\\Night Drive.flac" : null;
+  if (opts?.directory) return `${MUSIC}/Karaoke/Party`;
+  if (opts?.filters?.some((f) => f.extensions.includes("png"))) return "/Users/haley/Pictures/cover.png";
+  return opts?.filters?.some((f) => f.extensions.includes("mp3")) ? `${MUSIC}/Night Drive.flac` : null;
 }
 // Save As: says yes to the suggested name.
 export async function save(opts?: { defaultPath?: string }) {
