@@ -292,7 +292,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case "probe_audio":
       return r({ title: "New Song", artist: "Someone", duration_s: 200, from_tags: true });
     case "clean_lyrics_preview":
-      return r({ summary: "", lines_kept: 4, words_kept: 20, edits: [], cleaned_text: "" });
+      return r({ summary: "", lines_kept: 4, words_kept: 20, edits: [], cleaned_text: "", warnings: [] });
     case "save_timing_map":
       return r("hash");
     case "measure_plan":
