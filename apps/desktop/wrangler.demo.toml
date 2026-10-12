@@ -1,0 +1,15 @@
+# demo.baritoad.com — the browser harness (vite.mock.config.ts, the real UI over
+# dev/mockTauri.ts) as static assets on a Cloudflare Worker, like baritoad.com.
+# The help center takes its screen pictures from it. `pnpm demo:deploy` builds
+# and publishes it to the account wrangler is signed in to; the demo workflow
+# does the same on a push to main. No secrets live here.
+name = "baritoad-demo"
+compatibility_date = "2025-09-01"
+
+routes = [
+  { pattern = "demo.baritoad.com", custom_domain = true },
+]
+
+[assets]
+directory = "./dist-demo"
+not_found_handling = "single-page-application"

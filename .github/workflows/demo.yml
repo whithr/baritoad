@@ -1,0 +1,46 @@
+# demo.baritoad.com: the browser harness as a static site, published on each
+# push to main that changes the desktop app, so the help center's pictures
+# show the same commit its writer reads. Needs the repository secrets
+# CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Workers Routes and the
+# baritoad.com zone's DNS: Edit) and CLOUDFLARE_ACCOUNT_ID; without them the
+# build still runs and the deploy is skipped.
+name: demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - ".github/workflows/demo.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and publish demo.baritoad.com
+    runs-on: ubuntu-22.04
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Build the harness
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm demo:build
+      - name: Publish
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: apps/desktop
+        run: pnpm dlx wrangler@4 deploy --config wrangler.demo.toml

@@ -33,6 +33,10 @@ and ships no music or lyrics. The app is open source
 - `dev/mockTauri.ts` + `vite.mock.config.ts` — browser-only harness
   (`pnpm exec vite --config vite.mock.config.ts`) that runs the real UI over a
   fake Tauri layer for layout work and screenshots; never part of a build.
+  Its static copy is demo.baritoad.com, where the help center takes its
+  pictures: `pnpm demo:build` makes it in `dist-demo/`, `pnpm demo:deploy`
+  publishes it (`wrangler.demo.toml`), and `.github/workflows/demo.yml`
+  publishes each push to main that changes the desktop app. It is noindex.
 - `src-tauri/` — the Rust shell crate (`karaoke-desktop`, a workspace member).
   It links `karaoke-core` directly; song imports run in a child copy of the
   app (`--pipeline-worker`, below-normal priority — `src-tauri/src/worker.rs`),
